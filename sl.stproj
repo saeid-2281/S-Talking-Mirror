@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "name": "Untitled project",
+  "csv_path": "D:/S Talking/S-Talking-v0.2/input.csv",
+  "output_path": "D:\\S Talking\\S-Talking-v0.3\\output",
+  "settings": {
+    "provider": "mock",
+    "api_key": "",
+    "voice_id": "",
+    "model_id": "eleven_multilingual_v2",
+    "language_code": "da",
+    "output_format": "mp3_44100_128",
+    "file_extension": ".mp3",
+    "stability": 0.45,
+    "similarity_boost": 0.75,
+    "style": 0.2,
+    "use_speaker_boost": true,
+    "speed": 1.0,
+    "delay_seconds": 0.5,
+    "timeout_seconds": 90.0,
+    "max_retries": 4,
+    "skip_existing": true,
+    "overwrite_existing": false,
+    "piper_model_path": null
+  }
+}
