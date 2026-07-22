@@ -14,13 +14,17 @@
 *.mp3 binary
 *.onnx binary
 
+# Python
 *.egg-info/
+*.egg-info
 build/
 dist/
 __pycache__/
 .pytest_cache/
 .venv/
+
+# S Talking
 output/
 logs/
-state/
 cache/
+state/
