@@ -11,3 +11,5 @@ state/
 *.wav
 *.pcm
 .DS_Store
+
+*.egg-info/
