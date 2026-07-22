@@ -1,0 +1,26 @@
+* text=auto
+
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.csv text eol=lf
+
+*.png binary
+*.ico binary
+*.wav binary
+*.mp3 binary
+*.onnx binary
+
+*.egg-info/
+build/
+dist/
+__pycache__/
+.pytest_cache/
+.venv/
+output/
+logs/
+state/
+cache/
