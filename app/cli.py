@@ -10,6 +10,7 @@ from loguru import logger
 from app import __version__
 from app.config import load_settings
 from app.csv_loader import load_jobs
+from app.database import initialize_default_database
 from app.engine import BatchEngine
 from app.logging_setup import configure_logging
 from app.providers.elevenlabs import ElevenLabsProvider
@@ -46,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     configure_logging(Path("logs"))
+    initialize_default_database()
 
     try:
         if args.command == "validate":

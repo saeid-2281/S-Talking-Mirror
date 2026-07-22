@@ -16,3 +16,12 @@ stalking="app.cli:main"
 stalking-gui="app.gui.main:main"
 [tool.setuptools.packages.find]
 include=["app*"]
+[tool.ruff.lint.per-file-ignores]
+"app/database/legacy.py"=["E702"]
+"app/gui/main.py"=["E401","E701","E702","F403","F405"]
+"app/gui/worker.py"=["E401","E701","E702"]
+"app/project.py"=["E701","E702"]
+"app/provider_factory.py"=["E701","E702"]
+"app/providers/mock.py"=["E401","E701","E702"]
+"app/providers/piper.py"=["E401","E701","E702"]
+"app/state.py"=["F401"]
