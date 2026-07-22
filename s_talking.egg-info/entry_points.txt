@@ -1,3 +1,0 @@
-[console_scripts]
-stalking = app.cli:main
-stalking-gui = app.gui.main:main
