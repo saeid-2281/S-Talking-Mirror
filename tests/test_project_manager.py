@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import json
 import os
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
+from app.bootstrap import ApplicationContext, create_application_context
+from app.controllers import GenerationController, ProjectController, SettingsController
+from app.gui.notifications import NotificationService
 from app.models import AppSettings
+from app.models.domain import TTSJob
 from app.services.project_manager import ProjectManager
 
 
@@ -180,10 +186,119 @@ def test_gui_main_window_imports_successfully() -> None:
     import app.gui.main  # noqa: F401
 
 
-def test_project_menu_actions_exist(qt_app) -> None:
+def test_application_bootstrap_constructs_dependencies() -> None:
+    context = create_application_context()
+
+    assert isinstance(context.project_controller, ProjectController)
+    assert isinstance(context.generation_controller, GenerationController)
+    assert isinstance(context.settings_controller, SettingsController)
+
+
+def test_main_window_accepts_injected_dependencies(qt_app, tmp_path: Path) -> None:
     from app.gui.main import MainWindow
 
-    window = MainWindow()
+    window = MainWindow(context(tmp_path))
+
+    assert isinstance(window.project_controller, ProjectController)
+
+
+def test_gui_import_does_not_initialize_database_as_import_side_effect(monkeypatch) -> None:
+    import app.database
+
+    calls = []
+    monkeypatch.setattr(app.database, "initialize_default_database", lambda: calls.append(True))
+    import app.gui.main  # noqa: F401
+
+    assert calls == []
+
+
+def test_project_controller_delegates_to_project_manager(tmp_path: Path) -> None:
+    service = manager(tmp_path)
+    controller = ProjectController(service)
+
+    state = controller.new_project("Lesson", None, None, AppSettings(provider="elevenlabs"))
+
+    assert state.provider == "mock"
+    assert service.current_project is state
+
+
+def test_settings_controller_suppresses_dirty_state_during_programmatic_load() -> None:
+    controller = SettingsController()
+
+    with controller.loading():
+        changed = controller.settings_changed(AppSettings(provider="mock"))
+
+    assert changed is False
+
+
+def test_settings_changes_mark_open_project_dirty(tmp_path: Path) -> None:
+    service = manager(tmp_path)
+    project = ProjectController(service)
+    settings = SettingsController()
+    project.new_project("Lesson", None, None, AppSettings(provider="mock"))
+    settings.settings_changed(AppSettings(provider="mock"))
+
+    if settings.settings_changed(AppSettings(provider="piper")):
+        project.update_settings(AppSettings(provider="piper"))
+
+    assert project.current_project.dirty is True
+    assert project.current_project.provider == "piper"
+
+
+def test_generation_controller_starts_mock_generation(qt_app, tmp_path: Path) -> None:
+    controller = GenerationController(database_path=tmp_path / "legacy.db")
+    settings = AppSettings(provider="mock", delay_seconds=0)
+    jobs = [TTSJob(row_number=2, filename="001.wav", text="Hej")]
+    parent = qt_app
+
+    assert controller.start(parent, jobs, settings, tmp_path, "project-key") is True
+    wait_until_inactive(qt_app, controller)
+
+    assert (tmp_path / "001.wav").exists()
+    assert controller.is_active is False
+
+
+def test_generation_controller_pause_resume_stop_delegate() -> None:
+    controller = GenerationController()
+    worker = FakeWorker()
+    controller.worker = worker
+
+    assert controller.pause() is True
+    assert controller.resume() is True
+    assert controller.stop() is True
+    assert worker.calls == ["pause", "resume", "stop"]
+
+
+def test_generation_active_state_is_accurate() -> None:
+    controller = GenerationController()
+
+    assert controller.is_active is False
+    controller.worker = FakeWorker()
+    assert controller.is_active is True
+
+
+def test_controllers_do_not_import_qmessagebox() -> None:
+    controller_sources = [
+        Path("app/controllers/project_controller.py").read_text(encoding="utf-8"),
+        Path("app/controllers/generation_controller.py").read_text(encoding="utf-8"),
+        Path("app/controllers/settings_controller.py").read_text(encoding="utf-8"),
+    ]
+
+    assert all("QMessageBox" not in source for source in controller_sources)
+
+
+def test_main_window_does_not_instantiate_project_manager_or_generation_worker() -> None:
+    source = Path("app/gui/main.py").read_text(encoding="utf-8")
+
+    assert "ProjectManager(" not in source
+    assert "GenerationWorker(" not in source
+    assert "QThread(" not in source
+
+
+def test_project_menu_actions_exist(qt_app, tmp_path: Path) -> None:
+    from app.gui.main import MainWindow
+
+    window = MainWindow(context(tmp_path))
     actions = [
         action.text()
         for action in window.menuBar().actions()[0].menu().actions()
@@ -203,9 +318,8 @@ def test_project_menu_actions_exist(qt_app) -> None:
 def test_window_title_updates_with_dirty_marker(qt_app, tmp_path: Path) -> None:
     from app.gui.main import MainWindow
 
-    window = MainWindow()
-    window.project_manager = manager(tmp_path)
-    window.project_manager.new_project("Danish Lessons")
+    window = MainWindow(context(tmp_path))
+    window.project_controller.new_project("Danish Lessons", None, None, AppSettings(provider="mock"))
     window.update_window_title()
 
     assert window.windowTitle() == "S Talking — Danish Lessons *"
@@ -218,3 +332,51 @@ def qt_app():
 
     app = QApplication.instance() or QApplication([])
     return app
+
+
+def context(tmp_path: Path) -> ApplicationContext:
+    return ApplicationContext(
+        project_controller=ProjectController(manager(tmp_path)),
+        generation_controller=GenerationController(database_path=tmp_path / "legacy.db"),
+        settings_controller=SettingsController(tmp_path / "settings.json"),
+        notification_service=FakeNotifications(),
+    )
+
+
+def wait_until_inactive(qt_app, controller: GenerationController) -> None:
+    deadline = time.time() + 5
+    while controller.is_active and time.time() < deadline:
+        qt_app.processEvents()
+        time.sleep(0.01)
+    qt_app.processEvents()
+
+
+class FakeWorker:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def pause(self) -> None:
+        self.calls.append("pause")
+
+    def resume(self) -> None:
+        self.calls.append("resume")
+
+    def stop(self) -> None:
+        self.calls.append("stop")
+
+
+@dataclass
+class FakeNotifications(NotificationService):
+    parent: object | None = None
+
+    def information(self, title: str, message: str) -> None:
+        pass
+
+    def warning(self, title: str, message: str) -> None:
+        pass
+
+    def error(self, title: str, message: str) -> None:
+        pass
+
+    def confirmation(self, title: str, message: str) -> bool:
+        return True
