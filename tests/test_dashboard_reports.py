@@ -89,7 +89,7 @@ def test_report_service_writes_all_files_and_redacts_secrets(tmp_path: Path) -> 
     assert bundle.exists()
     with zipfile.ZipFile(bundle) as archive:
         names = archive.namelist()
-        assert "report/summary.json" in names
+        assert "diagnostics/latest_report/summary.json" in names
         content = "\n".join(
             archive.read(name).decode("utf-8", errors="ignore")
             for name in names

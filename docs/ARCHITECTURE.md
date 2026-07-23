@@ -39,7 +39,9 @@ abstraction so controllers stay independent of Qt dialogs.
 
 `app.gui.developer_tools` owns GUI-triggered self-check, diagnostics, runtime
 path display, spinbox demo, and prepare-commit actions so normal users do not
-need PowerShell.
+need PowerShell. Its Development Assistant window exposes development status,
+background checks, task prompts, diagnostics, and safe Git actions only when the
+Developer Tools menu is opened.
 
 ## Controllers
 
@@ -68,6 +70,17 @@ from generation jobs and historical durations.
 
 `app.services.report_service.ReportService` writes generation reports,
 sanitized diagnostics, and diagnostic ZIP bundles.
+
+`app.services.diagnostics_service.DiagnosticsService` assembles complete
+shareable diagnostics ZIP files from environment, application state, Git state,
+latest check artifacts, latest report, logs, sanitized settings, errors, and a
+manifest.
+
+`app.services.git_service.GitService` wraps Git subprocess calls with argument
+lists and blocks destructive or unsafe operations.
+
+`app.services.task_prompt_service.TaskPromptService` loads and updates markdown
+task prompts stored under `docs/tasks/`.
 
 ## Models
 

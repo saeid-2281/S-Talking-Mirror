@@ -5,8 +5,11 @@ from dataclasses import dataclass
 from app.controllers import GenerationController, ProjectController, SettingsController
 from app.container import ServiceContainer, create_service_container
 from app.gui.notifications import QtNotificationService
+from app.services.diagnostics_service import DiagnosticsService
+from app.services.git_service import GitService
 from app.services.report_service import ReportService
 from app.services.statistics_service import StatisticsService
+from app.services.task_prompt_service import TaskPromptService
 
 
 @dataclass
@@ -18,6 +21,9 @@ class ApplicationContext:
     notification_service: QtNotificationService
     statistics_service: StatisticsService
     report_service: ReportService
+    git_service: GitService
+    diagnostics_service: DiagnosticsService
+    task_prompt_service: TaskPromptService
 
 
 def create_application_context(container: ServiceContainer | None = None) -> ApplicationContext:
@@ -31,4 +37,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         notification_service=services.notification_service,
         statistics_service=services.statistics_service,
         report_service=services.report_service,
+        git_service=services.git_service,
+        diagnostics_service=services.diagnostics_service,
+        task_prompt_service=services.task_prompt_service,
     )

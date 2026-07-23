@@ -37,3 +37,19 @@ artifacts/diagnostics/S-Talking-Diagnostics-<timestamp>.zip
 ```
 
 The ZIP contains report files and sanitized application logs.
+
+Complete diagnostics include:
+
+- `diagnostics/overview.md`
+- `diagnostics/environment.json`
+- `diagnostics/application_state.json`
+- `diagnostics/git_state.json`
+- `diagnostics/latest_dev_check/`
+- `diagnostics/latest_report/`
+- `diagnostics/logs/`
+- `diagnostics/sanitized_settings.json`
+- `diagnostics/file_manifest.txt`
+- `diagnostics/errors.txt`
+
+Git remotes and settings are sanitized before export. API keys, authorization
+headers, bearer tokens, passwords, and common secret fields are redacted.

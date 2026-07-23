@@ -14,8 +14,11 @@ from app.repositories import (
     VoiceRepository,
 )
 from app.services.project_manager import ProjectManager
+from app.services.diagnostics_service import DiagnosticsService
+from app.services.git_service import GitService
 from app.services.report_service import ReportService
 from app.services.statistics_service import StatisticsService
+from app.services.task_prompt_service import TaskPromptService
 
 
 @dataclass
@@ -36,6 +39,9 @@ class ServiceContainer:
     notification_service: QtNotificationService
     statistics_service: StatisticsService
     report_service: ReportService
+    git_service: GitService
+    diagnostics_service: DiagnosticsService
+    task_prompt_service: TaskPromptService
 
 
 def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceContainer:
@@ -46,6 +52,8 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
     database.initialize()
     project_repository = ProjectRepository(database)
     settings_controller = SettingsController(settings_path=config.settings_path)
+    git_service = GitService(config.app_root)
+    report_service = ReportService(config)
     project_manager = ProjectManager(
         project_repository=project_repository,
         secure_settings_provider=settings_controller.load_global_settings,
@@ -64,5 +72,8 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
         settings_controller=settings_controller,
         notification_service=QtNotificationService(),
         statistics_service=StatisticsService(config.legacy_database_path),
-        report_service=ReportService(config),
+        report_service=report_service,
+        git_service=git_service,
+        diagnostics_service=DiagnosticsService(config, report_service, git_service),
+        task_prompt_service=TaskPromptService(config.app_root),
     )

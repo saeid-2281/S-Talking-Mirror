@@ -69,6 +69,13 @@ class ReportService:
         return self.latest_report.report_dir if self.latest_report else self._find_latest_report_dir()
 
     def export_diagnostics_bundle(self, report_dir: Path | None = None) -> Path:
+        try:
+            from app.services.diagnostics_service import DiagnosticsService
+            from app.services.git_service import GitService
+
+            return DiagnosticsService(self.runtime, self, GitService(self.runtime.app_root)).export_bundle()
+        except Exception:
+            pass
         source = report_dir or self.latest_report_dir()
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         target_dir = self.runtime.artifacts_dir / "diagnostics"
