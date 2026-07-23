@@ -2,14 +2,23 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest-tmp/
 .ruff_cache/
 settings.json
 output/
 logs/
 state/
+data/*.db
+data/*.db-shm
+data/*.db-wal
+*.sqlite
+*.sqlite3
 *.mp3
 *.wav
 *.pcm
 .DS_Store
 
 *.egg-info/
+
+.pytest-tmp/
+
