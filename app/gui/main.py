@@ -3,10 +3,11 @@ import json,sys
 from datetime import datetime, timezone
 from pathlib import Path
 from PySide6.QtCore import Qt,QTimer,QUrl
-from PySide6.QtGui import QColor,QDesktopServices
+from PySide6.QtGui import QAction,QColor,QDesktopServices,QKeySequence
 from PySide6.QtWidgets import *
 from app.bootstrap import ApplicationContext, create_application_context
 from app.csv_loader import load_jobs
+from app.gui.command_palette import CommandPalette, PaletteCommand
 from app.gui.developer_tools import DeveloperTools
 from app.gui.dialogs import NewProjectDialog,RecentProjectsDialog,ReportDialog
 from app.gui.widgets import ControlledDoubleSpinBox, ControlledSpinBox
@@ -24,11 +25,12 @@ class MainWindow(QMainWindow):
         self.context=context; self.project_controller=context.project_controller; self.generation_controller=context.generation_controller; self.settings_controller=context.settings_controller; self.notifications=context.notification_service
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
-        self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]
+        self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]; self.palette=None; self.actions_by_name={}
         self.autosave_timer=QTimer(self); self.autosave_timer.setInterval(30000); self.autosave_timer.timeout.connect(self.autosave); self.autosave_timer.start()
         self.build(); self.load_saved(); self.theme(); self.update_window_title(); self.update_status_bar()
     def build(self):
         self.build_project_menu(); self.build_reports_menu(); self.build_developer_tools_menu(); self.statusBar()
+        palette_action=QAction('Command Palette',self); palette_action.setShortcut(QKeySequence('Ctrl+Shift+P')); palette_action.setShortcutContext(Qt.ApplicationShortcut); palette_action.triggered.connect(self.open_command_palette); self.addAction(palette_action); self.actions_by_name['Command Palette']=palette_action
         c=QWidget(); self.setCentralWidget(c); root=QVBoxLayout(c)
         head=QHBoxLayout(); brand=QVBoxLayout(); t=QLabel('S Talking'); t.setObjectName('title'); st=QLabel('Professional AI Audio Studio'); st.setObjectName('subtitle'); brand.addWidget(t); brand.addWidget(st); head.addLayout(brand); head.addStretch()
         for tx,fn in [('New',self.new_project),('Open project',self.open_project),('Save project',self.save_project)]: b=QPushButton(tx); b.clicked.connect(fn); head.addWidget(b)
@@ -51,12 +53,13 @@ class MainWindow(QMainWindow):
         for w in [self.stability,self.similarity,self.style,self.speed,self.delay,self.retries,self.boost,self.skip]: w.valueChanged.connect(self.settings_changed) if hasattr(w,'valueChanged') else w.toggled.connect(self.settings_changed)
     def build_project_menu(self):
         self.project_menu=QMenu('Project',self); self.menuBar().addMenu(self.project_menu)
-        for tx,fn in [('New Project',self.new_project),('Open Project',self.open_project),('Save',self.save_project),('Save As',self.save_project_as),('Recent Projects',self.recent_projects),('Close Project',self.close_project),('Exit',self.close)]: a=self.project_menu.addAction(tx); a.triggered.connect(fn)
+        for tx,fn in [('New Project',self.new_project),('Open Project',self.open_project),('Save',self.save_project),('Save As',self.save_project_as),('Recent Projects',self.recent_projects),('Close Project',self.close_project),('Exit',self.close)]: a=self.project_menu.addAction(tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
+        self.actions_by_name['Save Project']=self.actions_by_name['Save']; self.actions_by_name['Save Project As']=self.actions_by_name['Save As']
     def build_reports_menu(self):
         self.reports_menu=QMenu('Reports',self); self.menuBar().addMenu(self.reports_menu)
-        for tx,fn in [('Open latest report',self.open_latest_report),('Open reports folder',self.open_reports_folder),('Export diagnostic bundle',self.export_diagnostics),('Copy report path',self.copy_report_path)]: a=self.reports_menu.addAction(tx); a.triggered.connect(fn)
+        for tx,fn in [('Open Latest Report',self.open_latest_report),('Open Reports Folder',self.open_reports_folder),('Export Diagnostics',self.export_diagnostics),('Copy Report Path',self.copy_report_path)]: a=self.reports_menu.addAction(tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
     def build_developer_tools_menu(self):
-        self.developer_menu=QMenu('Developer Tools',self); self.menuBar().addMenu(self.developer_menu); self.developer_tools.populate_menu(self.developer_menu)
+        self.developer_menu=QMenu('Developer Tools',self); self.menuBar().addMenu(self.developer_menu); self.actions_by_name.update(self.developer_tools.populate_menu(self.developer_menu))
     def update_window_title(self):
         s=self.project_controller.current_project
         name=s.name if s else 'AI Audio Studio v0.3'; dirty=' *' if s and s.dirty else ''
@@ -165,6 +168,10 @@ class MainWindow(QMainWindow):
             if self.generation_controller.resume(): self.pauseb.setText('Pause')
     def stop(self):
         self.generation_controller.stop()
+    def resume_generation(self):
+        if self.generation_controller.is_paused: self.pause()
+    def open_output_folder(self): self.context.desktop_service.open_path(Path(self.out.text() or self.project_controller.default_output_path))
+    def retry_failed(self): self.log.appendPlainText('Retry Failed is not available in this workflow yet.')
     def progress(self,i,total,name,status,duration,retry,error):
         self.bar.setMaximum(total); self.bar.setValue(i); r=i-1
         if 0<=r<self.table.rowCount(): self.table.setItem(r,3,QTableWidgetItem(status)); self.table.setItem(r,4,QTableWidgetItem(f'{duration:.2f}s' if duration else '—')); self.table.setItem(r,5,QTableWidgetItem(str(retry))); self.paint(r,status)
@@ -176,9 +183,13 @@ class MainWindow(QMainWindow):
         self.startb.setEnabled(True); self.dashboard(); self.run_logs.append(f'FAILED: {e}'); report=self.create_report({'total':len(self.generation_controller.jobs),'completed':0,'skipped':0,'failed':1,'stopped':True,'error':e}); self.show_report_dialog(report); self.notifications.error('Error',e); self.update_status_bar()
     def closeEvent(self,event):
         for dialog in list(self.report_dialogs): dialog.close()
+        self.developer_tools.close()
         close_summaries=getattr(self.notifications,'close_summaries',None)
         if callable(close_summaries): close_summaries()
         super().closeEvent(event)
+    def keyPressEvent(self,event):
+        if event.key()==Qt.Key_P and event.modifiers() & Qt.ControlModifier and event.modifiers() & Qt.ShiftModifier: self.open_command_palette(); return
+        super().keyPressEvent(event)
     def paint(self,r,status):
         it=self.table.item(r,3)
         if it: it.setForeground(QColor(COLORS.get(status,'#E5E7EB')))
@@ -207,6 +218,33 @@ class MainWindow(QMainWindow):
     def export_diagnostics_for(self,report_dir): bundle=self.context.diagnostics_service.export_bundle(project=self.project_controller.current_project,dashboard=self.current_dashboard_state(),queue_state={'active':self.generation_controller.is_active,'paused':self.generation_controller.is_paused}); self.open_path(bundle.parent); self.copy_path(bundle)
     def export_diagnostics(self): self.export_diagnostics_for(self.report_service.latest_report_dir())
     def current_dashboard_state(self): return self.statistics_service.dashboard_for_jobs(self.generation_controller.jobs,project_key=self.project_controller.current_project.project_key if self.project_controller.current_project else None)
+    def command_palette_commands(self):
+        def act(name): return lambda: self.actions_by_name[name].trigger()
+        return [
+            PaletteCommand('Project: New Project',act('New Project')),
+            PaletteCommand('Project: Open Project',act('Open Project')),
+            PaletteCommand('Project: Save Project',act('Save Project'),lambda: self.project_controller.current_project is not None),
+            PaletteCommand('Project: Save Project As',act('Save Project As'),lambda: self.project_controller.current_project is not None),
+            PaletteCommand('Project: Close Project',act('Close Project'),lambda: self.project_controller.current_project is not None),
+            PaletteCommand('Generation: Start Generation',self.start,lambda: bool(self.csv.text().strip()) or self.generation_controller.has_jobs()),
+            PaletteCommand('Generation: Pause Generation',self.pause,lambda: self.generation_controller.is_active and not self.generation_controller.is_paused),
+            PaletteCommand('Generation: Resume Generation',self.resume_generation,lambda: self.generation_controller.is_active and self.generation_controller.is_paused),
+            PaletteCommand('Generation: Stop Generation',self.stop,lambda: self.generation_controller.is_active),
+            PaletteCommand('Generation: Retry Failed',self.retry_failed,lambda: False),
+            PaletteCommand('Generation: Open Output Folder',self.open_output_folder,lambda: Path(self.out.text() or self.project_controller.default_output_path).exists()),
+            PaletteCommand('Reports: Open Latest Report',act('Open Latest Report'),lambda: self.report_service.latest_report_dir() is not None),
+            PaletteCommand('Reports: Open Reports Folder',act('Open Reports Folder')),
+            PaletteCommand('Reports: Export Diagnostics',act('Export Diagnostics')),
+            PaletteCommand('Developer: Run All Checks',act('Run all checks')),
+            PaletteCommand('Developer: Open Latest Check',lambda: self.context.desktop_service.open_path(self.context.container.runtime.artifacts_dir/'dev-check'/'latest'),lambda: (self.context.container.runtime.artifacts_dir/'dev-check'/'latest').exists()),
+            PaletteCommand('Developer: Open Logs',act('Open logs folder')),
+            PaletteCommand('Developer: Open Repository',act('Open repository folder')),
+            PaletteCommand('Developer: Open in VS Code',act('Open repository in VS Code')),
+            PaletteCommand('Developer: Show Runtime Information',act('Show runtime information')),
+            PaletteCommand('Developer: Spinbox Visual Test',act('Spinbox visual test')),
+        ]
+    def open_command_palette(self):
+        self.palette=CommandPalette(self.command_palette_commands(),self); self.palette.show(); self.palette.search.setFocus()
     def theme(self): self.setStyleSheet('''QWidget{background:#0B1220;color:#E5E7EB;font-size:13px;font-family:Segoe UI} QGroupBox{border:1px solid #263244;border-radius:9px;margin-top:12px;padding-top:12px;font-weight:600} QLineEdit,QComboBox,QPlainTextEdit,QTableWidget{background:#111827;border:1px solid #334155;border-radius:6px;padding:6px} QAbstractSpinBox{background:#111827;border:1px solid #334155;border-radius:6px;padding:6px 30px 6px 6px;selection-background-color:#2563EB} QAbstractSpinBox:disabled{color:#64748B;background:#0F172A;border-color:#1F2937} QAbstractSpinBox::up-button{subcontrol-origin:border;subcontrol-position:top right;width:24px;border-left:1px solid #334155;border-bottom:1px solid #334155;border-top-right-radius:6px;background:#1F2937} QAbstractSpinBox::down-button{subcontrol-origin:border;subcontrol-position:bottom right;width:24px;border-left:1px solid #334155;border-bottom-right-radius:6px;background:#1F2937} QAbstractSpinBox::up-button:hover,QAbstractSpinBox::down-button:hover{background:#2563EB} QAbstractSpinBox::up-button:pressed,QAbstractSpinBox::down-button:pressed{background:#1D4ED8} QAbstractSpinBox::up-button:disabled,QAbstractSpinBox::down-button:disabled{background:#0F172A;border-color:#1F2937} QAbstractSpinBox::up-arrow,QAbstractSpinBox::down-arrow{width:8px;height:8px} QPushButton{background:#2563EB;border:0;border-radius:7px;padding:9px 14px;font-weight:600} QPushButton:hover{background:#1D4ED8} #title{font-size:31px;font-weight:800;color:#D1A23A} #subtitle{color:#94A3B8} #card{background:#111827;border:1px solid #263244;border-radius:10px} #cardValue{font-size:22px;font-weight:700} #cardCaption{color:#94A3B8} #previewTitle{font-size:17px;font-weight:700;color:#D1A23A} QHeaderView::section{background:#172033;color:#CBD5E1;border:0;padding:7px} QProgressBar::chunk{background:#14B8A6}''')
 
 def main():

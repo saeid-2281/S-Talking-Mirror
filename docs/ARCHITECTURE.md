@@ -40,8 +40,12 @@ abstraction so controllers stay independent of Qt dialogs.
 `app.gui.developer_tools` owns GUI-triggered self-check, diagnostics, runtime
 path display, spinbox demo, and prepare-commit actions so normal users do not
 need PowerShell. Its Development Assistant window exposes development status,
-background checks, task prompts, diagnostics, and safe Git actions only when the
-Developer Tools menu is opened.
+background checks, diagnostics, runtime information, and safe Git actions only
+when the Developer Tools menu is opened.
+
+`app.gui.command_palette` provides the `Ctrl+Shift+P` keyboard command surface.
+It receives command descriptors from `MainWindow` and does not duplicate project
+or generation logic.
 
 ## Controllers
 
@@ -78,6 +82,9 @@ manifest.
 
 `app.services.git_service.GitService` wraps Git subprocess calls with argument
 lists and blocks destructive or unsafe operations.
+
+`app.services.desktop_service.DesktopService` owns desktop integration for
+opening files/folders, launching VS Code, and copying text to the clipboard.
 
 `app.services.task_prompt_service.TaskPromptService` loads and updates markdown
 task prompts stored under `docs/tasks/`.

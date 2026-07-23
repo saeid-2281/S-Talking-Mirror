@@ -3,17 +3,21 @@ from __future__ import annotations
 import json
 import os
 import zipfile
+import time
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import QProcess, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox
-from PySide6.QtCore import QProcess
 
 from app.bootstrap import create_application_context
 from app.config.runtime import RuntimeConfig
 from app.container import create_service_container
-from app.gui.developer_tools import DeveloperTools, DevelopmentAssistantDialog
+from app.gui.command_palette import CommandPalette, PaletteCommand
+from app.gui.developer_tools import DeveloperTools, DevCheckRunner, DevelopmentAssistantDialog, RuntimeInformationDialog
 from app.models import AppSettings, DashboardState, ProjectState
+from app.services.desktop_service import DesktopService
 from app.services.git_service import GitService
 from app.services.task_prompt_service import TASK_STATUSES, TaskPromptService
 
@@ -105,17 +109,158 @@ def test_development_assistant_imports_and_constructs(qt_app, tmp_path: Path) ->
     dialog.close()
 
 
+def test_developer_tools_window_is_non_modal(qt_app, tmp_path: Path) -> None:
+    context = create_application_context(create_service_container(RuntimeConfig.from_root(tmp_path)))
+    dialog = DevelopmentAssistantDialog(None, context, DeveloperTools(None, context))
+
+    assert dialog.isModal() is False
+    dialog.close()
+
+
+def test_developer_tools_menu_actions_exist_and_script_state(qt_app, tmp_path: Path) -> None:
+    from app.gui.main import MainWindow
+
+    context = create_application_context(create_service_container(RuntimeConfig.from_root(tmp_path)))
+    window = MainWindow(context)
+    menu = window.developer_menu
+    actions = {action.text(): action for action in menu.actions()}
+    for label in [
+        "Run all checks",
+        "Export diagnostics",
+        "Open diagnostics folder",
+        "Open latest report",
+        "Open reports folder",
+        "Open logs folder",
+        "Open repository folder",
+        "Open repository in VS Code",
+        "Show runtime information",
+        "Spinbox visual test",
+        "Command Palette",
+    ]:
+        assert label in actions
+    assert actions["Run all checks"].isEnabled() is False
+    assert "dev-check.ps1" in actions["Run all checks"].toolTip()
+    window.close()
+
+
+def test_run_all_checks_action_enabled_when_script_exists(qt_app, tmp_path: Path) -> None:
+    from app.gui.main import MainWindow
+
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "dev-check.ps1").write_text("exit 0", encoding="utf-8")
+    window = MainWindow(create_application_context(create_service_container(RuntimeConfig.from_root(tmp_path))))
+
+    assert window.actions_by_name["Run all checks"].isEnabled() is True
+    window.close()
+
+
 def test_background_self_check_starts_qprocess(monkeypatch: pytest.MonkeyPatch, qt_app, tmp_path: Path) -> None:
     context = create_application_context(create_service_container(RuntimeConfig.from_root(tmp_path)))
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "dev-check.ps1").write_text("exit 0", encoding="utf-8")
     tools = DeveloperTools(None, context)
     started = {"value": False}
 
     monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: QMessageBox.Ok)
     monkeypatch.setattr(QProcess, "start", lambda self: started.__setitem__("value", True))
 
-    tools.run_self_check()
+    tools.show_checks()
 
     assert started["value"] is True
+
+
+def test_qprocess_runner_captures_success(qt_app, tmp_path: Path) -> None:
+    script = tmp_path / "success.ps1"
+    script.write_text("Write-Output 'hello'; exit 0", encoding="utf-8")
+    runner = DevCheckRunner(tmp_path, tmp_path / "artifacts")
+    results = []
+    runner.finished.connect(results.append)
+
+    assert runner.start(script) is True
+    wait_for(lambda: bool(results), qt_app)
+
+    assert results[0].success is True
+    assert results[0].exit_code == 0
+    assert "hello" in results[0].stdout_path.read_text(encoding="utf-8")
+
+
+def test_qprocess_runner_captures_failure(qt_app, tmp_path: Path) -> None:
+    script = tmp_path / "failure.ps1"
+    script.write_text("Write-Error 'bad'; exit 3", encoding="utf-8")
+    runner = DevCheckRunner(tmp_path, tmp_path / "artifacts")
+    results = []
+    runner.finished.connect(results.append)
+
+    assert runner.start(script) is True
+    wait_for(lambda: bool(results), qt_app)
+
+    assert results[0].success is False
+    assert results[0].exit_code == 3
+    assert "bad" in results[0].stderr_path.read_text(encoding="utf-8")
+
+
+def test_second_check_cannot_start_while_active(qt_app, tmp_path: Path) -> None:
+    script = tmp_path / "slow.ps1"
+    script.write_text("Start-Sleep -Milliseconds 800; exit 0", encoding="utf-8")
+    runner = DevCheckRunner(tmp_path, tmp_path / "artifacts")
+
+    assert runner.start(script) is True
+    assert runner.start(script) is False
+    runner.cancel()
+
+
+def test_command_palette_filter_enter_and_disabled_command(qt_app) -> None:
+    called = {"ok": 0, "disabled": 0}
+    palette = CommandPalette(
+        [
+            PaletteCommand("Project: New Project", lambda: called.__setitem__("ok", called["ok"] + 1)),
+            PaletteCommand("Developer: Disabled", lambda: called.__setitem__("disabled", 1), lambda: False),
+        ]
+    )
+    palette.show()
+    palette.search.setText("new")
+    assert palette.list.count() == 1
+    QTest.keyClick(palette, Qt.Key_Return)
+    assert called["ok"] == 1
+
+    palette = CommandPalette(
+        [PaletteCommand("Developer: Disabled", lambda: called.__setitem__("disabled", 1), lambda: False)]
+    )
+    palette.show()
+    QTest.keyClick(palette, Qt.Key_Return)
+    assert called["disabled"] == 0
+    palette.close()
+
+
+def test_command_palette_opens_with_shortcut(qt_app, tmp_path: Path) -> None:
+    from app.gui.main import MainWindow
+
+    window = MainWindow(create_application_context(create_service_container(RuntimeConfig.from_root(tmp_path))))
+    window.show()
+    QTest.keyClick(window, Qt.Key_P, Qt.ControlModifier | Qt.ShiftModifier)
+    qt_app.processEvents()
+
+    assert window.palette is not None
+    assert window.palette.isVisible()
+    window.close()
+
+
+def test_runtime_dialog_excludes_secrets(qt_app, tmp_path: Path) -> None:
+    context = create_application_context(create_service_container(RuntimeConfig.from_root(tmp_path)))
+    dialog = RuntimeInformationDialog(None, context)
+
+    assert "api_key" not in dialog.text.toPlainText().lower()
+    assert "secret" not in dialog.text.toPlainText().lower()
+    dialog.close()
+
+
+def test_desktop_service_validates_missing_paths(tmp_path: Path) -> None:
+    service = DesktopService()
+
+    with pytest.raises(FileNotFoundError):
+        service.open_path(tmp_path / "missing")
 
 
 def test_task_prompt_loading_and_status_update(tmp_path: Path) -> None:
@@ -134,3 +279,11 @@ def test_task_prompt_loading_and_status_update(tmp_path: Path) -> None:
     service.update_status(task, "Review")
     assert service.load(task).status == "Review"
     assert "Review" in TASK_STATUSES
+
+
+def wait_for(predicate, qt_app, timeout: float = 5.0) -> None:
+    deadline = time.time() + timeout
+    while not predicate() and time.time() < deadline:
+        qt_app.processEvents()
+        time.sleep(0.01)
+    assert predicate()

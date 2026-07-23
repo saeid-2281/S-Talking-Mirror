@@ -1,5 +1,6 @@
 from app.models.domain import AppSettings, JobStatus, TTSJob
 from app.models.dashboard_state import DashboardState
+from app.models.dev_check_result import DevCheckResult
 from app.models.generation_report import GenerationReport, ReportJob
 from app.models.persistence import (
     CacheRecord,
@@ -15,6 +16,7 @@ __all__ = [
     "AppSettings",
     "CacheRecord",
     "DashboardState",
+    "DevCheckResult",
     "GenerationContext",
     "GenerationUiState",
     "GenerationReport",

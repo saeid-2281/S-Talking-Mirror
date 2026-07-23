@@ -15,6 +15,7 @@ from app.repositories import (
 )
 from app.services.project_manager import ProjectManager
 from app.services.diagnostics_service import DiagnosticsService
+from app.services.desktop_service import DesktopService
 from app.services.git_service import GitService
 from app.services.report_service import ReportService
 from app.services.statistics_service import StatisticsService
@@ -42,6 +43,7 @@ class ServiceContainer:
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
+    desktop_service: DesktopService
 
 
 def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceContainer:
@@ -76,4 +78,5 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
         git_service=git_service,
         diagnostics_service=DiagnosticsService(config, report_service, git_service),
         task_prompt_service=TaskPromptService(config.app_root),
+        desktop_service=DesktopService(),
     )

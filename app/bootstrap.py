@@ -6,6 +6,7 @@ from app.controllers import GenerationController, ProjectController, SettingsCon
 from app.container import ServiceContainer, create_service_container
 from app.gui.notifications import QtNotificationService
 from app.services.diagnostics_service import DiagnosticsService
+from app.services.desktop_service import DesktopService
 from app.services.git_service import GitService
 from app.services.report_service import ReportService
 from app.services.statistics_service import StatisticsService
@@ -24,6 +25,7 @@ class ApplicationContext:
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
+    desktop_service: DesktopService
 
 
 def create_application_context(container: ServiceContainer | None = None) -> ApplicationContext:
@@ -40,4 +42,5 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         git_service=services.git_service,
         diagnostics_service=services.diagnostics_service,
         task_prompt_service=services.task_prompt_service,
+        desktop_service=services.desktop_service,
     )

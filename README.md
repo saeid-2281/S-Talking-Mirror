@@ -49,6 +49,9 @@ Inside the app, open Developer Tools > Development Assistant for the same
 workflow plus task prompts, Git status, safe commit preparation, branch push
 confirmation, smoke testing, and PR-description copying.
 
+Use `Ctrl+Shift+P` to open the Command Palette for keyboard-first access to
+project, generation, report, and developer actions.
+
 Advanced terminal commands are documented in `docs/DEVELOPER_TOOLS.md`.
 
 ## Documentation

@@ -20,6 +20,20 @@ The GUI also has a Developer Tools menu with self-check, diagnostics export,
 runtime paths, report/log/data folder openers, a spinbox visual test, and a
 Prepare Commit dry run.
 
+The top-level Developer Tools menu is always visible. Actions remain visible
+when unavailable and are disabled with a tooltip explaining the missing
+precondition.
+
+## Run All Checks
+
+Developer Tools > Run all checks opens a non-modal progress window and starts
+`scripts/dev-check.ps1` with `QProcess`. The GUI remains responsive, duplicate
+check launches are blocked, and a running check can be cancelled safely.
+
+The window captures stdout, stderr, exit code, elapsed time, and a structured
+result model. It offers Open artifact folder, Export diagnostics, and Copy
+output actions.
+
 ## Development Assistant
 
 Open Developer Tools > Development Assistant for a non-modal in-app development
@@ -34,6 +48,23 @@ panel. It shows:
 The assistant can run checks, launch the offscreen smoke test, export
 diagnostics, open folders, copy task prompts, prepare commits, push the current
 branch after confirmation, and copy a PR description.
+
+## Command Palette
+
+Press `Ctrl+Shift+P` to open the Command Palette. It supports substring
+filtering, keyboard Up/Down navigation, Enter to execute, and Escape to close.
+Commands reuse the same application actions where practical, so menu and
+palette behavior stay aligned.
+
+Command groups include Project, Generation, Reports, and Developer actions.
+Commands that are not valid in the current state remain visible but disabled.
+
+## Runtime Information
+
+Developer Tools > Show runtime information opens a non-modal dialog with
+application version, repository/runtime paths, current branch, Python
+executable/version, and Qt/PySide version. It never shows API keys or
+credentials.
 
 ## Check Artifacts
 
