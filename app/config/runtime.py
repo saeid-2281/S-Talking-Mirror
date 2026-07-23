@@ -16,6 +16,8 @@ class RuntimeConfig:
     log_dir: Path
     cache_dir: Path
     default_output_dir: Path
+    reports_dir: Path
+    artifacts_dir: Path
 
     @classmethod
     def from_root(cls, app_root: Path | None = None) -> "RuntimeConfig":
@@ -30,6 +32,8 @@ class RuntimeConfig:
             log_dir=root / "logs",
             cache_dir=root / "cache",
             default_output_dir=root / "output",
+            reports_dir=root / "reports",
+            artifacts_dir=root / "artifacts",
         )
 
     def ensure_directories(self) -> None:
@@ -38,5 +42,7 @@ class RuntimeConfig:
             self.log_dir,
             self.cache_dir,
             self.default_output_dir,
+            self.reports_dir,
+            self.artifacts_dir,
         ]:
             path.mkdir(parents=True, exist_ok=True)

@@ -14,6 +14,8 @@ from app.database import initialize_default_database
 from app.engine import BatchEngine
 from app.logging_setup import configure_logging
 from app.providers.elevenlabs import ElevenLabsProvider
+from app.config.runtime import RuntimeConfig
+from app.services.report_service import ReportService
 from app.state import JobStateStore
 
 
@@ -41,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("voices", help="List ElevenLabs voices")
     subparsers.add_parser("models", help="List ElevenLabs TTS models")
+    subparsers.add_parser("export-diagnostics", help="Export sanitized diagnostics ZIP")
     return parser
 
 
@@ -54,6 +57,13 @@ def main() -> None:
             jobs = load_jobs(args.csv)
             characters = sum(len(job.text) for job in jobs)
             print(f"Valid CSV: {len(jobs)} rows, {characters:,} characters")
+            return
+
+        if args.command == "export-diagnostics":
+            runtime = RuntimeConfig.from_root(Path.cwd())
+            runtime.ensure_directories()
+            bundle = ReportService(runtime).export_diagnostics_bundle()
+            print(bundle)
             return
 
         settings = load_settings(args.settings)

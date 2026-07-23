@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 
 from app.config.runtime import RuntimeConfig
@@ -17,6 +18,9 @@ class ProjectController:
     def __init__(self, project_manager: ProjectManager, runtime: RuntimeConfig) -> None:
         self.project_manager = project_manager
         self.runtime = runtime
+        self.last_project_dir = runtime.app_root
+        self.last_csv_dir = runtime.app_root
+        self.last_output_dir = runtime.default_output_dir
 
     @property
     def current_project(self) -> ProjectState | None:
@@ -41,6 +45,10 @@ class ProjectController:
         output_path: Path | None,
         settings: AppSettings,
     ) -> ProjectState:
+        if csv_path:
+            self.last_csv_dir = Path(csv_path).parent
+        if output_path:
+            self.last_output_dir = Path(output_path)
         return self.project_manager.new_project(
             name,
             csv_path,
@@ -50,7 +58,13 @@ class ProjectController:
         )
 
     def open_project(self, path: Path) -> ProjectState:
-        return self.project_manager.open_project(path)
+        self.last_project_dir = path.parent
+        state = self.project_manager.open_project(path)
+        if state.csv_path:
+            self.last_csv_dir = state.csv_path.parent
+        if state.output_path:
+            self.last_output_dir = state.output_path
+        return state
 
     def save_project(self, fallback_settings: AppSettings, csv_path: str, output_path: str) -> ProjectState | None:
         if self.current_project is None:
@@ -81,15 +95,20 @@ class ProjectController:
                 fallback_settings.provider,
                 fallback_settings,
             )
+        self.last_project_dir = path.parent
         return self.project_manager.save_project_as(path)
 
     def close_project(self) -> None:
         self.project_manager.close_project()
 
     def update_csv_path(self, path: Path | None) -> None:
+        if path:
+            self.last_csv_dir = path.parent
         self.project_manager.update_csv_path(path)
 
     def update_output_path(self, path: Path | None) -> None:
+        if path:
+            self.last_output_dir = path
         self.project_manager.update_output_path(path)
 
     def update_provider(self, provider: str) -> None:
@@ -130,3 +149,25 @@ class ProjectController:
         if str(output_path):
             return Path(output_path)
         return self.runtime.default_output_dir
+
+    def suggested_save_as_path(self) -> Path:
+        project = self.current_project
+        if project and project.project_file:
+            return project.project_file
+        name = self.project_name
+        filename = sanitize_project_filename(name)
+        return self.last_project_dir / filename
+
+
+WINDOWS_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def sanitize_project_filename(project_name: str) -> str:
+    """Sanitize only Windows-invalid filename characters."""
+    cleaned = WINDOWS_INVALID_FILENAME_CHARS.sub("_", project_name).strip()
+    cleaned = cleaned.rstrip(" .")
+    if not cleaned:
+        cleaned = "Untitled project"
+    if not cleaned.lower().endswith(".stproj"):
+        cleaned = f"{cleaned}.stproj"
+    return cleaned

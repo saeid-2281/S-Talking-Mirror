@@ -1,4 +1,6 @@
 from app.models.domain import AppSettings, JobStatus, TTSJob
+from app.models.dashboard_state import DashboardState
+from app.models.generation_report import GenerationReport, ReportJob
 from app.models.persistence import (
     CacheRecord,
     HistoryRecord,
@@ -12,14 +14,17 @@ from app.models.ui_state import GenerationContext, GenerationUiState, SettingsVi
 __all__ = [
     "AppSettings",
     "CacheRecord",
+    "DashboardState",
     "GenerationContext",
     "GenerationUiState",
+    "GenerationReport",
     "HistoryRecord",
     "JobRecord",
     "JobStatus",
     "PathValidation",
     "ProjectRecord",
     "ProjectState",
+    "ReportJob",
     "SettingsViewData",
     "TTSJob",
     "VoiceRecord",

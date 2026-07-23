@@ -14,6 +14,8 @@ from app.repositories import (
     VoiceRepository,
 )
 from app.services.project_manager import ProjectManager
+from app.services.report_service import ReportService
+from app.services.statistics_service import StatisticsService
 
 
 @dataclass
@@ -32,6 +34,8 @@ class ServiceContainer:
     generation_controller: GenerationController
     settings_controller: SettingsController
     notification_service: QtNotificationService
+    statistics_service: StatisticsService
+    report_service: ReportService
 
 
 def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceContainer:
@@ -41,7 +45,11 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
     database = Database(config.database_path)
     database.initialize()
     project_repository = ProjectRepository(database)
-    project_manager = ProjectManager(project_repository=project_repository)
+    settings_controller = SettingsController(settings_path=config.settings_path)
+    project_manager = ProjectManager(
+        project_repository=project_repository,
+        secure_settings_provider=settings_controller.load_global_settings,
+    )
     return ServiceContainer(
         runtime=config,
         database=database,
@@ -53,6 +61,8 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
         project_manager=project_manager,
         project_controller=ProjectController(project_manager, config),
         generation_controller=GenerationController(database_path=config.legacy_database_path),
-        settings_controller=SettingsController(settings_path=config.settings_path),
+        settings_controller=settings_controller,
         notification_service=QtNotificationService(),
+        statistics_service=StatisticsService(config.legacy_database_path),
+        report_service=ReportService(config),
     )

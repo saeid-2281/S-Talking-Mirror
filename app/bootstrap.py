@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from app.controllers import GenerationController, ProjectController, SettingsController
 from app.container import ServiceContainer, create_service_container
 from app.gui.notifications import QtNotificationService
+from app.services.report_service import ReportService
+from app.services.statistics_service import StatisticsService
 
 
 @dataclass
@@ -14,6 +16,8 @@ class ApplicationContext:
     generation_controller: GenerationController
     settings_controller: SettingsController
     notification_service: QtNotificationService
+    statistics_service: StatisticsService
+    report_service: ReportService
 
 
 def create_application_context(container: ServiceContainer | None = None) -> ApplicationContext:
@@ -25,4 +29,6 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         generation_controller=services.generation_controller,
         settings_controller=services.settings_controller,
         notification_service=services.notification_service,
+        statistics_service=services.statistics_service,
+        report_service=services.report_service,
     )

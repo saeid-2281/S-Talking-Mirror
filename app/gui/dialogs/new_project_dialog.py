@@ -15,13 +15,20 @@ from PySide6.QtWidgets import (
 
 
 class NewProjectDialog(QDialog):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        csv_dir: Path | None = None,
+        output_dir: Path | None = None,
+    ) -> None:
         super().__init__(parent)
+        self.csv_dir = csv_dir or Path.cwd()
+        self.output_dir = output_dir or Path("output").absolute()
         self.setWindowTitle("New Project")
         layout = QFormLayout(self)
         self.name = QLineEdit("Untitled project")
         self.csv = QLineEdit()
-        self.output = QLineEdit(str(Path("output").absolute()))
+        self.output = QLineEdit(str(self.output_dir))
 
         csv_browse = QPushButton("Browse")
         csv_browse.clicked.connect(self.pick_csv)
@@ -45,12 +52,12 @@ class NewProjectDialog(QDialog):
         layout.addRow(buttons)
 
     def pick_csv(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "CSV", "", "CSV (*.csv)")
+        path, _ = QFileDialog.getOpenFileName(self, "CSV", str(self.csv_dir), "CSV (*.csv)")
         if path:
             self.csv.setText(path)
 
     def pick_output(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Output")
+        path = QFileDialog.getExistingDirectory(self, "Output", str(self.output_dir))
         if path:
             self.output.setText(path)
 

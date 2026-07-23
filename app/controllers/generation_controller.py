@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QThread, Signal
 
 from app.gui.worker import GenerationWorker
-from app.models.domain import AppSettings, TTSJob
+from app.models.domain import AppSettings, JobStatus, TTSJob
 from app.models.ui_state import GenerationUiState
 
 
@@ -78,7 +78,7 @@ class GenerationController(QObject):
         )
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
-        self.worker.progress.connect(self.progress)
+        self.worker.progress.connect(self._progress)
         self.worker.log.connect(self.log)
         self.worker.finished.connect(self._finished)
         self.worker.failed.connect(self._failed)
@@ -120,3 +120,26 @@ class GenerationController(QObject):
         self.worker = None
         self._state.paused = False
         self._state.status = "idle"
+
+    def _progress(
+        self,
+        index: int,
+        total: int,
+        name: str,
+        status: str,
+        duration: float,
+        retry: int,
+        error: str,
+    ) -> None:
+        job_index = index - 1
+        if 0 <= job_index < len(self._state.jobs):
+            try:
+                self._state.jobs[job_index].status = JobStatus(status)
+            except ValueError:
+                pass
+            self._state.jobs[job_index].error = error or None
+            self._state.jobs[job_index].retry_count = retry
+            self._state.jobs[job_index].duration_seconds = duration
+            if status in {"completed", "skipped"}:
+                self._state.jobs[job_index].generated_output_path = name
+        self.progress.emit(index, total, name, status, duration, retry, error)

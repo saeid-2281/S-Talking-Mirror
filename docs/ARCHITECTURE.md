@@ -13,8 +13,9 @@ The expected startup path is `create_service_container()`,
 
 `app.config.runtime.RuntimeConfig` is the single source for application paths:
 application root, data directory, database paths, settings path, log directory,
-cache directory, and default output directory. Runtime directories are created
-from bootstrap/container construction rather than module import.
+cache directory, default output directory, reports directory, and artifacts
+directory. Runtime directories are created from bootstrap/container construction
+rather than module import.
 
 ## Service Container
 
@@ -34,6 +35,12 @@ settings-file paths.
 `app.gui.notifications` wraps `QMessageBox` behind a small notification
 abstraction so controllers stay independent of Qt dialogs.
 
+`app.gui.dialogs.report_dialog` shows non-modal generation report actions.
+
+`app.gui.developer_tools` owns GUI-triggered self-check, diagnostics, runtime
+path display, spinbox demo, and prepare-commit actions so normal users do not
+need PowerShell.
+
 ## Controllers
 
 `app.controllers.project_controller.ProjectController` coordinates project
@@ -46,19 +53,29 @@ current project key.
 
 `app.controllers.settings_controller.SettingsController` owns global settings
 load/save and suppresses dirty-state updates while widget values are loaded
-programmatically. It also maps view-facing settings values to `AppSettings`.
+programmatically. It also maps view-facing settings values to `AppSettings` and
+keeps project-scoped settings separate from explicit global defaults.
 
 ## Project Manager
 
 `app.services.project_manager.ProjectManager` owns project state, `.stproj`
 loading/saving, recent-project metadata, autosave decisions, and SQLite
-synchronization through repositories.
+synchronization through repositories. It strips API keys from project files and
+combines project configuration with secure global credentials when loading.
+
+`app.services.statistics_service.StatisticsService` calculates dashboard cards
+from generation jobs and historical durations.
+
+`app.services.report_service.ReportService` writes generation reports,
+sanitized diagnostics, and diagnostic ZIP bundles.
 
 ## Models
 
 `app.models.domain` contains user-facing domain models such as `AppSettings` and
 `TTSJob`. `app.models.project_state` contains the active GUI project state.
 `app.models.ui_state` contains view-facing generation and settings state.
+`app.models.dashboard_state` and `app.models.generation_report` contain
+dashboard and report data transfer models.
 `app.models.persistence` contains SQLite row records.
 
 ## Database And Repositories

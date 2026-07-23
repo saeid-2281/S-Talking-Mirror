@@ -56,6 +56,9 @@ class TTSJob(BaseModel):
     filename: str
     status: JobStatus = JobStatus.PENDING
     error: str | None = None
+    retry_count: int = 0
+    duration_seconds: float = 0.0
+    generated_output_path: str | None = None
 
     @field_validator("text", "filename")
     @classmethod

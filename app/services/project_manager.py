@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +18,13 @@ PROJECT_SCHEMA_VERSION = 2
 
 
 class ProjectManager:
-    def __init__(self, project_repository: ProjectRepository) -> None:
+    def __init__(
+        self,
+        project_repository: ProjectRepository,
+        secure_settings_provider: Callable[[], AppSettings | None] | None = None,
+    ) -> None:
         self.projects = project_repository
+        self.secure_settings_provider = secure_settings_provider
         self.current: ProjectState | None = None
 
     @property
@@ -194,9 +200,11 @@ class ProjectManager:
 
     def _state_from_project_json(self, raw: dict[str, Any], path: Path) -> ProjectState:
         settings_raw = raw.get("settings") or {}
-        settings = AppSettings.model_validate(settings_raw)
+        secure_settings = self.secure_settings_provider() if self.secure_settings_provider else None
+        base = secure_settings or AppSettings()
+        settings = base.model_copy(update=settings_raw)
         provider = raw.get("provider") or settings.provider or "mock"
-        settings = settings.model_copy(update={"provider": provider})
+        settings = settings.model_copy(update={"provider": provider, "api_key": base.api_key})
         return ProjectState(
             project_id=None,
             name=raw.get("name") or path.stem,
@@ -209,12 +217,13 @@ class ProjectManager:
         )
 
     def _write_project_file(self, path: Path, state: ProjectState) -> None:
+        project_settings = state.settings.model_copy(update={"api_key": ""})
         project = ProjectFile(
             version=PROJECT_SCHEMA_VERSION,
             name=state.name,
             csv_path=self._path_to_str(state.csv_path) or "",
             output_path=self._path_to_str(state.output_path) or "",
-            settings=state.settings,
+            settings=project_settings,
         )
         payload = json.loads(project.model_dump_json())
         payload["project_id"] = state.project_id

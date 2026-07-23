@@ -7,11 +7,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QWheelEvent
 
 from app.bootstrap import ApplicationContext, create_application_context
 from app.config.runtime import RuntimeConfig
 from app.container import ServiceContainer, create_service_container
 from app.controllers import GenerationController, ProjectController, SettingsController
+from app.controllers.project_controller import sanitize_project_filename
+from app.gui.notifications import QtNotificationService
 from app.gui.notifications import NotificationService
 from app.models import AppSettings
 from app.models.domain import TTSJob
@@ -61,6 +65,21 @@ def test_save_as_preserves_project_id(tmp_path: Path) -> None:
     saved = service.save_project_as(tmp_path / "copy.stproj")
 
     assert saved.project_id == project_id
+
+
+def test_save_as_suggested_filename_uses_project_name(tmp_path: Path) -> None:
+    controller = project_controller(tmp_path)
+    controller.new_project("Danish Alphabet", None, None, AppSettings(provider="mock"))
+
+    assert controller.suggested_save_as_path() == tmp_path / "Danish Alphabet.stproj"
+
+
+def test_invalid_windows_filename_characters_are_sanitized() -> None:
+    assert sanitize_project_filename('A<>:"/\\|?*B') == "A_________B.stproj"
+
+
+def test_unicode_project_names_remain_usable() -> None:
+    assert sanitize_project_filename("Dansk Åge فارسی") == "Dansk Åge فارسی.stproj"
 
 
 def test_dirty_flag_lifecycle(tmp_path: Path) -> None:
@@ -176,6 +195,58 @@ def test_autosave_saves_dirty_project(tmp_path: Path) -> None:
 
     assert service.autosave_if_needed() is True
     assert json.loads(path.read_text(encoding="utf-8"))["provider"] == "piper"
+
+
+def test_api_key_is_not_written_to_project_file(tmp_path: Path) -> None:
+    service = manager(tmp_path)
+    service.new_project("Secret", settings=AppSettings(provider="elevenlabs", api_key="SECRET"))
+    path = tmp_path / "secret.stproj"
+
+    service.save_project_as(path)
+
+    assert "SECRET" not in path.read_text(encoding="utf-8")
+
+
+def test_project_loading_combines_configuration_with_secure_global_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(
+        AppSettings(provider="elevenlabs", api_key="GLOBAL").model_dump_json(),
+        encoding="utf-8",
+    )
+    controller = create_service_container(RuntimeConfig.from_root(tmp_path)).project_controller
+    project_path = tmp_path / "project.stproj"
+    project_path.write_text(
+        json.dumps(
+            {
+                "name": "Project",
+                "settings": AppSettings(
+                    provider="elevenlabs",
+                    api_key="",
+                    voice_id="voice-project",
+                ).model_dump(),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = controller.open_project(project_path)
+
+    assert state.settings.voice_id == "voice-project"
+    assert state.settings.api_key == "GLOBAL"
+
+
+def test_global_defaults_are_not_modified_by_project_setting_changes(tmp_path: Path) -> None:
+    container = create_service_container(RuntimeConfig.from_root(tmp_path))
+    container.settings_controller.save_global_settings(AppSettings(provider="mock"))
+    container.project_controller.new_project("Project", None, None, AppSettings(provider="mock"))
+
+    container.project_controller.update_settings(AppSettings(provider="piper"))
+
+    assert container.settings_controller.load_global_settings().provider == "mock"
 
 
 def test_autosave_skips_while_generation_active(tmp_path: Path) -> None:
@@ -413,6 +484,158 @@ def test_project_menu_actions_exist(qt_app, tmp_path: Path) -> None:
     ]
 
 
+def test_csv_auto_load_after_new_project(qt_app, tmp_path: Path) -> None:
+    from app.gui.main import MainWindow
+
+    csv_path = tmp_path / "input.csv"
+    csv_path.write_text("filename,text\n001.wav,Hej\n", encoding="utf-8")
+    window = MainWindow(context(tmp_path))
+    state = window.project_controller.new_project("Project", csv_path, tmp_path / "out", window.settings())
+    window.apply_project_state(state)
+    window.load_csv(update_project=False)
+
+    assert window.table.rowCount() == 1
+    assert len(window.generation_controller.jobs) == 1
+
+
+def test_csv_auto_load_after_open_project(qt_app, tmp_path: Path) -> None:
+    from app.gui.main import MainWindow
+
+    csv_path = tmp_path / "input.csv"
+    csv_path.write_text("filename,text\n001.wav,Hej\n", encoding="utf-8")
+    service = manager(tmp_path)
+    service.new_project("Project", csv_path, tmp_path / "out")
+    project_file = tmp_path / "project.stproj"
+    service.save_project_as(project_file)
+    window = MainWindow(context(tmp_path))
+    state = window.project_controller.open_project(project_file)
+    window.apply_project_state(state)
+    window.load_csv(update_project=False)
+
+    assert window.table.rowCount() == 1
+
+
+def test_no_duplicate_csv_load(monkeypatch, qt_app, tmp_path: Path) -> None:
+    from app.gui import main as gui_main
+    from app.gui.main import MainWindow
+
+    csv_path = tmp_path / "input.csv"
+    csv_path.write_text("filename,text\n001.wav,Hej\n", encoding="utf-8")
+    calls = []
+    original = gui_main.load_jobs
+
+    def counted(path: Path):
+        calls.append(path)
+        return original(path)
+
+    monkeypatch.setattr(gui_main, "load_jobs", counted)
+    window = MainWindow(context(tmp_path))
+    window.csv.setText(str(csv_path))
+    window.load_csv(update_project=False)
+
+    assert len(calls) == 1
+
+
+def test_reload_csv_works(qt_app, tmp_path: Path) -> None:
+    from app.gui.main import MainWindow
+
+    csv_path = tmp_path / "input.csv"
+    csv_path.write_text("filename,text\n001.wav,Hej\n", encoding="utf-8")
+    window = MainWindow(context(tmp_path))
+    window.csv.setText(str(csv_path))
+    window.reload_csv()
+
+    assert len(window.generation_controller.jobs) == 1
+
+
+def test_spinbox_steps_and_wheel_guard(qt_app, tmp_path: Path) -> None:
+    from app.gui.main import MainWindow
+
+    window = MainWindow(context(tmp_path))
+    assert window.delay.singleStep() == pytest.approx(0.1)
+    assert window.retries.singleStep() == 1
+    assert window.speed.singleStep() == pytest.approx(0.05)
+    delay = window.delay.value()
+    window.delay.stepUp()
+    assert window.delay.value() == pytest.approx(delay + 0.1)
+    window.delay.stepDown()
+    assert window.delay.value() == pytest.approx(delay)
+    retries = window.retries.value()
+    window.retries.stepUp()
+    assert window.retries.value() == retries + 1
+    speed = window.speed.value()
+    window.speed.stepUp()
+    assert window.speed.value() == pytest.approx(speed + 0.05)
+    window.speed.clearFocus()
+    before = window.speed.value()
+    wheel = QWheelEvent(
+        QPointF(1, 1),
+        QPointF(1, 1),
+        QPoint(0, 120),
+        QPoint(0, 120),
+        Qt.NoButton,
+        Qt.NoModifier,
+        Qt.ScrollUpdate,
+        False,
+    )
+    qt_app.sendEvent(window.speed, wheel)
+    assert window.speed.value() == pytest.approx(before)
+
+
+def test_completion_summary_is_non_modal(qt_app) -> None:
+    notifications = QtNotificationService()
+
+    notifications.show_generation_summary({"total": 1, "completed": 1, "skipped": 0, "failed": 0})
+
+    assert notifications.summary_dialogs
+    assert notifications.summary_dialogs[0].isModal() is False
+    notifications.close_summaries()
+
+
+def test_main_window_may_close_while_summary_is_visible(qt_app, tmp_path: Path) -> None:
+    from app.gui.main import MainWindow
+
+    window = MainWindow(context(tmp_path))
+    window.notifications.show_generation_summary({"total": 1, "completed": 1, "skipped": 0, "failed": 0})
+    window.close()
+
+    assert True
+
+
+def test_separate_projects_retain_separate_tts_settings(tmp_path: Path) -> None:
+    service = manager(tmp_path)
+    first = service.new_project("First", settings=AppSettings(provider="mock", voice_id="one"))
+    first_path = tmp_path / "first.stproj"
+    service.save_project_as(first_path)
+    second = service.new_project("Second", settings=AppSettings(provider="piper", voice_id="two"))
+    second_path = tmp_path / "second.stproj"
+    service.save_project_as(second_path)
+
+    first_loaded = service.open_project(first_path)
+    second_loaded = service.open_project(second_path)
+
+    assert first.project_id != second.project_id
+    assert first_loaded.settings.voice_id == "one"
+    assert second_loaded.settings.voice_id == "two"
+
+
+def test_scripts_exist_and_contain_no_hardcoded_user_paths() -> None:
+    for path in [
+        Path("scripts/dev-check.ps1"),
+        Path("scripts/run.ps1"),
+        Path("scripts/new-feature.ps1"),
+        Path("scripts/spinbox-demo.py"),
+        Path("scripts/prepare-commit.ps1"),
+        Path("S-Talking.cmd"),
+        Path("S-Talking-Dev.cmd"),
+        Path("S-Talking-Diagnostics.cmd"),
+        Path(".vscode/tasks.json"),
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert "C:\\Users" not in text
+        assert "D:\\Projects" not in text
+
+
 def test_window_title_updates_with_dirty_marker(qt_app, tmp_path: Path) -> None:
     from app.gui.main import MainWindow
 
@@ -476,3 +699,6 @@ class FakeNotifications(NotificationService):
 
     def confirmation(self, title: str, message: str) -> bool:
         return True
+
+    def show_generation_summary(self, summary: dict) -> None:
+        pass
