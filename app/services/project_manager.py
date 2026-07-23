@@ -6,9 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from app.database.connection import Database
 from app.database.migrations import utc_now
-from app.database.schema import DEFAULT_DATABASE_PATH
 from app.models.domain import AppSettings
 from app.models.persistence import ProjectRecord
 from app.models.project_state import PathValidation, ProjectState
@@ -19,10 +17,8 @@ PROJECT_SCHEMA_VERSION = 2
 
 
 class ProjectManager:
-    def __init__(self, database_path: Path = DEFAULT_DATABASE_PATH) -> None:
-        self.database = Database(database_path)
-        self.database.initialize()
-        self.projects = ProjectRepository(self.database)
+    def __init__(self, project_repository: ProjectRepository) -> None:
+        self.projects = project_repository
         self.current: ProjectState | None = None
 
     @property

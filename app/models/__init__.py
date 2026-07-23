@@ -7,16 +7,20 @@ from app.models.persistence import (
     VoiceRecord,
 )
 from app.models.project_state import PathValidation, ProjectState
+from app.models.ui_state import GenerationContext, GenerationUiState, SettingsViewData
 
 __all__ = [
     "AppSettings",
     "CacheRecord",
+    "GenerationContext",
+    "GenerationUiState",
     "HistoryRecord",
     "JobRecord",
     "JobStatus",
     "PathValidation",
     "ProjectRecord",
     "ProjectState",
+    "SettingsViewData",
     "TTSJob",
     "VoiceRecord",
 ]

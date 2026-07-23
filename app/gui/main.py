@@ -7,8 +7,7 @@ from PySide6.QtWidgets import *
 from app.bootstrap import ApplicationContext, create_application_context
 from app.csv_loader import load_jobs
 from app.gui.dialogs import NewProjectDialog,RecentProjectsDialog
-from app.models import AppSettings
-from app.project import ProjectFile
+from app.models.ui_state import SettingsViewData
 
 COLORS={'pending':'#9CA3AF','running':'#F59E0B','completed':'#22C55E','skipped':'#60A5FA','failed':'#EF4444'}
 
@@ -21,7 +20,7 @@ class MainWindow(QMainWindow):
         super().__init__(); self.setWindowTitle('S Talking — AI Audio Studio v0.3'); self.resize(1420,860)
         self.context=context; self.project_controller=context.project_controller; self.generation_controller=context.generation_controller; self.settings_controller=context.settings_controller; self.notifications=context.notification_service
         self.notifications.parent=self
-        self.jobs=[]; self.paused=False; self.project_path=None
+        self.project_path=None
         self.autosave_timer=QTimer(self); self.autosave_timer.setInterval(30000); self.autosave_timer.timeout.connect(self.autosave); self.autosave_timer.start()
         self.build(); self.load_saved(); self.theme(); self.update_window_title()
     def build(self):
@@ -33,7 +32,7 @@ class MainWindow(QMainWindow):
         cards=QHBoxLayout(); self.cards={}
         for k,tx in [('files','Files'),('chars','Characters'),('done','Completed'),('failed','Failed'),('eta','Estimated time')]: card=Card(tx); self.cards[k]=card; cards.addWidget(card)
         root.addLayout(cards)
-        box=QGroupBox('Project sources'); g=QGridLayout(box); self.csv=QLineEdit(); self.out=QLineEdit(str(Path('output').absolute())); bc=QPushButton('Browse CSV'); bo=QPushButton('Output folder'); bl=QPushButton('Load CSV'); bc.clicked.connect(self.pick_csv); bo.clicked.connect(self.pick_out); bl.clicked.connect(self.load_csv); g.addWidget(QLabel('CSV file'),0,0); g.addWidget(self.csv,0,1); g.addWidget(bc,0,2); g.addWidget(bl,0,3); g.addWidget(QLabel('Output'),1,0); g.addWidget(self.out,1,1); g.addWidget(bo,1,2,1,2); root.addWidget(box)
+        box=QGroupBox('Project sources'); g=QGridLayout(box); self.csv=QLineEdit(); self.out=QLineEdit(str(self.project_controller.default_output_path)); bc=QPushButton('Browse CSV'); bo=QPushButton('Output folder'); bl=QPushButton('Load CSV'); bc.clicked.connect(self.pick_csv); bo.clicked.connect(self.pick_out); bl.clicked.connect(self.load_csv); g.addWidget(QLabel('CSV file'),0,0); g.addWidget(self.csv,0,1); g.addWidget(bc,0,2); g.addWidget(bl,0,3); g.addWidget(QLabel('Output'),1,0); g.addWidget(self.out,1,1); g.addWidget(bo,1,2,1,2); root.addWidget(box)
         split=QSplitter(Qt.Horizontal); root.addWidget(split,1)
         sb=QGroupBox('Provider settings'); form=QFormLayout(sb); self.provider=QComboBox(); self.provider.addItems(['mock','piper','elevenlabs']); self.key=QLineEdit(); self.key.setEchoMode(QLineEdit.Password); self.voice=QLineEdit(); self.model=QLineEdit('eleven_multilingual_v2'); self.piper=QLineEdit(); pbtn=QPushButton('Browse'); pbtn.clicked.connect(self.pick_piper); prow=QWidget(); pl=QHBoxLayout(prow); pl.setContentsMargins(0,0,0,0); pl.addWidget(self.piper); pl.addWidget(pbtn)
         self.stability=self.slider(45); self.similarity=self.slider(75); self.style=self.slider(20); self.speed=QDoubleSpinBox(); self.speed.setRange(.7,1.2); self.speed.setValue(1); self.delay=QDoubleSpinBox(); self.delay.setRange(0,60); self.delay.setValue(.5); self.retries=QSpinBox(); self.retries.setRange(0,10); self.retries.setValue(4); self.boost=QCheckBox(); self.boost.setChecked(True); self.skip=QCheckBox(); self.skip.setChecked(True)
@@ -70,13 +69,14 @@ class MainWindow(QMainWindow):
     def load_csv(self):
         try:
             if self.project_controller.current_project: self.project_controller.update_csv_path(Path(self.csv.text())); self.update_window_title()
-            self.jobs=load_jobs(Path(self.csv.text())); self.table.setRowCount(len(self.jobs))
-            for r,j in enumerate(self.jobs):
+            self.generation_controller.set_jobs(load_jobs(Path(self.csv.text()))); self.table.setRowCount(len(self.generation_controller.jobs))
+            for r,j in enumerate(self.generation_controller.jobs):
                 for c,v in enumerate([j.row_number,j.filename,j.text,'pending','—','0',self.provider.currentText()]): self.table.setItem(r,c,QTableWidgetItem(str(v)))
                 self.paint(r,'pending')
-            self.log.appendPlainText(f'Loaded {len(self.jobs):,} rows.'); self.dashboard()
+            self.log.appendPlainText(f'Loaded {len(self.generation_controller.jobs):,} rows.'); self.dashboard()
         except Exception as e: self.notifications.error('CSV error',str(e))
-    def settings(self): return AppSettings(provider=self.provider.currentText(),api_key=self.key.text(),voice_id=self.voice.text(),model_id=self.model.text() or 'eleven_multilingual_v2',language_code='da',stability=self.stability.value()/100,similarity_boost=self.similarity.value()/100,style=self.style.value()/100,use_speaker_boost=self.boost.isChecked(),speed=self.speed.value(),delay_seconds=self.delay.value(),max_retries=self.retries.value(),skip_existing=self.skip.isChecked(),overwrite_existing=False,piper_model_path=self.piper.text() or None)
+    def settings_values(self): return SettingsViewData(provider=self.provider.currentText(),api_key=self.key.text(),voice_id=self.voice.text(),model_id=self.model.text() or 'eleven_multilingual_v2',piper_model_path=self.piper.text() or None,stability=self.stability.value()/100,similarity_boost=self.similarity.value()/100,style=self.style.value()/100,speed=self.speed.value(),delay_seconds=self.delay.value(),max_retries=self.retries.value(),use_speaker_boost=self.boost.isChecked(),skip_existing=self.skip.isChecked())
+    def settings(self): return self.settings_controller.from_view_data(self.settings_values())
     def settings_changed(self):
         s=self.settings()
         if self.settings_controller.settings_changed(s): self.project_controller.update_settings(s); self.update_window_title()
@@ -86,15 +86,12 @@ class MainWindow(QMainWindow):
         if s:
             with self.settings_controller.loading():
                 self.provider.setCurrentText(s.provider); self.key.setText(s.api_key); self.voice.setText(s.voice_id); self.model.setText(s.model_id); self.piper.setText(s.piper_model_path or ''); self.delay.setValue(s.delay_seconds); self.retries.setValue(s.max_retries)
-    def current_project(self):
-        s=self.project_controller.current_project
-        return ProjectFile(name=s.name if s else 'Untitled project',csv_path=self.csv.text(),output_path=self.out.text(),settings=self.settings())
     def apply_project_state(self,s):
         with self.settings_controller.loading():
             self.apply_project_paths(s); self.apply_provider_settings(s); self.apply_project_metadata(s)
         self.refresh_project_title(); self.show_path_warnings()
     def apply_project_paths(self,s):
-        self.project_path=s.project_file; self.csv.setText(str(s.csv_path or '')); self.out.setText(str(s.output_path or Path('output').absolute()))
+        self.project_path=s.project_file; self.csv.setText(str(s.csv_path or '')); self.out.setText(str(s.output_path or self.project_controller.default_output_path))
     def apply_provider_settings(self,s):
         self.provider.setCurrentText(s.provider); self.key.setText(s.settings.api_key); self.voice.setText(s.settings.voice_id); self.model.setText(s.settings.model_id); self.piper.setText(s.settings.piper_model_path or '')
     def apply_project_metadata(self,s):
@@ -106,7 +103,7 @@ class MainWindow(QMainWindow):
     def new_project(self):
         d=NewProjectDialog(self)
         if d.exec()!=QDialog.Accepted: return
-        name,csv_path,out_path=d.values(); s=self.project_controller.new_project(name,csv_path,out_path,self.settings()); self.apply_project_state(s); self.jobs=[]; self.table.setRowCount(0); self.dashboard(); self.log.appendPlainText('New project.')
+        name,csv_path,out_path=d.values(); s=self.project_controller.new_project(name,csv_path,out_path,self.settings()); self.apply_project_state(s); self.generation_controller.clear_jobs(); self.table.setRowCount(0); self.dashboard(); self.log.appendPlainText('New project.')
     def save_project(self):
         try:
             s=self.project_controller.save_project(self.settings(),self.csv.text(),self.out.text())
@@ -133,20 +130,19 @@ class MainWindow(QMainWindow):
             except Exception as e: self.notifications.error('Project error',str(e))
         elif d.removed_project_id: self.project_controller.remove_recent_project(d.removed_project_id)
     def close_project(self):
-        self.project_controller.close_project(); self.project_path=None; self.csv.clear(); self.jobs=[]; self.table.setRowCount(0); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.')
+        self.project_controller.close_project(); self.project_path=None; self.csv.clear(); self.generation_controller.clear_jobs(); self.table.setRowCount(0); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.')
     def autosave(self):
         try:
             if self.project_controller.autosave_if_needed(generation_active=self.generation_controller.is_active): self.log.appendPlainText('Project auto-saved.'); self.update_window_title()
         except Exception as e: self.log.appendPlainText(f'Auto-save failed: {e}')
     def start(self):
-        if not self.jobs:self.load_csv()
-        if not self.jobs:return
-        s=self.settings(); project=self.current_project()
+        if not self.generation_controller.has_jobs():self.load_csv()
+        if not self.generation_controller.has_jobs():return
+        s=self.settings(); project=self.project_controller.generation_context(self.out.text())
         if s.provider=='elevenlabs' and not self.notifications.confirmation('Plan warning','Selected voice may require a paid plan. Continue?'):return
-        if self.generation_controller.start(self,self.jobs,s,Path(self.out.text()),project.project_key): self.startb.setEnabled(False)
+        if self.generation_controller.start(self,s,project.output_path,project.project_key): self.startb.setEnabled(False)
     def pause(self):
-        self.paused=not self.paused
-        if self.paused:
+        if not self.generation_controller.is_paused:
             if self.generation_controller.pause(): self.pauseb.setText('Resume')
         else:
             if self.generation_controller.resume(): self.pauseb.setText('Pause')
@@ -156,7 +152,7 @@ class MainWindow(QMainWindow):
         self.bar.setMaximum(total); self.bar.setValue(i); r=i-1
         if 0<=r<self.table.rowCount(): self.table.setItem(r,3,QTableWidgetItem(status)); self.table.setItem(r,4,QTableWidgetItem(f'{duration:.2f}s' if duration else '—')); self.table.setItem(r,5,QTableWidgetItem(str(retry))); self.paint(r,status)
         self.log.appendPlainText(f'[{i}/{total}] {status}: {name}'+(f' — {error}' if error else '')); self.dashboard()
-    def finished(self,s): self.startb.setEnabled(True); self.pauseb.setText('Pause'); self.paused=False; self.notifications.information('Finished',json.dumps(s,indent=2))
+    def finished(self,s): self.startb.setEnabled(True); self.pauseb.setText('Pause'); self.notifications.information('Finished',json.dumps(s,indent=2))
     def failed(self,e): self.startb.setEnabled(True); self.notifications.error('Error',e)
     def paint(self,r,status):
         it=self.table.item(r,3)
@@ -164,9 +160,9 @@ class MainWindow(QMainWindow):
     def preview(self):
         rows=self.table.selectionModel().selectedRows()
         if rows:
-            j=self.jobs[rows[0].row()]; self.pname.setText(j.filename); self.pmeta.setText(f'Row {j.row_number} • {len(j.text):,} characters • {self.provider.currentText()}'); self.ptext.setPlainText(j.text)
+            j=self.generation_controller.jobs[rows[0].row()]; self.pname.setText(j.filename); self.pmeta.setText(f'Row {j.row_number} • {len(j.text):,} characters • {self.provider.currentText()}'); self.ptext.setPlainText(j.text)
     def dashboard(self):
-        files=len(self.jobs); chars=sum(len(j.text) for j in self.jobs); done=failed=0
+        files=len(self.generation_controller.jobs); chars=sum(len(j.text) for j in self.generation_controller.jobs); done=failed=0
         for r in range(self.table.rowCount()):
             it=self.table.item(r,3); st=it.text() if it else 'pending'; done+=st=='completed'; failed+=st=='failed'
         eta=max(0,files-done)*(self.delay.value()+.35)/60 if files else 0

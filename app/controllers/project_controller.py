@@ -1,22 +1,38 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
+from app.config.runtime import RuntimeConfig
 from app.models.domain import AppSettings
 from app.models.persistence import ProjectRecord
 from app.models.project_state import PathValidation, ProjectState
+from app.models.ui_state import GenerationContext
 from app.services.project_manager import ProjectManager
 
 
 class ProjectController:
     """Coordinates project actions between the GUI and ProjectManager."""
 
-    def __init__(self, project_manager: ProjectManager) -> None:
+    def __init__(self, project_manager: ProjectManager, runtime: RuntimeConfig) -> None:
         self.project_manager = project_manager
+        self.runtime = runtime
 
     @property
     def current_project(self) -> ProjectState | None:
         return self.project_manager.current_project
+
+    @property
+    def project_name(self) -> str:
+        return self.current_project.name if self.current_project else "Untitled project"
+
+    @property
+    def default_output_path(self) -> Path:
+        return self.runtime.default_output_dir
+
+    @property
+    def current_project_key(self) -> str:
+        return self.generation_context("").project_key
 
     def new_project(
         self,
@@ -93,3 +109,24 @@ class ProjectController:
 
     def autosave_if_needed(self, generation_active: bool) -> bool:
         return self.project_manager.autosave_if_needed(generation_active=generation_active)
+
+    def generation_context(self, output_path: str | Path) -> GenerationContext:
+        project = self.current_project
+        if project is not None:
+            return GenerationContext(
+                project_name=project.name,
+                project_key=project.project_key,
+                output_path=project.output_path or self._output_path(output_path),
+            )
+        fallback_output = self._output_path(output_path)
+        fallback_source = f"{fallback_output.resolve()}|Untitled project"
+        return GenerationContext(
+            project_name="Untitled project",
+            project_key=f"adhoc:{hashlib.sha256(fallback_source.encode()).hexdigest()[:24]}",
+            output_path=fallback_output,
+        )
+
+    def _output_path(self, output_path: str | Path) -> Path:
+        if str(output_path):
+            return Path(output_path)
+        return self.runtime.default_output_dir

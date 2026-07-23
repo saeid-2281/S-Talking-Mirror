@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 from app.bootstrap import ApplicationContext, create_application_context
+from app.config.runtime import RuntimeConfig
+from app.container import ServiceContainer, create_service_container
 from app.controllers import GenerationController, ProjectController, SettingsController
 from app.gui.notifications import NotificationService
 from app.models import AppSettings
@@ -17,7 +19,11 @@ from app.services.project_manager import ProjectManager
 
 
 def manager(tmp_path: Path) -> ProjectManager:
-    return ProjectManager(tmp_path / "projects.sqlite3")
+    return create_service_container(RuntimeConfig.from_root(tmp_path)).project_manager
+
+
+def project_controller(tmp_path: Path) -> ProjectController:
+    return create_service_container(RuntimeConfig.from_root(tmp_path)).project_controller
 
 
 def test_create_new_project(tmp_path: Path) -> None:
@@ -189,6 +195,7 @@ def test_gui_main_window_imports_successfully() -> None:
 def test_application_bootstrap_constructs_dependencies() -> None:
     context = create_application_context()
 
+    assert isinstance(context.container, ServiceContainer)
     assert isinstance(context.project_controller, ProjectController)
     assert isinstance(context.generation_controller, GenerationController)
     assert isinstance(context.settings_controller, SettingsController)
@@ -214,7 +221,7 @@ def test_gui_import_does_not_initialize_database_as_import_side_effect(monkeypat
 
 def test_project_controller_delegates_to_project_manager(tmp_path: Path) -> None:
     service = manager(tmp_path)
-    controller = ProjectController(service)
+    controller = ProjectController(service, RuntimeConfig.from_root(tmp_path))
 
     state = controller.new_project("Lesson", None, None, AppSettings(provider="elevenlabs"))
 
@@ -223,7 +230,7 @@ def test_project_controller_delegates_to_project_manager(tmp_path: Path) -> None
 
 
 def test_settings_controller_suppresses_dirty_state_during_programmatic_load() -> None:
-    controller = SettingsController()
+    controller = SettingsController(Path("settings.json"))
 
     with controller.loading():
         changed = controller.settings_changed(AppSettings(provider="mock"))
@@ -233,8 +240,8 @@ def test_settings_controller_suppresses_dirty_state_during_programmatic_load() -
 
 def test_settings_changes_mark_open_project_dirty(tmp_path: Path) -> None:
     service = manager(tmp_path)
-    project = ProjectController(service)
-    settings = SettingsController()
+    project = ProjectController(service, RuntimeConfig.from_root(tmp_path))
+    settings = SettingsController(tmp_path / "settings.json")
     project.new_project("Lesson", None, None, AppSettings(provider="mock"))
     settings.settings_changed(AppSettings(provider="mock"))
 
@@ -259,7 +266,7 @@ def test_generation_controller_starts_mock_generation(qt_app, tmp_path: Path) ->
 
 
 def test_generation_controller_pause_resume_stop_delegate() -> None:
-    controller = GenerationController()
+    controller = GenerationController(Path("legacy.db"))
     worker = FakeWorker()
     controller.worker = worker
 
@@ -267,14 +274,100 @@ def test_generation_controller_pause_resume_stop_delegate() -> None:
     assert controller.resume() is True
     assert controller.stop() is True
     assert worker.calls == ["pause", "resume", "stop"]
+    assert controller.is_paused is False
 
 
 def test_generation_active_state_is_accurate() -> None:
-    controller = GenerationController()
+    controller = GenerationController(Path("legacy.db"))
 
     assert controller.is_active is False
     controller.worker = FakeWorker()
     assert controller.is_active is True
+
+
+def test_runtime_configuration_resolves_all_paths(tmp_path: Path) -> None:
+    runtime = RuntimeConfig.from_root(tmp_path)
+
+    assert runtime.app_root == tmp_path.resolve()
+    assert runtime.data_dir == tmp_path / "data"
+    assert runtime.database_path == tmp_path / "data" / "s_talking.db"
+    assert runtime.legacy_database_path == tmp_path / "data" / "s-talking.db"
+    assert runtime.settings_path == tmp_path / "settings.json"
+    assert runtime.log_dir == tmp_path / "logs"
+    assert runtime.cache_dir == tmp_path / "cache"
+    assert runtime.default_output_dir == tmp_path / "output"
+
+
+def test_bootstrap_creates_required_directories(tmp_path: Path) -> None:
+    runtime = RuntimeConfig.from_root(tmp_path)
+
+    create_service_container(runtime)
+
+    assert runtime.data_dir.exists()
+    assert runtime.log_dir.exists()
+    assert runtime.cache_dir.exists()
+    assert runtime.default_output_dir.exists()
+
+
+def test_service_container_constructs_all_dependencies(tmp_path: Path) -> None:
+    container = create_service_container(RuntimeConfig.from_root(tmp_path))
+
+    assert container.runtime.database_path == tmp_path / "data" / "s_talking.db"
+    assert container.database.path == container.runtime.database_path
+    assert isinstance(container.project_controller, ProjectController)
+    assert isinstance(container.generation_controller, GenerationController)
+    assert isinstance(container.settings_controller, SettingsController)
+
+
+def test_database_path_is_injected_into_generation_controller(tmp_path: Path) -> None:
+    container = create_service_container(RuntimeConfig.from_root(tmp_path))
+
+    assert container.generation_controller.database_path == container.runtime.legacy_database_path
+
+
+def test_settings_path_is_injected_into_settings_controller(tmp_path: Path) -> None:
+    container = create_service_container(RuntimeConfig.from_root(tmp_path))
+
+    assert container.settings_controller.settings_path == container.runtime.settings_path
+
+
+def test_generation_controller_owns_jobs() -> None:
+    controller = GenerationController(Path("legacy.db"))
+    jobs = [TTSJob(row_number=2, filename="001.wav", text="Hej")]
+
+    controller.set_jobs(jobs)
+
+    assert controller.has_jobs() is True
+    assert controller.jobs == jobs
+    controller.clear_jobs()
+    assert controller.has_jobs() is False
+
+
+def test_generation_controller_owns_paused_state() -> None:
+    controller = GenerationController(Path("legacy.db"))
+    controller.worker = FakeWorker()
+
+    controller.pause()
+    assert controller.is_paused is True
+    controller.resume()
+    assert controller.is_paused is False
+
+
+def test_project_controller_returns_project_key(tmp_path: Path) -> None:
+    controller = project_controller(tmp_path)
+    state = controller.new_project("Lesson", None, None, AppSettings(provider="mock"))
+
+    assert controller.current_project_key == state.project_key
+
+
+def test_ad_hoc_generation_context_without_open_project(tmp_path: Path) -> None:
+    controller = project_controller(tmp_path)
+
+    context = controller.generation_context(tmp_path / "output")
+
+    assert context.project_name == "Untitled project"
+    assert context.project_key.startswith("adhoc:")
+    assert context.output_path == tmp_path / "output"
 
 
 def test_controllers_do_not_import_qmessagebox() -> None:
@@ -293,6 +386,11 @@ def test_main_window_does_not_instantiate_project_manager_or_generation_worker()
     assert "ProjectManager(" not in source
     assert "GenerationWorker(" not in source
     assert "QThread(" not in source
+    assert "ProjectFile" not in source
+    assert "self.jobs" not in source
+    assert "self.paused" not in source
+    assert "data/s-talking.db" not in source
+    assert "settings.json" not in source
 
 
 def test_project_menu_actions_exist(qt_app, tmp_path: Path) -> None:
@@ -335,12 +433,10 @@ def qt_app():
 
 
 def context(tmp_path: Path) -> ApplicationContext:
-    return ApplicationContext(
-        project_controller=ProjectController(manager(tmp_path)),
-        generation_controller=GenerationController(database_path=tmp_path / "legacy.db"),
-        settings_controller=SettingsController(tmp_path / "settings.json"),
-        notification_service=FakeNotifications(),
-    )
+    services = create_service_container(RuntimeConfig.from_root(tmp_path))
+    app_context = create_application_context(services)
+    app_context.notification_service = FakeNotifications()
+    return app_context
 
 
 def wait_until_inactive(qt_app, controller: GenerationController) -> None:
