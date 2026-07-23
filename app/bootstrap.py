@@ -3,26 +3,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.controllers import GenerationController, ProjectController, SettingsController
-from app.database import initialize_default_database
+from app.container import ServiceContainer, create_service_container
 from app.gui.notifications import QtNotificationService
-from app.services.project_manager import ProjectManager
 
 
 @dataclass
 class ApplicationContext:
+    container: ServiceContainer
     project_controller: ProjectController
     generation_controller: GenerationController
     settings_controller: SettingsController
     notification_service: QtNotificationService
 
 
-def create_application_context() -> ApplicationContext:
-    """Build GUI dependencies and initialize persistence."""
-    initialize_default_database()
-    project_manager = ProjectManager()
+def create_application_context(container: ServiceContainer | None = None) -> ApplicationContext:
+    """Build GUI dependencies from the service container."""
+    services = container or create_service_container()
     return ApplicationContext(
-        project_controller=ProjectController(project_manager),
-        generation_controller=GenerationController(),
-        settings_controller=SettingsController(),
-        notification_service=QtNotificationService(),
+        container=services,
+        project_controller=services.project_controller,
+        generation_controller=services.generation_controller,
+        settings_controller=services.settings_controller,
+        notification_service=services.notification_service,
     )
