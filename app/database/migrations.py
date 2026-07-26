@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from app.database.schema import INITIAL_SCHEMA_SQL
@@ -101,7 +100,78 @@ CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(project_id, source_id);
 CREATE INDEX IF NOT EXISTS idx_provider_usage_project ON provider_usage(project_id, provider, created_at);
 """
 
-MIGRATIONS: Sequence[Migration] = ((1, INITIAL_SCHEMA_SQL), (2, MULTI_SOURCE_SCHEMA_SQL))
+PRODUCT_POLISH_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS notifications (
+    notification_id TEXT PRIMARY KEY,
+    severity TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    read INTEGER NOT NULL DEFAULT 0,
+    action_label TEXT,
+    action_payload TEXT
+);
+
+CREATE TABLE IF NOT EXISTS activity_timeline (
+    event_id TEXT PRIMARY KEY,
+    project_id INTEGER,
+    category TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS batch_sessions (
+    session_id TEXT PRIMARY KEY,
+    project_id INTEGER,
+    scope TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    voice TEXT NOT NULL,
+    total_jobs INTEGER NOT NULL DEFAULT 0,
+    completed_jobs INTEGER NOT NULL DEFAULT 0,
+    failed_jobs INTEGER NOT NULL DEFAULT 0,
+    skipped_jobs INTEGER NOT NULL DEFAULT 0,
+    character_count INTEGER NOT NULL DEFAULT 0,
+    report_path TEXT,
+    output_path TEXT,
+    result TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS workspace_preferences (
+    preference_id TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS source_level_settings (
+    source_id TEXT PRIMARY KEY,
+    provider TEXT,
+    account_profile_id TEXT,
+    model_id TEXT,
+    voice_id TEXT,
+    language_code TEXT,
+    output_format TEXT,
+    options_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(source_id) REFERENCES project_sources(source_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_read_created ON notifications(read, created_at);
+CREATE INDEX IF NOT EXISTS idx_activity_project_created ON activity_timeline(project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_batch_sessions_project_started ON batch_sessions(project_id, started_at);
+"""
+
+MIGRATIONS = (
+    (1, INITIAL_SCHEMA_SQL),
+    (2, MULTI_SOURCE_SCHEMA_SQL),
+    (3, PRODUCT_POLISH_SCHEMA_SQL),
+)
 
 
 def utc_now() -> str:

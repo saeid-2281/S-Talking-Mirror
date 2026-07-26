@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from app.database.migrations import run_migrations
+from app.database.migrations import MIGRATIONS, run_migrations
 
 
 class Database:
@@ -46,15 +46,16 @@ class Database:
             versions = {
                 int(row[0])
                 for row in connection.execute(
-                    "SELECT version FROM schema_migrations WHERE version >= 2"
+                    "SELECT version FROM schema_migrations"
                 ).fetchall()
             }
             connection.close()
         except sqlite3.Error:
             versions = set()
-        if 2 in versions:
-            return
-        backup = self.path.with_suffix(self.path.suffix + ".pre-v2.bak")
-        if not backup.exists():
-            backup.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(self.path, backup)
+        for version, _sql in MIGRATIONS:
+            if version <= 1 or version in versions:
+                continue
+            backup = self.path.with_suffix(self.path.suffix + f".pre-v{version}.bak")
+            if not backup.exists():
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(self.path, backup)

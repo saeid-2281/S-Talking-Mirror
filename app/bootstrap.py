@@ -17,7 +17,9 @@ from app.services.generation_monitor_service import GenerationMonitorService
 from app.services.health_service import HealthService
 from app.services.preflight_service import PreflightService
 from app.services.pronunciation_dictionary_service import PronunciationDictionaryService
+from app.services.product_activity_service import ProductActivityService
 from app.services.provider_verification_service import ProviderVerificationService
+from app.services.provider_catalog_service import ProviderCatalogService
 from app.services.report_service import ReportService
 from app.services.release_readiness_service import ReleaseReadinessService
 from app.services.statistics_service import StatisticsService
@@ -52,6 +54,8 @@ class ApplicationContext:
     generation_confirmation_service: GenerationConfirmationCoordinator
     pronunciation_dictionary_service: PronunciationDictionaryService
     provider_verification_service: ProviderVerificationService
+    provider_catalog_service: ProviderCatalogService
+    product_activity_service: ProductActivityService
     preflight_service: PreflightService
     startup_recovery_service: StartupRecoveryService
     session_restore_service: SessionRestoreService
@@ -84,6 +88,8 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         generation_confirmation_service=services.generation_confirmation_service,
         pronunciation_dictionary_service=services.pronunciation_dictionary_service,
         provider_verification_service=services.provider_verification_service,
+        provider_catalog_service=services.provider_catalog_service,
+        product_activity_service=services.product_activity_service,
         preflight_service=services.preflight_service,
         startup_recovery_service=services.startup_recovery_service,
         session_restore_service=services.session_restore_service,

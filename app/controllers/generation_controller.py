@@ -31,6 +31,7 @@ class GenerationController(QObject):
         self.current_project_key: str | None = None
         self.current_project_id: int | None = None
         self.status_filter = "all"
+        self.source_filter: str | None = None
         self._active_jobs: list[TTSJob] = []
         self.row_range: tuple[int | None, int | None] = (None, None)
         self.generation_selection: set[int] | None = None
@@ -81,7 +82,8 @@ class GenerationController(QObject):
         return self._state.jobs
 
     def visible_jobs(self) -> list[TTSJob]:
-        jobs = self.queue_service.visible_jobs(self.range_jobs(), self.status_filter)
+        jobs = self.source_jobs(self.range_jobs())
+        jobs = self.queue_service.visible_jobs(jobs, self.status_filter)
         return self.scope_service.order_jobs(jobs, self.scope_service._order(self.execution_order))
 
     def range_jobs(self) -> list[TTSJob]:
@@ -92,6 +94,15 @@ class GenerationController(QObject):
         if end is not None:
             jobs = [job for job in jobs if job.row_number <= end]
         return list(jobs)
+
+    def source_jobs(self, jobs: list[TTSJob]) -> list[TTSJob]:
+        if not self.source_filter:
+            return jobs
+        return [
+            job
+            for job in jobs
+            if job.source_id == self.source_filter or f"{job.source_id}:{job.source_sheet}" == self.source_filter
+        ]
 
     def set_row_range(self, start: int | None, end: int | None) -> None:
         if start is not None and end is not None and start > end:
@@ -146,6 +157,9 @@ class GenerationController(QObject):
     def set_filter(self, status_filter: str) -> None:
         self.status_filter = self.queue_service.normalize_filter(status_filter)
 
+    def set_source_filter(self, source_filter: str | None) -> None:
+        self.source_filter = source_filter or None
+
     def selected_jobs(self, visible_rows: list[int]) -> list[TTSJob]:
         visible = self.visible_jobs()
         return [visible[row] for row in visible_rows if 0 <= row < len(visible)]
@@ -170,7 +184,7 @@ class GenerationController(QObject):
         )
 
     def metrics(self) -> QueueMetrics:
-        return self.queue_service.metrics(self.range_jobs(), project_id=self.current_project_id)
+        return self.queue_service.metrics(self.source_jobs(self.range_jobs()), project_id=self.current_project_id)
 
     def scoped_metrics(self) -> QueueMetrics:
         return self.queue_service.metrics(self.generation_jobs(), project_id=self.current_project_id)

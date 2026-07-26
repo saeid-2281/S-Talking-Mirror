@@ -8,6 +8,7 @@ from app.models.domain import TTSJob
 
 class GenerationScopeMode(StrEnum):
     ENTIRE_QUEUE = "entire_queue"
+    CURRENT_SOURCE = "current_source"
     FILTERED = "filtered"
     SELECTED = "selected"
     ROW_RANGE = "row_range"

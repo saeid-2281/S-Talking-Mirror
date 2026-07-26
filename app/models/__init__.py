@@ -29,6 +29,7 @@ from app.models.project_source import (
     SourceImportStatus,
     SourceType,
 )
+from app.models.product_events import ActivityEvent, BatchSessionRecord, NotificationRecord
 from app.models.release_state import ProviderStatusState, ReleaseReadinessState
 from app.models.startup_state import SessionRestoreState, StartupRecoveryState
 from app.models.ui_state import GenerationContext, GenerationUiState, SettingsViewData
@@ -60,6 +61,9 @@ __all__ = [
     "ProjectRecord",
     "ProjectState",
     "ProjectSource",
+    "ActivityEvent",
+    "BatchSessionRecord",
+    "NotificationRecord",
     "ProviderCapability",
     "ProviderConnectionResult",
     "ProviderErrorInfo",

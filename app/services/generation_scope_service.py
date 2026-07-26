@@ -131,7 +131,7 @@ class GenerationScopeService:
         selected_rows: set[int] | None,
         row_range: tuple[int | None, int | None],
     ) -> list[TTSJob]:
-        if mode == GenerationScopeMode.FILTERED:
+        if mode in {GenerationScopeMode.FILTERED, GenerationScopeMode.CURRENT_SOURCE}:
             return list(filtered_jobs or [])
         if mode == GenerationScopeMode.SELECTED:
             return [job for job in jobs if selected_rows and job.row_number in selected_rows]

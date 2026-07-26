@@ -10,6 +10,7 @@ from app.repositories import (
     CacheRepository,
     HistoryRepository,
     JobRepository,
+    ProductEventRepository,
     ProjectRepository,
     ProjectSourceRepository,
     VoiceRepository,
@@ -27,7 +28,9 @@ from app.services.health_service import HealthService
 from app.services.preflight_service import PreflightService
 from app.services.preview_service import PreviewService
 from app.services.pronunciation_dictionary_service import PronunciationDictionaryService
+from app.services.product_activity_service import ProductActivityService
 from app.services.provider_verification_service import ProviderVerificationService
+from app.services.provider_catalog_service import ProviderCatalogService
 from app.services.report_service import ReportService
 from app.services.release_readiness_service import ReleaseReadinessService
 from app.services.statistics_service import StatisticsService
@@ -45,6 +48,7 @@ class ServiceContainer:
     runtime: RuntimeConfig
     database: Database
     project_repository: ProjectRepository
+    product_event_repository: ProductEventRepository
     source_repository: ProjectSourceRepository
     job_repository: JobRepository
     history_repository: HistoryRepository
@@ -72,6 +76,8 @@ class ServiceContainer:
     generation_confirmation_service: GenerationConfirmationCoordinator
     pronunciation_dictionary_service: PronunciationDictionaryService
     provider_verification_service: ProviderVerificationService
+    provider_catalog_service: ProviderCatalogService
+    product_activity_service: ProductActivityService
     preflight_service: PreflightService
     preview_service: PreviewService
     startup_recovery_service: StartupRecoveryService
@@ -85,6 +91,7 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
     database = Database(config.database_path)
     database.initialize()
     project_repository = ProjectRepository(database)
+    product_event_repository = ProductEventRepository(database)
     source_repository = ProjectSourceRepository(database)
     job_repository = JobRepository(database)
     voice_repository = VoiceRepository(database)
@@ -122,6 +129,7 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
         runtime=config,
         database=database,
         project_repository=project_repository,
+        product_event_repository=product_event_repository,
         source_repository=source_repository,
         job_repository=job_repository,
         history_repository=HistoryRepository(database),
@@ -152,6 +160,8 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
         generation_confirmation_service=generation_confirmation_service,
         pronunciation_dictionary_service=pronunciation_dictionary_service,
         provider_verification_service=provider_verification_service,
+        provider_catalog_service=ProviderCatalogService(),
+        product_activity_service=ProductActivityService(product_event_repository),
         preflight_service=preflight_service,
         preview_service=preview_service,
         startup_recovery_service=startup_recovery_service,

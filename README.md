@@ -63,6 +63,7 @@ Advanced terminal commands are documented in `docs/DEVELOPER_TOOLS.md`.
 - Multi-source projects: `docs/MULTI_SOURCE_PROJECTS.md`
 - Provider setup: `docs/PROVIDERS.md`
 - Provider capability matrix: `docs/PROVIDER_CAPABILITIES.md`
+- v0.17 product polish scope: `docs/PRODUCT_POLISH_V017.md`
 - Reports and diagnostics: `docs/REPORTS.md`
 - Developer tools: `docs/DEVELOPER_TOOLS.md`
 - Architecture: `docs/ARCHITECTURE.md`
