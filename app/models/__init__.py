@@ -9,6 +9,7 @@ from app.models.generation_report import GenerationReport, ReportJob
 from app.models.generation_monitor_state import GenerationMonitorState
 from app.models.generation_scope import ExecutionOrderMode, GenerationPlan, GenerationScopeMode
 from app.models.health_state import HealthCheckState, HealthState
+from app.models.provider_identity import ProviderIdentity, ProviderReadiness
 from app.models.persistence import (
     CacheRecord,
     HistoryRecord,
@@ -68,6 +69,8 @@ __all__ = [
     "ProviderCapability",
     "ProviderConnectionResult",
     "ProviderErrorInfo",
+    "ProviderIdentity",
+    "ProviderReadiness",
     "ProviderStatusState",
     "PreflightIssue",
     "PreflightFix",

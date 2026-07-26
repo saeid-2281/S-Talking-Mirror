@@ -50,6 +50,9 @@ class HealthState:
     breakdown: tuple[HealthScoreItem, ...] = field(default_factory=tuple)
     recommendations: tuple[str, ...] = field(default_factory=tuple)
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    runtime_domain: str = "source"
+    development_available: bool = True
+    packaged_runtime: bool = False
 
     @property
     def icon(self) -> str:

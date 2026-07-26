@@ -11,6 +11,7 @@ from typing import Callable
 from app.config.runtime import RuntimeConfig
 from app.models.domain import AppSettings
 from app.provider_factory import create_provider
+from app.services.output_validation_service import OutputValidationService
 from app.services.voice_service import VoiceCatalog, VoiceService
 
 SECRET_VALUE = re.compile(r"(sk_[A-Za-z0-9_=-]+|xi-api-key[:=]\s*[^,\s]+|Bearer\s+[A-Za-z0-9._=-]+)", re.IGNORECASE)
@@ -145,6 +146,52 @@ class ProviderVerificationService:
             "tts_model_count": sum(1 for model in catalog.models if model.can_do_text_to_speech) if catalog else 0,
             "dictionary_endpoint_capability": dictionary_capabilities,
             "preview": preview,
+            "checks": [check.__dict__ for check in checks],
+        }
+        self._write_reports(report_dir, payload)
+        return ProviderVerificationReport(
+            report_dir=report_dir,
+            json_path=report_dir / "verification.json",
+            markdown_path=report_dir / "verification.md",
+            html_path=report_dir / "verification.html",
+            success=bool(payload["success"]),
+            checks=tuple(checks),
+        )
+
+    def run_output_sample(
+        self,
+        settings: AppSettings,
+        *,
+        sample_text: str = "S Talking provider output verification.",
+        project_name: str = "default",
+    ) -> ProviderVerificationReport:
+        started = datetime.now(timezone.utc)
+        report_dir = self._report_dir(project_name, started)
+        checks: list[ProviderVerificationCheck] = []
+        provider = None
+        output_path = report_dir / f"provider-sample{settings.file_extension if settings.provider not in {'mock', 'piper'} else '.wav'}"
+        try:
+            provider = self.provider_factory(settings)
+            validation = provider.validate_configuration(settings)
+            checks.append(ProviderVerificationCheck("Setup", validation.ok, self._safe_text(validation.message)))
+            if not validation.ok:
+                raise RuntimeError(validation.message)
+            audio = provider.synthesize(sample_text, settings)
+            result = OutputValidationService.finalize_atomic(output_path, audio)
+            checks.append(ProviderVerificationCheck("Audio output", result.ok, result.message))
+        except Exception as exc:
+            checks.append(ProviderVerificationCheck("Audio output", False, self._safe_text(str(exc))))
+        finally:
+            close = getattr(provider, "close", None)
+            if callable(close):
+                close()
+        payload = {
+            "schema_version": 1,
+            "started_at": started.isoformat(),
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "provider": settings.provider,
+            "success": all(check.success for check in checks),
+            "output_path": str(output_path) if output_path.exists() else None,
             "checks": [check.__dict__ for check in checks],
         }
         self._write_reports(report_dir, payload)

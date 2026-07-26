@@ -31,6 +31,8 @@ from app.services.pronunciation_dictionary_service import PronunciationDictionar
 from app.services.product_activity_service import ProductActivityService
 from app.services.provider_verification_service import ProviderVerificationService
 from app.services.provider_catalog_service import ProviderCatalogService
+from app.services.provider_identity_service import ProviderIdentityService
+from app.services.provider_readiness_service import ProviderReadinessService
 from app.services.report_service import ReportService
 from app.services.release_readiness_service import ReleaseReadinessService
 from app.services.statistics_service import StatisticsService
@@ -77,6 +79,8 @@ class ServiceContainer:
     pronunciation_dictionary_service: PronunciationDictionaryService
     provider_verification_service: ProviderVerificationService
     provider_catalog_service: ProviderCatalogService
+    provider_identity_service: ProviderIdentityService
+    provider_readiness_service: ProviderReadinessService
     product_activity_service: ProductActivityService
     preflight_service: PreflightService
     preview_service: PreviewService
@@ -113,9 +117,11 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
     preview_service = PreviewService(config.cache_dir / "voice-previews" / "index.json")
     voice_service = VoiceService(voice_repository, config.cache_dir / "voice-previews", preview_service)
     provider_verification_service = ProviderVerificationService(config, voice_service)
+    provider_identity_service = ProviderIdentityService(config.resource_path("app", "resources", "brand"))
+    provider_readiness_service = ProviderReadinessService(provider_identity_service)
     startup_recovery_service = StartupRecoveryService(config, database, job_repository, project_repository)
     session_restore_service = SessionRestoreService(config)
-    preflight_service = PreflightService(config, voice_repository, voice_service)
+    preflight_service = PreflightService(config, voice_repository, voice_service, provider_readiness_service=provider_readiness_service)
     release_readiness_service = ReleaseReadinessService(
         config,
         database,
@@ -161,6 +167,8 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
         pronunciation_dictionary_service=pronunciation_dictionary_service,
         provider_verification_service=provider_verification_service,
         provider_catalog_service=ProviderCatalogService(),
+        provider_identity_service=provider_identity_service,
+        provider_readiness_service=provider_readiness_service,
         product_activity_service=ProductActivityService(product_event_repository),
         preflight_service=preflight_service,
         preview_service=preview_service,

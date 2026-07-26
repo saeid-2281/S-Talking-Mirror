@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import threading
 import time
-import uuid
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, Slot
@@ -11,6 +10,7 @@ from app.database import JobDatabase
 from app.exceptions import ProviderError
 from app.models import AppSettings, TTSJob
 from app.provider_factory import create_provider
+from app.services.output_validation_service import OutputValidationService
 from app.services.pronunciation_service import PronunciationService
 
 
@@ -189,18 +189,7 @@ class GenerationWorker(QObject):
             db.close()
 
     def _write_atomic(self, output_path: Path, audio: bytes) -> None:
-        if not audio:
-            raise ProviderError("Provider returned empty audio.", retryable=True, provider_code="empty_audio")
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = output_path.with_name(f".{output_path.name}.{uuid.uuid4().hex}.tmp")
-        try:
-            temp_path.write_bytes(audio)
-            if temp_path.stat().st_size <= 0:
-                raise ProviderError("Provider returned empty audio.", retryable=True, provider_code="empty_audio")
-            temp_path.replace(output_path)
-        finally:
-            if temp_path.exists():
-                temp_path.unlink(missing_ok=True)
+        OutputValidationService.finalize_atomic(output_path, audio)
 
     def _cleanup_temporary_files(self) -> int:
         if not self.output_dir.exists():

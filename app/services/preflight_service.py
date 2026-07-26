@@ -18,6 +18,7 @@ from app.repositories.voice_repository import VoiceRepository
 from app.services.monitor_formatting import format_duration
 from app.services.voice_service import VoiceService
 from app.services.provider_catalog_service import ProviderCatalogService
+from app.services.provider_readiness_service import ProviderReadinessService
 
 WINDOWS_INVALID = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 RESERVED_NAMES = {
@@ -38,11 +39,13 @@ class PreflightService:
         runtime: RuntimeConfig,
         voice_repository: VoiceRepository | None = None,
         voice_service: VoiceService | None = None,
+        provider_readiness_service: ProviderReadinessService | None = None,
         fallback_seconds_per_job: float = 3.0,
     ) -> None:
         self.runtime = runtime
         self.voice_repository = voice_repository
         self.voice_service = voice_service
+        self.provider_readiness_service = provider_readiness_service or ProviderReadinessService()
         self.fallback_seconds_per_job = fallback_seconds_per_job
         self.latest: PreflightState | None = None
         self._cache_key: tuple[Any, ...] | None = None
@@ -326,6 +329,21 @@ class PreflightService:
 
     def _validate_provider(self, settings: AppSettings, issues: list[PreflightIssue]) -> bool:
         ready = True
+        readiness = self.provider_readiness_service.readiness_for(settings.provider, settings)
+        if readiness.blocks_generation:
+            detail = readiness.reason
+            if readiness.missing_requirements:
+                detail = f"{detail} Missing: {', '.join(readiness.missing_requirements)}"
+            self._issue(
+                issues,
+                "hard_error",
+                None,
+                settings.provider,
+                f"{readiness.display_name} is {readiness.state}.",
+                detail,
+                "provider_not_production_ready",
+            )
+            ready = False
         catalog = ProviderCatalogService()
         capabilities = catalog.capabilities_for(settings.provider, settings)
         card = catalog.card_for(settings.provider, settings)

@@ -16,7 +16,7 @@ This pass turns several v0.16 foundations into visible product workflows while p
 
 ## Completed in v0.17.1 RC2 readiness
 
-- Shared release identity is `0.17.1-rc2` across app metadata, package metadata, and Windows version resources.
+- Shared release identity is `0.17.2-rc2` across app metadata, package metadata, and Windows version resources.
 - Source workflow services now support missing-source relocation, refresh diffs, enable/disable, stable reordering, and explicit collision strategies.
 - Output subfolders are respected when resolving job output paths.
 - Preflight validates providers through capability/setup cards and blocks mixed-provider overrides with an actionable message.

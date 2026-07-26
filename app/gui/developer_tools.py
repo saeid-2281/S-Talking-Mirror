@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QMessageBox,
     QPushButton,
     QPlainTextEdit,
     QVBoxLayout,
@@ -400,6 +401,7 @@ class DeveloperTools:
             ("Development Assistant", self.show_assistant),
             ("Release readiness", self.show_release_readiness),
             ("Run all checks", self.show_checks),
+            ("Provider Output Verification", self.verify_provider_output),
             ("Clear saved API key", self.clear_saved_api_key),
             ("Export diagnostics", self.export_diagnostics),
             ("Open diagnostics folder", lambda: self.open_path(self.context.container.runtime.artifacts_dir / "diagnostics")),
@@ -453,6 +455,26 @@ class DeveloperTools:
         self.check_dialog.show()
         self.check_dialog.raise_()
         self.check_dialog.run()
+
+    def verify_provider_output(self) -> None:
+        parent = self.parent
+        settings = parent.settings() if hasattr(parent, "settings") else None
+        if settings is None:
+            QMessageBox.warning(parent, "Provider Output Verification", "Provider settings are unavailable.")
+            return
+        self.context.provider_readiness_service.write_matrix(self.context.container.runtime.artifacts_dir, settings)
+        report = self.context.provider_verification_service.run_output_sample(
+            settings,
+            project_name=self.context.project_controller.project_name,
+        )
+        self.context.health_service.invalidate()
+        self.refresh_after_checks()
+        QMessageBox.information(
+            parent,
+            "Provider Output Verification",
+            f"{'Passed' if report.success else 'Needs attention'}\n{report.report_dir}",
+        )
+        self.context.desktop_service.open_path(report.report_dir)
 
     def show_assistant(self) -> None:
         self.tools_dialog = self.tools_dialog or DevelopmentAssistantDialog(self.parent, self.context, self)

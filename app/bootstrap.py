@@ -20,6 +20,8 @@ from app.services.pronunciation_dictionary_service import PronunciationDictionar
 from app.services.product_activity_service import ProductActivityService
 from app.services.provider_verification_service import ProviderVerificationService
 from app.services.provider_catalog_service import ProviderCatalogService
+from app.services.provider_identity_service import ProviderIdentityService
+from app.services.provider_readiness_service import ProviderReadinessService
 from app.services.report_service import ReportService
 from app.services.release_readiness_service import ReleaseReadinessService
 from app.services.statistics_service import StatisticsService
@@ -55,6 +57,8 @@ class ApplicationContext:
     pronunciation_dictionary_service: PronunciationDictionaryService
     provider_verification_service: ProviderVerificationService
     provider_catalog_service: ProviderCatalogService
+    provider_identity_service: ProviderIdentityService
+    provider_readiness_service: ProviderReadinessService
     product_activity_service: ProductActivityService
     preflight_service: PreflightService
     startup_recovery_service: StartupRecoveryService
@@ -89,6 +93,8 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         pronunciation_dictionary_service=services.pronunciation_dictionary_service,
         provider_verification_service=services.provider_verification_service,
         provider_catalog_service=services.provider_catalog_service,
+        provider_identity_service=services.provider_identity_service,
+        provider_readiness_service=services.provider_readiness_service,
         product_activity_service=services.product_activity_service,
         preflight_service=services.preflight_service,
         startup_recovery_service=services.startup_recovery_service,

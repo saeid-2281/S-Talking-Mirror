@@ -89,6 +89,24 @@ opening files/folders, launching VS Code, and copying text to the clipboard.
 `app.services.task_prompt_service.TaskPromptService` loads and updates markdown
 task prompts stored under `docs/tasks/`.
 
+`app.services.provider_identity_service.ProviderIdentityService` owns
+user-facing provider names and neutral provider identity metadata. Persisted
+provider IDs remain unchanged.
+
+`app.services.provider_readiness_service.ProviderReadinessService` creates the
+machine-readable readiness matrix used by Preflight and Developer Tools. It
+distinguishes registered adapters, missing optional dependencies, setup
+requirements, partial implementations, and live-verification status.
+
+`app.services.output_validation_service.OutputValidationService` validates
+provider audio bytes before atomic finalization so empty responses or
+HTML/JSON/text error bodies are not saved as audio files.
+
+`app.services.health_service.HealthService` separates source Development
+Health from packaged Runtime Health. Git, pytest, Ruff, and source compile
+checks are not applicable in frozen/portable builds and do not reduce packaged
+runtime health.
+
 ## Models
 
 `app.models.domain` contains user-facing domain models such as `AppSettings` and
@@ -106,6 +124,6 @@ providers do not contain database SQL.
 
 ## Providers
 
-`app.providers` contains Mock, ElevenLabs, and Piper text-to-speech providers.
-Queue execution still uses the existing provider factory and has not been
-migrated to repositories.
+`app.providers` contains Mock, ElevenLabs, OpenAI Speech, Piper, and optional
+Azure, Google, Amazon Polly, and Kokoro adapters. Queue execution still uses
+the existing provider factory and has not been migrated to repositories.

@@ -5,11 +5,11 @@ VSVersionInfo(
     StringFileInfo([StringTable("040904B0", [
       StringStruct("CompanyName", "S Talking"),
       StringStruct("FileDescription", "S Talking AI Audio Studio"),
-      StringStruct("FileVersion", "0.17.1-rc2"),
+      StringStruct("FileVersion", "0.17.2-rc2"),
       StringStruct("InternalName", "S Talking"),
       StringStruct("OriginalFilename", "S Talking.exe"),
       StringStruct("ProductName", "S Talking"),
-      StringStruct("ProductVersion", "0.17.1-rc2")])]),
+      StringStruct("ProductVersion", "0.17.2-rc2")])]),
     VarFileInfo([VarStruct("Translation", [1033, 1200])])
   ]
 )

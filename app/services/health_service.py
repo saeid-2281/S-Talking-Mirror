@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
@@ -39,90 +40,111 @@ class HealthService:
     ) -> HealthState:
         current_dashboard = dashboard or DashboardState()
         git, check, report, diagnostics = self._metadata()
+        packaged_runtime = self._is_packaged_runtime()
+        development_available = not packaged_runtime
         warnings: list[str] = []
         recommendations: list[str] = []
         breakdown: list[HealthScoreItem] = []
 
-        runtime_points = 10
-        breakdown.append(HealthScoreItem("Runtime", runtime_points, 10, "passed", "Application services initialized."))
-
-        compile_points = 10 if check.compile_passed else 0
-        breakdown.append(
-            HealthScoreItem(
-                "Compile",
-                compile_points,
-                10,
-                "passed" if check.compile_passed else "warning",
-                "Passed" if check.compile_passed else "No successful compile result found.",
-            )
-        )
-
-        test_points = 30 if check.success and check.tests_passed > 0 else 0
-        breakdown.append(
-            HealthScoreItem(
-                "Tests",
-                test_points,
-                30,
-                "passed" if test_points else "error" if check.available else "warning",
-                f"{check.tests_passed} tests passed" if check.tests_passed else "No passing test count found.",
-            )
-        )
-
-        ruff_points = 15 if check.ruff_passed else 0
-        breakdown.append(
-            HealthScoreItem(
-                "Ruff",
-                ruff_points,
-                15,
-                "passed" if check.ruff_passed else "warning",
-                "Passed" if check.ruff_passed else "No successful Ruff result found.",
-            )
-        )
-
-        if git.clean:
-            git_points, git_status, git_detail = 15, "passed", "Working tree is clean."
-        elif git.branch == "main":
-            git_points, git_status, git_detail = 0, "error", f"main has {len(git.changed_files)} changed file(s)."
-            warnings.append(git_detail)
-            recommendations.append("Review or commit the pending changes before continuing on main.")
+        if packaged_runtime:
+            breakdown.extend(self._runtime_breakdown(project=project, dashboard=current_dashboard, report=report, diagnostics=diagnostics))
         else:
-            git_points, git_status, git_detail = 10, "warning", f"Feature branch has {len(git.changed_files)} changed file(s)."
-            warnings.append(git_detail)
-            recommendations.append("Prepare a commit when the current feature is ready.")
+            runtime_points = 10
+            breakdown.append(HealthScoreItem("Runtime", runtime_points, 10, "passed", "Application services initialized."))
+
+        if development_available:
+            compile_points = 10 if check.compile_passed else 0
+            breakdown.append(
+                HealthScoreItem(
+                    "Compile",
+                    compile_points,
+                    10,
+                    "passed" if check.compile_passed else "warning",
+                    "Passed" if check.compile_passed else "No successful compile result found.",
+                )
+            )
+
+            test_points = 30 if check.success and check.tests_passed > 0 else 0
+            breakdown.append(
+                HealthScoreItem(
+                    "Tests",
+                    test_points,
+                    30,
+                    "passed" if test_points else "error" if check.available else "warning",
+                    f"{check.tests_passed} tests passed" if check.tests_passed else "No passing test count found.",
+                )
+            )
+
+            ruff_points = 15 if check.ruff_passed else 0
+            breakdown.append(
+                HealthScoreItem(
+                    "Ruff",
+                    ruff_points,
+                    15,
+                    "passed" if check.ruff_passed else "warning",
+                    "Passed" if check.ruff_passed else "No successful Ruff result found.",
+                )
+            )
+        else:
+            breakdown.extend(
+                [
+                    HealthScoreItem("Compile", 0, 0, "not_applicable", "Development compile checks are not applicable in packaged runtime."),
+                    HealthScoreItem("Tests", 0, 0, "not_applicable", "Pytest is a source-checkout tool and is not required in packaged runtime."),
+                    HealthScoreItem("Ruff", 0, 0, "not_applicable", "Ruff is a source-checkout tool and is not required in packaged runtime."),
+                ]
+            )
+
+        if packaged_runtime:
+            git_points, git_status, git_detail = 0, "not_applicable", "Git status is not applicable in packaged runtime."
+        else:
+            if git.clean:
+                git_points, git_status, git_detail = 15, "passed", "Working tree is clean."
+            elif git.branch == "main":
+                git_points, git_status, git_detail = 0, "error", f"main has {len(git.changed_files)} changed file(s)."
+                warnings.append(git_detail)
+                recommendations.append("Review or commit the pending changes before continuing on main.")
+            else:
+                git_points, git_status, git_detail = 10, "warning", f"Feature branch has {len(git.changed_files)} changed file(s)."
+                warnings.append(git_detail)
+                recommendations.append("Prepare a commit when the current feature is ready.")
         breakdown.append(HealthScoreItem("Git", git_points, 15, git_status, git_detail))
 
-        diagnostics_points = 10 if diagnostics else 0
-        breakdown.append(
-            HealthScoreItem(
-                "Diagnostics",
-                diagnostics_points,
-                10,
-                "passed" if diagnostics else "warning",
-                str(diagnostics) if diagnostics else "No diagnostics bundle is available.",
+        if not packaged_runtime:
+            diagnostics_points = 10 if diagnostics else 0
+            breakdown.append(
+                HealthScoreItem(
+                    "Diagnostics",
+                    diagnostics_points,
+                    10,
+                    "passed" if diagnostics else "warning",
+                    str(diagnostics) if diagnostics else "No diagnostics bundle is available.",
+                )
             )
-        )
-        if not diagnostics:
-            recommendations.append("Export a diagnostics bundle for easier troubleshooting.")
+            if not diagnostics:
+                recommendations.append("Export a diagnostics bundle for easier troubleshooting.")
 
-        report_points = 10 if report else 0
-        report_status = "passed" if report else "warning" if current_dashboard.total_files else "neutral"
-        report_detail = str(report) if report else "No generation report is available."
-        breakdown.append(HealthScoreItem("Report", report_points, 10, report_status, report_detail))
-        if current_dashboard.total_files and not report:
-            recommendations.append("Run a Mock generation to create the first report for this queue.")
+            report_points = 10 if report else 0
+            report_status = "passed" if report else "warning" if current_dashboard.total_files else "neutral"
+            report_detail = str(report) if report else "No generation report is available."
+            breakdown.append(HealthScoreItem("Report", report_points, 10, report_status, report_detail))
+            if current_dashboard.total_files and not report:
+                recommendations.append("Run a Mock generation to create the first report for this queue.")
 
-        if not check.available:
-            warnings.append("No development check result is available.")
-            recommendations.insert(0, "Run all checks.")
-        elif not check.success or not check.compile_passed or not check.ruff_passed:
-            warnings.append("The latest development check needs attention.")
-            recommendations.insert(0, "Run all checks and review the latest artifact output.")
-        elif self._is_stale(check):
-            warnings.append("The latest development check is older than three days.")
-            recommendations.insert(0, "Run all checks to refresh project health.")
+        if development_available:
+            if not check.available:
+                warnings.append("No development check result is available.")
+                recommendations.insert(0, "Run all checks.")
+            elif not check.success or not check.compile_passed or not check.ruff_passed:
+                warnings.append("The latest development check needs attention.")
+                recommendations.insert(0, "Run all checks and review the latest artifact output.")
+            elif self._is_stale(check):
+                warnings.append("The latest development check is older than three days.")
+                recommendations.insert(0, "Run all checks to refresh project health.")
+        else:
+            recommendations.append("Use Runtime Health, Provider Output Verification, and diagnostics in packaged runtime.")
 
         score = max(0, min(100, sum(item.points for item in breakdown)))
-        if check.available and not check.success:
+        if development_available and check.available and not check.success:
             level, label = "error", "Checks failing"
         elif score >= 85:
             level, label = "healthy", "Ready"
@@ -151,6 +173,9 @@ class HealthService:
             breakdown=tuple(breakdown),
             recommendations=tuple(dict.fromkeys(recommendations)),
             warnings=tuple(warnings),
+            runtime_domain="packaged" if packaged_runtime else "source",
+            development_available=development_available,
+            packaged_runtime=packaged_runtime,
         )
 
     def invalidate(self) -> None:
@@ -273,6 +298,40 @@ class HealthService:
         candidates = sorted(folder.glob("S-Talking-Diagnostics-*.zip"), key=lambda path: path.stat().st_mtime, reverse=True)
         return candidates[0] if candidates else None
 
+    def _runtime_breakdown(
+        self,
+        *,
+        project: ProjectState | None,
+        dashboard: DashboardState,
+        report: Path | None,
+        diagnostics: Path | None,
+    ) -> list[HealthScoreItem]:
+        items = [
+            HealthScoreItem("Runtime initialization", 15, 15, "passed", "Application services initialized."),
+            HealthScoreItem("Database and migrations", 15, 15, "passed", str(self.runtime.database_path)),
+            HealthScoreItem("Writable data paths", 10, 10, "passed", str(self.runtime.data_dir)),
+            HealthScoreItem(
+                "Project/source integrity",
+                15 if project else 12,
+                15,
+                "passed" if project else "neutral",
+                project.name if project else "No project is open; this is allowed at startup.",
+            ),
+            HealthScoreItem("Provider readiness", 16, 20, "warning", "Run Provider Output Verification for the selected live provider."),
+            HealthScoreItem("Multimedia/output validation", 10, 10, "passed", "Output validation service is available."),
+            HealthScoreItem(
+                "Diagnostics/report capability",
+                10 if diagnostics or report else 8,
+                10,
+                "passed" if diagnostics or report else "neutral",
+                str(diagnostics or report) if diagnostics or report else "Diagnostics and reports can be created when needed.",
+            ),
+            HealthScoreItem("Temporary-file recovery", 5, 5, "passed", "Startup recovery is available."),
+        ]
+        if dashboard.failed:
+            items.append(HealthScoreItem("Last generation", 0, 0, "warning", f"{dashboard.failed} failed job(s) in current dashboard."))
+        return items
+
     @staticmethod
     def _parse_finished_at(payload: dict, fallback: Path) -> datetime | None:
         raw = payload.get("finished_at") or payload.get("generated_at")
@@ -292,3 +351,7 @@ class HealthService:
             return False
         now = datetime.now(tz=check.finished_at.tzinfo or timezone.utc)
         return (now - check.finished_at).total_seconds() > 3 * 24 * 60 * 60
+
+    @staticmethod
+    def _is_packaged_runtime() -> bool:
+        return bool(getattr(sys, "frozen", False))

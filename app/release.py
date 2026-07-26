@@ -6,7 +6,7 @@ import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 
-VERSION = "0.17.1-rc2"
+VERSION = "0.17.2-rc2"
 RELEASE_CHANNEL = "rc"
 SCHEMA_VERSION = 1
 
