@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from pathlib import Path
 
@@ -36,6 +38,18 @@ def test_brand_assets_are_present() -> None:
 
     assert not missing
     assert (brand / "app-icon.ico").stat().st_size > 0
+
+
+def test_official_logo_master_hash_and_derivatives_are_present() -> None:
+    official = Path("app/resources/brand/official")
+    manifest = json.loads((official / "brand-manifest.json").read_text(encoding="utf-8"))
+    master = official / manifest["master"]
+    expected_hash = "ee062816f60038130f7be4fafe58fc0a7378fdc32f967e2b4faf479d40e9e0e9"
+
+    assert manifest["sha256"] == expected_hash
+    assert hashlib.sha256(master.read_bytes()).hexdigest() == expected_hash
+    assert (official / manifest["derived_ico"]).stat().st_size > 0
+    assert all((official / name).exists() and (official / name).stat().st_size > 0 for name in manifest["derived_png"])
 
 
 def test_theme_token_completeness_and_brand_palette() -> None:
@@ -152,7 +166,7 @@ def test_about_dialog_identity_and_runtime_copy(tmp_path: Path) -> None:
 
 def test_pyinstaller_uses_brand_icon() -> None:
     spec = Path("packaging/S-Talking.spec").read_text(encoding="utf-8")
-    assert "app-icon.ico" in spec
+    assert '"official" / "S-Logo.ico"' in spec
     assert "s-talking.ico" not in spec
 
 

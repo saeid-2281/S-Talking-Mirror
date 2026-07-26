@@ -47,6 +47,11 @@ when the Developer Tools menu is opened.
 It receives command descriptors from `MainWindow` and does not duplicate project
 or generation logic.
 
+Workspace layout presets are owned by `MainWindow` because they are view state:
+Compact, Standard, Wide, Focus Mode, and Restore Default Layout. They operate on
+existing splitters/docks and persist through `QSettings` without changing queue,
+provider, or project data.
+
 ## Controllers
 
 `app.controllers.project_controller.ProjectController` coordinates project

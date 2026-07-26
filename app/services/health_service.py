@@ -104,7 +104,7 @@ class HealthService:
                 warnings.append(git_detail)
                 recommendations.append("Review or commit the pending changes before continuing on main.")
             else:
-                git_points, git_status, git_detail = 10, "warning", f"Feature branch has {len(git.changed_files)} changed file(s)."
+                git_points, git_status, git_detail = 15, "warning", f"Feature branch has {len(git.changed_files)} changed file(s)."
                 warnings.append(git_detail)
                 recommendations.append("Prepare a commit when the current feature is ready.")
         breakdown.append(HealthScoreItem("Git", git_points, 15, git_status, git_detail))

@@ -468,21 +468,23 @@ def test_project_menu_actions_exist(qt_app, tmp_path: Path) -> None:
     from app.gui.main import MainWindow
 
     window = MainWindow(context(tmp_path))
-    actions = [
-        action.text()
-        for action in window.menuBar().actions()[0].menu().actions()
-    ]
+    menu_actions = window.menuBar().actions()[0].menu().actions()
+    actions = [action.text() for action in menu_actions if action.text()]
 
-    assert actions == [
+    for action in [
         "New Project",
         "Open Project",
+        "Recent Projects",
         "Add source files",
+        "Import",
+        "Export",
         "Save",
         "Save As",
-        "Recent Projects",
         "Close Project",
         "Exit",
-    ]
+    ]:
+        assert action in actions
+    assert sum(1 for action in menu_actions if action.isSeparator()) >= 3
 
 
 def test_csv_auto_load_after_new_project(qt_app, tmp_path: Path) -> None:

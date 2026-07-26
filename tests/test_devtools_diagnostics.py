@@ -406,6 +406,7 @@ def test_health_breakdown_and_recommendations(tmp_path):
     assert state.check.tests_passed == 86
     assert state.check.ruff_passed is True
     assert any(item.name == "Tests" and item.points == 30 for item in state.breakdown)
+    assert any(item.name == "Git" and item.points == 15 and item.status == "warning" for item in state.breakdown)
     assert any("commit" in item.lower() for item in state.recommendations)
     assert "Score breakdown" in service.markdown_summary(state)
     assert "Recommended next actions" in service.markdown_summary(state)

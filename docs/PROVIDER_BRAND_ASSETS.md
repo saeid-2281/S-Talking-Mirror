@@ -15,10 +15,4 @@ S Talking uses provider names and neutral local icons for identification. No off
 
 ## S Talking Logo Status
 
-The current repository contains generated S Talking brand assets under `app/resources/brand`, but this pass did not find a separate user-approved master logo asset with provenance in the repository history or the brand directory. The existing assets are preserved unchanged until the approved master is supplied.
-
-Required source asset for final brand alignment:
-
-- Original approved S Talking master logo file
-- Confirmation of intended color variants
-- License/ownership confirmation for packaging, installer, reports, and executable icon use
+The approved S Talking master SVG is stored unchanged at `app/resources/brand/official/S-Logo.svg`. The master hash is documented in `docs/BRANDING.md` and verified by automated tests.

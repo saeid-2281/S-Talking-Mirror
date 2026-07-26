@@ -1,6 +1,6 @@
 #define AppName "S Talking"
 #ifndef AppVersion
-#define AppVersion "0.17.2-rc2"
+#define AppVersion "0.18.0-rc1"
 #endif
 #ifndef SourceDir
 #define SourceDir "..\..\dist\S-Talking"
@@ -9,8 +9,9 @@
 #define OutputDir "..\..\artifacts\package\installer"
 #endif
 #ifndef OutputBaseFilename
-#define OutputBaseFilename "S-Talking-0.17.2-rc2-setup"
+#define OutputBaseFilename "S-Talking-0.18.0-rc1-setup"
 #endif
+#define AppIcon "..\\..\\app\\resources\\brand\\official\\S-Logo.ico"
 
 [Setup]
 AppId={{BD8A7352-0C93-4C2E-ACD7-7F3F5C8AA221}
@@ -26,7 +27,7 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64
 UninstallDisplayIcon={app}\S-Talking.exe
-SetupIconFile=..\..\app\resources\brand\app-icon.ico
+SetupIconFile={#AppIcon}
 PrivilegesRequired=lowest
 
 [Tasks]

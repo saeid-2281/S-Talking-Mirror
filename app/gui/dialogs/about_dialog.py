@@ -83,9 +83,11 @@ class AboutDialog(QDialog):
         )
 
     def _symbol_pixmap(self) -> QPixmap:
-        path = self.runtime.resource_path("app", "resources", "brand", "logo-symbol.svg")
+        path = self.runtime.resource_path("app", "resources", "brand", "official", "S-Logo.svg")
         if not path.exists():
-            path = Path(__file__).resolve().parents[2] / "resources" / "brand" / "logo-symbol.svg"
+            path = Path(__file__).resolve().parents[2] / "resources" / "brand" / "official" / "S-Logo.svg"
+        if not path.exists():
+            path = self.runtime.resource_path("app", "resources", "brand", "logo-symbol.svg")
         pixmap = QPixmap(72, 72)
         pixmap.fill(Qt.transparent)
         if path.exists():
@@ -98,6 +100,9 @@ class AboutDialog(QDialog):
 
     @staticmethod
     def app_icon(runtime: RuntimeConfig) -> QIcon:
+        icon_path = runtime.resource_path("app", "resources", "brand", "official", "S-Logo.ico")
+        if icon_path.exists():
+            return QIcon(str(icon_path))
         icon_path = runtime.resource_path("app", "resources", "brand", "app-icon.ico")
         if icon_path.exists():
             return QIcon(str(icon_path))

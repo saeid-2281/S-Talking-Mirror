@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "master": "S-Logo.svg",
+  "sha256": "ee062816f60038130f7be4fafe58fc0a7378fdc32f967e2b4faf479d40e9e0e9",
+  "derived_png": [
+    "S-Logo-16.png",
+    "S-Logo-24.png",
+    "S-Logo-32.png",
+    "S-Logo-48.png",
+    "S-Logo-64.png",
+    "S-Logo-128.png",
+    "S-Logo-256.png",
+    "S-Logo-512.png"
+  ],
+  "derived_ico": "S-Logo.ico",
+  "source_path": "D:/Projects/S Leraning Project/Design elements/S-Logo.svg"
+}

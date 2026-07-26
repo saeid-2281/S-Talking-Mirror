@@ -4,7 +4,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 root = Path.cwd()
-icon = root / "app" / "resources" / "brand" / "app-icon.ico"
+icon = root / "app" / "resources" / "brand" / "official" / "S-Logo.ico"
 version_file = root / "packaging" / "windows" / "version_info.txt"
 datas = [
     (str(root / "app" / "resources"), "app/resources"),
