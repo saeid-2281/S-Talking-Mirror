@@ -2,7 +2,7 @@
 
 ## Identity
 
-- Version is `0.18.1-rc1`.
+- Version is `0.18.2-rc1`.
 - Release channel is `rc`.
 - Runtime information, diagnostics, reports, Health Center, and `pyproject.toml` use the shared version.
 

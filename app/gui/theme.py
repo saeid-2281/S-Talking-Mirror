@@ -154,12 +154,23 @@ QGroupBox{{background:{tokens['panel']};border:1px solid {tokens['border']};bord
 QGroupBox::title{{color:{tokens['text_secondary']};subcontrol-origin:margin;left:10px;padding:0 4px;}}
 QFrame#card{{background:{tokens['panel']};border:1px solid {tokens['border']};border-radius:8px;}}
 QFrame#metricsStrip,QFrame#projectContextStrip,QFrame#generationActionBar{{background:transparent;border:0;}}
-QFrame#metricPill{{background:{tokens['panel']};border:1px solid {tokens['border_subtle']};border-radius:7px;}}
-QLabel#metricCaption{{color:{tokens['text_secondary']};font-size:12px;font-weight:600;}}
-QLabel#metricValue{{color:{tokens['text_primary']};font-size:15px;font-weight:800;}}
+QFrame#metricPill{{background:transparent;border:0;border-right:1px solid {tokens['border_subtle']};border-radius:0;}}
+QFrame#metricPill[active="true"]{{background:{tokens['surface_soft']};border-radius:6px;border-right:1px solid {tokens['focus']};}}
+QLabel#metricIcon{{color:{tokens['focus']};font-size:13px;font-weight:800;}}
+QLabel#metricCaption{{color:{tokens['text_secondary']};font-size:11px;font-weight:600;}}
+QLabel#metricValue{{color:{tokens['text_primary']};font-size:14px;font-weight:800;}}
+QFrame#emptyState{{background:transparent;border:0;}}
+QLabel#emptyTitle{{font-size:20px;font-weight:800;color:{tokens['text_primary']};}}
+QLabel#emptyHelper{{color:{tokens['text_secondary']};}}
 QLabel#compactSourceSummary,QLabel#compactOutputSummary,QLabel#projectContextBar{{color:{tokens['text_secondary']};font-weight:600;}}
 QToolBar#mainToolbar{{background:{tokens['panel']};border:0;border-bottom:1px solid {tokens['border_subtle']};spacing:6px;padding:3px 8px;}}
 QToolBar#mainToolbar QToolButton{{padding:5px 8px;min-height:24px;border-color:transparent;background:transparent;}}
+QToolButton#toolbarOverflowButton{{padding:5px;min-width:28px;}}
+QGroupBox#providerPanel{{border:0;background:transparent;margin-top:0;padding:0;}}
+QFrame#collapsibleSection{{background:{tokens['panel']};border:0;border-top:1px solid {tokens['border_subtle']};}}
+QToolButton#sectionHeader{{background:transparent;border:0;color:{tokens['text_primary']};font-weight:700;text-align:left;padding:6px 4px;}}
+QLabel#formLabel{{color:{tokens['text_secondary']};font-weight:600;}}
+QLabel#connectionStatus{{background:{tokens['input']};border:1px solid {tokens['border_subtle']};border-radius:6px;padding:5px;color:{tokens['text_secondary']};}}
 QTabWidget::pane{{border:1px solid {tokens['border_subtle']};border-radius:7px;background:{tokens['panel']};}}
 QTabBar::tab{{background:{tokens['elevated']};color:{tokens['text_secondary']};padding:6px 10px;border:1px solid {tokens['border_subtle']};border-bottom:0;border-top-left-radius:6px;border-top-right-radius:6px;}}
 QTabBar::tab:selected{{color:{tokens['text_primary']};background:{tokens['panel']};border-color:{tokens['border']};}}
@@ -169,7 +180,11 @@ QLabel#subtitle,QLabel#cardCaption{{color:{tokens['text_secondary']};}}
 QLabel#cardValue{{font-size:20px;font-weight:700;color:{tokens['text_primary']};}}
 QLabel#previewTitle{{font-size:20px;font-weight:800;color:{tokens['text_primary']};}}
 QLabel#statusBadge{{border-radius:6px;padding:3px 7px;font-weight:700;}}
-QLineEdit,QComboBox,QPlainTextEdit,QTableWidget,QAbstractSpinBox{{background:{tokens['input']};color:{tokens['text_primary']};border:1px solid {tokens['border']};border-radius:6px;padding:5px;}}
+QLineEdit,QComboBox,QPlainTextEdit,QTableWidget,QAbstractSpinBox{{background:{tokens['input']};color:{tokens['text_primary']};border:1px solid {tokens['border']};border-radius:6px;padding:6px 8px;min-height:22px;}}
+QComboBox{{padding-right:28px;}}
+QComboBox::drop-down{{subcontrol-origin:padding;subcontrol-position:top right;width:24px;border-left:1px solid {tokens['border_subtle']};}}
+QComboBox QAbstractItemView{{background:{tokens['overlay']};color:{tokens['text_primary']};selection-background-color:{tokens['selected_row']};border:1px solid {tokens['border']};padding:4px;}}
+QComboBox QAbstractItemView::item{{min-height:30px;padding:4px 8px;}}
 QLineEdit:disabled,QComboBox:disabled,QPlainTextEdit:disabled,QAbstractSpinBox:disabled{{color:{tokens['text_disabled']};background:{tokens['panel']};}}
 QPushButton,QToolButton{{background:{tokens['elevated']};color:{tokens['text_primary']};border:1px solid {tokens['border']};border-radius:6px;padding:6px 10px;font-weight:600;min-height:22px;}}
 QPushButton:hover,QToolButton:hover{{background:{tokens['hover']};border-color:{tokens['primary']};}}
