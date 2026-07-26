@@ -153,6 +153,17 @@ QToolTip{{background:{tokens['elevated']};color:{tokens['text_primary']};border:
 QGroupBox{{background:{tokens['panel']};border:1px solid {tokens['border']};border-radius:8px;margin-top:10px;padding:10px 8px 8px 8px;font-weight:600;}}
 QGroupBox::title{{color:{tokens['text_secondary']};subcontrol-origin:margin;left:10px;padding:0 4px;}}
 QFrame#card{{background:{tokens['panel']};border:1px solid {tokens['border']};border-radius:8px;}}
+QFrame#metricsStrip,QFrame#projectContextStrip,QFrame#generationActionBar{{background:transparent;border:0;}}
+QFrame#metricPill{{background:{tokens['panel']};border:1px solid {tokens['border_subtle']};border-radius:7px;}}
+QLabel#metricCaption{{color:{tokens['text_secondary']};font-size:12px;font-weight:600;}}
+QLabel#metricValue{{color:{tokens['text_primary']};font-size:15px;font-weight:800;}}
+QLabel#compactSourceSummary,QLabel#compactOutputSummary,QLabel#projectContextBar{{color:{tokens['text_secondary']};font-weight:600;}}
+QToolBar#mainToolbar{{background:{tokens['panel']};border:0;border-bottom:1px solid {tokens['border_subtle']};spacing:6px;padding:3px 8px;}}
+QToolBar#mainToolbar QToolButton{{padding:5px 8px;min-height:24px;border-color:transparent;background:transparent;}}
+QTabWidget::pane{{border:1px solid {tokens['border_subtle']};border-radius:7px;background:{tokens['panel']};}}
+QTabBar::tab{{background:{tokens['elevated']};color:{tokens['text_secondary']};padding:6px 10px;border:1px solid {tokens['border_subtle']};border-bottom:0;border-top-left-radius:6px;border-top-right-radius:6px;}}
+QTabBar::tab:selected{{color:{tokens['text_primary']};background:{tokens['panel']};border-color:{tokens['border']};}}
+QDockWidget{{titlebar-close-icon:url(none);titlebar-normal-icon:url(none);}}
 QLabel#title{{font-size:28px;font-weight:800;color:{tokens['text_primary']};}}
 QLabel#subtitle,QLabel#cardCaption{{color:{tokens['text_secondary']};}}
 QLabel#cardValue{{font-size:20px;font-weight:700;color:{tokens['text_primary']};}}

@@ -13,10 +13,10 @@ from app.services.source_import_service import SourceImportService
 
 
 def test_rc2_version_identity() -> None:
-    assert app.__version__ == "0.18.0-rc1"
+    assert app.__version__ == "0.18.1-rc1"
     assert app.__release_channel__ == "rc"
-    assert 'version = "0.18.0rc1"' in Path("pyproject.toml").read_text(encoding="utf-8")
-    assert "0.18.0-rc1" in Path("packaging/windows/version_info.txt").read_text(encoding="utf-8")
+    assert 'version = "0.18.1rc1"' in Path("pyproject.toml").read_text(encoding="utf-8")
+    assert "0.18.1-rc1" in Path("packaging/windows/version_info.txt").read_text(encoding="utf-8")
 
 
 def test_build_script_writes_installer_result_contract() -> None:
