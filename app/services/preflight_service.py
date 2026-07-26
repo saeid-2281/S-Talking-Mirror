@@ -17,6 +17,7 @@ from app.models.preflight_state import PreflightFix, PreflightIssue, PreflightSt
 from app.repositories.voice_repository import VoiceRepository
 from app.services.monitor_formatting import format_duration
 from app.services.voice_service import VoiceService
+from app.services.provider_catalog_service import ProviderCatalogService
 
 WINDOWS_INVALID = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 RESERVED_NAMES = {
@@ -67,6 +68,7 @@ class PreflightService:
         extension = ".wav" if settings.provider in {"mock", "piper"} else settings.file_extension
         output_ready = self._validate_output_dir(output_dir, issues)
         provider_ready = self._validate_provider(settings, issues)
+        provider_ready = self._validate_job_provider_overrides(jobs, settings, issues) and provider_ready
         self._validate_pronunciation_dictionary(settings, issues)
         extension_ready = self._validate_extension(settings, issues)
         if csv_path and not csv_path.exists():
@@ -324,6 +326,19 @@ class PreflightService:
 
     def _validate_provider(self, settings: AppSettings, issues: list[PreflightIssue]) -> bool:
         ready = True
+        catalog = ProviderCatalogService()
+        capabilities = catalog.capabilities_for(settings.provider, settings)
+        card = catalog.card_for(settings.provider, settings)
+        if card.setup_state != "Ready":
+            severity = "hard_error" if capabilities.requires_credential or capabilities.optional_dependency else "warning"
+            self._issue(issues, severity, None, settings.provider, card.message, "Open Quick Setup or Provider accounts and complete setup.", "provider_setup_required")
+            ready = severity != "hard_error"
+        if capabilities.supported_output_formats and settings.provider not in {"mock", "piper"}:
+            output_format = (settings.output_format or settings.file_extension.strip(".")).split("_", 1)[0]
+            supported = {item.split("_", 1)[0].lower() for item in capabilities.supported_output_formats}
+            if output_format.lower() not in supported and settings.file_extension.strip(".").lower() not in supported:
+                self._issue(issues, "hard_error", None, settings.output_format, "Output format is not supported by the selected provider.", "Choose a provider-supported output format.", "provider_output_format_unsupported")
+                ready = False
         if settings.provider == "elevenlabs":
             if not settings.api_key:
                 self._issue(issues, "hard_error", None, "", "ElevenLabs API key is missing.", "Add an API key in provider settings.", "missing_api_key")
@@ -355,10 +370,23 @@ class PreflightService:
             if not settings.piper_model_path or not Path(settings.piper_model_path).is_file():
                 self._issue(issues, "hard_error", None, settings.piper_model_path or "", "Piper model file is missing.", "Choose an existing .onnx model file.", "missing_piper_model")
                 ready = False
-        elif settings.provider != "mock":
-            self._issue(issues, "hard_error", None, settings.provider, "Provider is unsupported.", "Choose Mock, Piper, or ElevenLabs.", "unsupported_provider")
-            ready = False
         return ready
+
+    def _validate_job_provider_overrides(self, jobs: list[TTSJob], settings: AppSettings, issues: list[PreflightIssue]) -> bool:
+        providers = {settings.provider}
+        providers.update(job.provider_override for job in jobs if job.provider_override)
+        if len(providers) > 1:
+            self._issue(
+                issues,
+                "hard_error",
+                None,
+                ", ".join(sorted(providers)),
+                "Mixed-provider batch execution is not enabled yet.",
+                "Filter or edit the queue so all pending jobs use one provider.",
+                "mixed_provider_batch_disabled",
+            )
+            return False
+        return True
 
     def _validate_pronunciation_dictionary(self, settings: AppSettings, issues: list[PreflightIssue]) -> None:
         if settings.provider != "elevenlabs":
@@ -375,9 +403,7 @@ class PreflightService:
             )
 
     def _validate_extension(self, settings: AppSettings, issues: list[PreflightIssue]) -> bool:
-        if settings.provider != "elevenlabs":
-            return True
-        if settings.file_extension.lower() not in ELEVENLABS_EXTENSIONS:
+        if settings.provider == "elevenlabs" and settings.file_extension.lower() not in ELEVENLABS_EXTENSIONS:
             self._issue(issues, "hard_error", None, settings.file_extension, "Output extension is unsupported.", "Choose a supported audio extension.", "unsupported_output_extension")
             return False
         return True
@@ -415,7 +441,9 @@ class PreflightService:
             return 10_000
         if settings.provider == "piper":
             return 5_000
-        return 5_000 if settings.provider == "elevenlabs" else None
+        if settings.provider == "openai":
+            return 4_096
+        return 5_000 if settings.provider in {"elevenlabs", "azure", "google", "aws_polly", "kokoro"} else None
 
     def _metadata_language_codes(self, metadata: dict[str, Any]) -> set[str]:
         codes: set[str] = set()

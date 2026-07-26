@@ -27,6 +27,7 @@ from app.models.project_source import (
     SourceImportIssue,
     SourceImportResult,
     SourceImportStatus,
+    SourceRefreshDiff,
     SourceType,
 )
 from app.models.product_events import ActivityEvent, BatchSessionRecord, NotificationRecord
@@ -84,6 +85,7 @@ __all__ = [
     "SourceImportIssue",
     "SourceImportResult",
     "SourceImportStatus",
+    "SourceRefreshDiff",
     "SourceType",
     "SettingsViewData",
     "StartupRecoveryState",

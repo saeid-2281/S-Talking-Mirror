@@ -55,8 +55,11 @@ function Write-Result($Success, $ExitCode, $Stage, $SummaryText) {
 function Step($Name, $ArgsList) {
     Write-Host "==> $Name" -ForegroundColor Cyan
     $OutputPath = Join-Path $RunDir "$Name.txt"
+    $previousErrorPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     & $Python @ArgsList *> $OutputPath
     $exit = $LASTEXITCODE
+    $ErrorActionPreference = $previousErrorPreference
     $Steps[$Name].exit_code = $exit
     $Steps[$Name].success = ($exit -eq 0)
     if ($Name -eq "pytest") {

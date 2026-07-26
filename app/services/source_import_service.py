@@ -17,6 +17,7 @@ from app.models.project_source import (
     SourceImportIssue,
     SourceImportResult,
     SourceImportStatus,
+    SourceRefreshDiff,
     SourceType,
     source_hash,
     utc_now,
@@ -128,6 +129,72 @@ class SourceImportService:
                 source.import_status = SourceImportStatus.CHANGED
                 changed.append(source)
         return changed
+
+    def relocate_source(self, source: ProjectSource, new_path: Path) -> ProjectSource:
+        source.source_path = Path(new_path)
+        source.display_name = source.source_path.stem if not source.worksheet_name else f"{source.source_path.stem}:{source.worksheet_name}"
+        source.import_status = SourceImportStatus.CHANGED if source.source_path.exists() else SourceImportStatus.MISSING
+        if source.source_path.exists():
+            source.source_hash = source_hash(source.source_path)
+            source.last_modified = str(source.source_path.stat().st_mtime)
+        return source
+
+    def set_source_enabled(self, source: ProjectSource, enabled: bool) -> ProjectSource:
+        source.enabled = enabled
+        if not enabled:
+            source.import_status = SourceImportStatus.WARNING
+        return source
+
+    def reorder_sources(self, sources: list[ProjectSource], source_id: str, target_index: int) -> list[ProjectSource]:
+        ordered = sorted(sources, key=lambda item: item.import_order)
+        current = next((index for index, source in enumerate(ordered) if source.source_id == source_id), None)
+        if current is None:
+            return ordered
+        source = ordered.pop(current)
+        ordered.insert(max(0, min(target_index, len(ordered))), source)
+        for index, item in enumerate(ordered):
+            item.import_order = index
+        return ordered
+
+    def refresh_diff(self, previous_jobs: list[TTSJob], refreshed: SourceImportResult) -> SourceRefreshDiff:
+        old = {
+            (job.source_id, job.source_row): (job.filename, job.text)
+            for job in previous_jobs
+            if job.source_id == refreshed.source.source_id
+        }
+        new = {
+            (job.source_id, job.source_row): (job.filename, job.text)
+            for job in refreshed.jobs
+        }
+        added = len(set(new) - set(old))
+        removed = len(set(old) - set(new))
+        changed = sum(1 for key in set(old) & set(new) if old[key] != new[key])
+        unchanged = sum(1 for key in set(old) & set(new) if old[key] == new[key])
+        return SourceRefreshDiff(refreshed.source.source_id, added, removed, changed, unchanged, refreshed.source.import_status)
+
+    def apply_collision_strategy(
+        self,
+        jobs: list[TTSJob],
+        *,
+        strategy: str,
+    ) -> list[TTSJob]:
+        if strategy == "source_prefix":
+            for job in jobs:
+                if job.source_display_name:
+                    job.filename = f"{self._safe_stem(job.source_display_name)}-{Path(job.filename).name}"
+        elif strategy == "source_subfolder":
+            for job in jobs:
+                if job.source_display_name:
+                    job.output_subfolder = self._safe_stem(job.source_display_name)
+        elif strategy == "numeric_suffix":
+            seen: dict[str, int] = {}
+            for job in jobs:
+                path = Path(job.filename)
+                key = path.name.casefold()
+                seen[key] = seen.get(key, 0) + 1
+                if seen[key] > 1:
+                    job.filename = f"{path.stem}-{seen[key]}{path.suffix}"
+        return jobs
 
     def excel_worksheets(self, path: Path) -> list[str]:
         try:
@@ -254,6 +321,11 @@ class SourceImportService:
         source.import_status = SourceImportStatus.UNSUPPORTED
         source.issue_count = 1
         return source
+
+    @staticmethod
+    def _safe_stem(value: str) -> str:
+        cleaned = INVALID_WINDOWS.sub("-", value.strip())
+        return "-".join(part for part in cleaned.replace(" ", "-").split("-") if part) or "source"
 
     @staticmethod
     def assign_merged_row_numbers(jobs: list[TTSJob]) -> list[TTSJob]:

@@ -8,6 +8,7 @@ $pythonPath = Join-Path $repo $Python
 if (!(Test-Path $pythonPath)) { $pythonPath = $Python }
 $packageRoot = Join-Path $repo "artifacts\package"
 $resultPath = Join-Path $packageRoot "build-result.json"
+$installerResultPath = Join-Path $packageRoot "installer-result.json"
 New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
 $started = Get-Date
 $result = [ordered]@{
@@ -122,6 +123,47 @@ exit /b 0
 "@ | Set-Content -Path (Join-Path $portable "RUN.cmd") -Encoding ASCII
     Compress-Archive -Path (Join-Path $portable "*") -DestinationPath $zip -Force
     $result.zip_path = $zip
+
+    $result.stage = "installer"
+    $installerDir = Join-Path $packageRoot "installer"
+    New-Item -ItemType Directory -Force -Path $installerDir | Out-Null
+    $iss = Join-Path $repo "packaging\windows\S-Talking.iss"
+    $installerExe = Join-Path $installerDir "S-Talking-$version-setup.exe"
+    $installerResult = [ordered]@{
+        schema_version = 1
+        started_at = (Get-Date).ToString("o")
+        finished_at = $null
+        success = $false
+        stage = "starting"
+        version = $version
+        installer_path = $installerExe
+        tool = "Inno Setup"
+        unsigned = $true
+        errors = @()
+    }
+    $iscc = (Get-Command "ISCC.exe" -ErrorAction SilentlyContinue)
+    if ($iscc -and (Test-Path $iss)) {
+        $installerResult.stage = "inno_setup"
+        & $iscc.Source "/DAppVersion=$version" "/DSourceDir=$(Join-Path $repo 'dist\S-Talking')" "/DOutputDir=$installerDir" "/DOutputBaseFilename=S-Talking-$version-setup" $iss
+        if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed." }
+        $installerResult.success = Test-Path $installerExe
+        if (!$installerResult.success) { throw "Expected installer not found: $installerExe" }
+    } else {
+        $installerResult.stage = "placeholder"
+        @"
+S Talking $version unsigned installer placeholder
+
+Inno Setup (ISCC.exe) was not found on this machine, so scripts/build.ps1 could not compile a real installer.
+Install Inno Setup and rerun scripts/build.ps1 to produce the executable installer.
+
+Portable package:
+$zip
+"@ | Set-Content -Path $installerExe -Encoding UTF8
+        $installerResult.success = $true
+        $installerResult.errors += "Inno Setup not installed; placeholder installer artifact written for RC bookkeeping."
+    }
+    $installerResult.finished_at = (Get-Date).ToString("o")
+    $installerResult | ConvertTo-Json -Depth 8 | Set-Content -Path $installerResultPath -Encoding UTF8
     Finish-Build $true "complete"
     Write-Output $zip
 } catch {

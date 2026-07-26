@@ -89,6 +89,20 @@ class SourceImportResult:
 
 
 @dataclass(frozen=True)
+class SourceRefreshDiff:
+    source_id: str
+    added_rows: int = 0
+    removed_rows: int = 0
+    changed_rows: int = 0
+    unchanged_rows: int = 0
+    status: SourceImportStatus = SourceImportStatus.READY
+
+    @property
+    def has_changes(self) -> bool:
+        return bool(self.added_rows or self.removed_rows or self.changed_rows or self.status != SourceImportStatus.READY)
+
+
+@dataclass(frozen=True)
 class SourceCollectionImportResult:
     sources: list[SourceImportResult]
     jobs: list[TTSJob]

@@ -106,4 +106,6 @@ class TTSJob(BaseModel):
         path = Path(safe_name)
         if not path.suffix:
             path = path.with_suffix(extension)
+        if self.output_subfolder:
+            return output_dir / Path(self.output_subfolder) / path
         return output_dir / path

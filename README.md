@@ -1,4 +1,4 @@
-# S Talking v0.13.0-rc2
+﻿# S Talking v0.17.1-rc2
 S Talking is a Windows-friendly PySide6 audio-generation tool for CSV-driven
 text-to-speech batches.
 
