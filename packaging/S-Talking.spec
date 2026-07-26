@@ -12,6 +12,9 @@ datas = [
     (str(root / "docs" / "INSTALLATION.md"), "docs"),
     (str(root / "docs" / "TROUBLESHOOTING.md"), "docs"),
     (str(root / "docs" / "RELEASE_CHECKLIST.md"), "docs"),
+    (str(root / "docs" / "MULTI_SOURCE_PROJECTS.md"), "docs"),
+    (str(root / "docs" / "PROVIDERS.md"), "docs"),
+    (str(root / "docs" / "PROVIDER_CAPABILITIES.md"), "docs"),
 ]
 datas += collect_data_files("PySide6", includes=["Qt/plugins/platforms/*", "Qt/plugins/styles/*", "Qt/plugins/imageformats/*", "Qt/plugins/multimedia/*", "Qt/plugins/audio/*"])
 

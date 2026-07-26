@@ -76,6 +76,16 @@ class TTSJob(BaseModel):
     duration_seconds: float = 0.0
     generated_output_path: str | None = None
     pronunciation_override: str | None = None
+    source_id: str | None = None
+    source_display_name: str | None = None
+    source_sheet: str | None = None
+    source_row: int | None = None
+    voice_override: str | None = None
+    model_override: str | None = None
+    language_override: str | None = None
+    provider_override: str | None = None
+    account_profile_override: str | None = None
+    output_subfolder: str | None = None
     original_order: int | None = None
     custom_order: int | None = None
 

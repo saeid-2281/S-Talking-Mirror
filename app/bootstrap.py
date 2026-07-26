@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from app.controllers import GenerationController, ProjectController, SettingsController
 from app.container import ServiceContainer, create_service_container
+from app.repositories import ProjectSourceRepository
 from app.gui.notifications import QtNotificationService
 from app.services.diagnostics_service import DiagnosticsService
 from app.services.desktop_service import DesktopService
@@ -21,6 +22,7 @@ from app.services.report_service import ReportService
 from app.services.release_readiness_service import ReleaseReadinessService
 from app.services.statistics_service import StatisticsService
 from app.services.startup_recovery_service import SessionRestoreService, StartupRecoveryService
+from app.services.source_import_service import SourceImportService
 from app.services.task_prompt_service import TaskPromptService
 from app.services.voice_service import VoiceService
 
@@ -28,6 +30,7 @@ from app.services.voice_service import VoiceService
 @dataclass
 class ApplicationContext:
     container: ServiceContainer
+    source_repository: ProjectSourceRepository
     project_controller: ProjectController
     generation_controller: GenerationController
     settings_controller: SettingsController
@@ -45,6 +48,7 @@ class ApplicationContext:
     audio_player_service: AudioPlayerService
     api_profile_service: ApiProfileService
     generation_scope_service: GenerationScopeService
+    source_import_service: SourceImportService
     generation_confirmation_service: GenerationConfirmationCoordinator
     pronunciation_dictionary_service: PronunciationDictionaryService
     provider_verification_service: ProviderVerificationService
@@ -58,6 +62,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
     services = container or create_service_container()
     return ApplicationContext(
         container=services,
+        source_repository=services.source_repository,
         project_controller=services.project_controller,
         generation_controller=services.generation_controller,
         settings_controller=services.settings_controller,
@@ -75,6 +80,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         audio_player_service=services.audio_player_service,
         api_profile_service=services.api_profile_service,
         generation_scope_service=services.generation_scope_service,
+        source_import_service=services.source_import_service,
         generation_confirmation_service=services.generation_confirmation_service,
         pronunciation_dictionary_service=services.pronunciation_dictionary_service,
         provider_verification_service=services.provider_verification_service,

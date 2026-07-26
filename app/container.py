@@ -11,6 +11,7 @@ from app.repositories import (
     HistoryRepository,
     JobRepository,
     ProjectRepository,
+    ProjectSourceRepository,
     VoiceRepository,
 )
 from app.services.project_manager import ProjectManager
@@ -31,6 +32,7 @@ from app.services.report_service import ReportService
 from app.services.release_readiness_service import ReleaseReadinessService
 from app.services.statistics_service import StatisticsService
 from app.services.startup_recovery_service import SessionRestoreService, StartupRecoveryService
+from app.services.source_import_service import SourceImportService
 from app.services.task_prompt_service import TaskPromptService
 from app.services.voice_service import VoiceService
 from app.services.secure_credentials import SecureCredentialStore
@@ -43,6 +45,7 @@ class ServiceContainer:
     runtime: RuntimeConfig
     database: Database
     project_repository: ProjectRepository
+    source_repository: ProjectSourceRepository
     job_repository: JobRepository
     history_repository: HistoryRepository
     voice_repository: VoiceRepository
@@ -65,6 +68,7 @@ class ServiceContainer:
     audio_player_service: AudioPlayerService
     api_profile_service: ApiProfileService
     generation_scope_service: GenerationScopeService
+    source_import_service: SourceImportService
     generation_confirmation_service: GenerationConfirmationCoordinator
     pronunciation_dictionary_service: PronunciationDictionaryService
     provider_verification_service: ProviderVerificationService
@@ -81,6 +85,7 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
     database = Database(config.database_path)
     database.initialize()
     project_repository = ProjectRepository(database)
+    source_repository = ProjectSourceRepository(database)
     job_repository = JobRepository(database)
     voice_repository = VoiceRepository(database)
     settings_controller = SettingsController(settings_path=config.settings_path)
@@ -89,6 +94,7 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
     api_profile_service = ApiProfileService(settings_dir / "api-profiles.json", credential_store)
     pronunciation_dictionary_service = PronunciationDictionaryService(settings_dir / "pronunciation-dictionaries")
     generation_scope_service = GenerationScopeService()
+    source_import_service = SourceImportService()
     generation_confirmation_service = GenerationConfirmationCoordinator()
     git_service = GitService(config.app_root)
     report_service = ReportService(config)
@@ -116,6 +122,7 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
         runtime=config,
         database=database,
         project_repository=project_repository,
+        source_repository=source_repository,
         job_repository=job_repository,
         history_repository=HistoryRepository(database),
         voice_repository=voice_repository,
@@ -141,6 +148,7 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
         audio_player_service=AudioPlayerService(),
         api_profile_service=api_profile_service,
         generation_scope_service=generation_scope_service,
+        source_import_service=source_import_service,
         generation_confirmation_service=generation_confirmation_service,
         pronunciation_dictionary_service=pronunciation_dictionary_service,
         provider_verification_service=provider_verification_service,

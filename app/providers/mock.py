@@ -2,10 +2,13 @@ from __future__ import annotations
 import math, struct, wave
 from io import BytesIO
 from app.models import AppSettings
+from app.models.provider_contract import ProviderCapabilities
 from app.providers.base import TTSProvider
 class MockProvider(TTSProvider):
     """Creates free WAV tones to test the full batch pipeline."""
+    provider_id="mock"; display_name="Mock"
     def __init__(self, settings: AppSettings): self.settings=settings
+    def capabilities(self): return ProviderCapabilities("mock","Mock",remote=False,requires_credential=False,supports_voice_listing=True,supports_model_listing=True,supports_cancellation=True,supported_output_formats=("wav",))
     def synthesize(self,text:str,settings:AppSettings)->bytes:
         rate=22050; seconds=min(.35+len(text)*.004,2.0); frames=int(rate*seconds)
         b=BytesIO()

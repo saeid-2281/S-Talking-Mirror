@@ -11,6 +11,7 @@ import httpx
 from app.exceptions import ConfigurationError, ProviderError
 from app.models import AppSettings
 from app.models.elevenlabs import ProviderErrorInfo
+from app.models.provider_contract import ProviderCapabilities
 from app.models.pronunciation_dictionary import PronunciationRule
 from app.providers.base import TTSProvider
 
@@ -18,6 +19,8 @@ SECRET_VALUE = re.compile(r"(sk_[A-Za-z0-9_=-]+|Bearer\s+[A-Za-z0-9._=-]+)", re.
 
 
 class ElevenLabsProvider(TTSProvider):
+    provider_id = "elevenlabs"
+    display_name = "ElevenLabs"
     BASE_URL = "https://api.elevenlabs.io"
 
     def __init__(self, settings: AppSettings) -> None:
@@ -35,6 +38,24 @@ class ElevenLabsProvider(TTSProvider):
 
     def close(self) -> None:
         self.client.close()
+
+    def capabilities(self) -> ProviderCapabilities:
+        return ProviderCapabilities(
+            provider_id=self.provider_id,
+            display_name=self.display_name,
+            remote=True,
+            requires_credential=True,
+            supports_voice_listing=True,
+            supports_model_listing=True,
+            supports_language_code=True,
+            supports_pronunciation_dictionary=True,
+            supports_styles=True,
+            supports_speed=True,
+            supports_quota_lookup=True,
+            supports_cancellation=True,
+            supported_output_formats=("mp3_44100_128", "mp3_44100_192", "wav", "pcm"),
+            credential_fields=("api_key",),
+        )
 
     def cancel(self) -> None:
         self._cancelled = True

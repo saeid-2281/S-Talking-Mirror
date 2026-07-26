@@ -476,6 +476,7 @@ def test_project_menu_actions_exist(qt_app, tmp_path: Path) -> None:
     assert actions == [
         "New Project",
         "Open Project",
+        "Add source files",
         "Save",
         "Save As",
         "Recent Projects",

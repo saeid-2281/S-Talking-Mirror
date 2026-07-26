@@ -38,6 +38,16 @@ class JobRecord:
     created_at: str
     updated_at: str
     completed_at: str | None
+    source_id: str | None = None
+    source_display_name: str | None = None
+    source_sheet: str | None = None
+    source_row: int | None = None
+    provider_override: str | None = None
+    account_profile_override: str | None = None
+    voice_override: str | None = None
+    model_override: str | None = None
+    language_override: str | None = None
+    output_subfolder: str | None = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "JobRecord":

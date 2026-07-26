@@ -20,6 +20,15 @@ from app.models.preflight_state import PreflightFix, PreflightIssue, PreflightSt
 from app.models.preview import PreviewRecord
 from app.models.pronunciation_dictionary import PronunciationDictionary, PronunciationDictionarySummary, PronunciationRule
 from app.models.project_state import PathValidation, ProjectState
+from app.models.project_source import (
+    ProjectSource,
+    SourceCollectionImportResult,
+    SourceColumnMapping,
+    SourceImportIssue,
+    SourceImportResult,
+    SourceImportStatus,
+    SourceType,
+)
 from app.models.release_state import ProviderStatusState, ReleaseReadinessState
 from app.models.startup_state import SessionRestoreState, StartupRecoveryState
 from app.models.ui_state import GenerationContext, GenerationUiState, SettingsViewData
@@ -50,6 +59,7 @@ __all__ = [
     "PathValidation",
     "ProjectRecord",
     "ProjectState",
+    "ProjectSource",
     "ProviderCapability",
     "ProviderConnectionResult",
     "ProviderErrorInfo",
@@ -65,6 +75,12 @@ __all__ = [
     "ReleaseReadinessState",
     "ReportJob",
     "SessionRestoreState",
+    "SourceCollectionImportResult",
+    "SourceColumnMapping",
+    "SourceImportIssue",
+    "SourceImportResult",
+    "SourceImportStatus",
+    "SourceType",
     "SettingsViewData",
     "StartupRecoveryState",
     "TTSJob",

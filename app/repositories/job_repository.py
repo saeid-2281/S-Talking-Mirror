@@ -34,6 +34,16 @@ class JobRepository:
                 job.error,
                 job.duration_seconds,
                 str(job.output_path(output_dir, extension)) if output_dir else job.generated_output_path,
+                job.source_id,
+                job.source_display_name,
+                job.source_sheet,
+                job.source_row,
+                job.provider_override,
+                job.account_profile_override,
+                job.voice_override,
+                job.model_override,
+                job.language_override,
+                job.output_subfolder,
                 now,
                 now if job.status == JobStatus.COMPLETED else None,
                 now,
@@ -45,13 +55,25 @@ class JobRepository:
                 """
                 INSERT INTO jobs(
                     project_id, row_number, filename, text, text_hash, status,
-                    retry_count, error, duration_seconds, output_path, created_at, completed_at, updated_at
+                    retry_count, error, duration_seconds, output_path, source_id, source_display_name,
+                    source_sheet, source_row, provider_override, account_profile_override, voice_override,
+                    model_override, language_override, output_subfolder, created_at, completed_at, updated_at
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(project_id, row_number) DO UPDATE SET
                     filename = excluded.filename,
                     text = excluded.text,
                     text_hash = excluded.text_hash,
+                    source_id = excluded.source_id,
+                    source_display_name = excluded.source_display_name,
+                    source_sheet = excluded.source_sheet,
+                    source_row = excluded.source_row,
+                    provider_override = excluded.provider_override,
+                    account_profile_override = excluded.account_profile_override,
+                    voice_override = excluded.voice_override,
+                    model_override = excluded.model_override,
+                    language_override = excluded.language_override,
+                    output_subfolder = excluded.output_subfolder,
                     output_path = COALESCE(jobs.output_path, excluded.output_path),
                     status = CASE
                         WHEN jobs.text_hash != excluded.text_hash THEN 'pending'
@@ -262,6 +284,16 @@ class JobRepository:
             retry_count=record.retry_count,
             duration_seconds=record.duration_seconds or 0.0,
             generated_output_path=record.output_path,
+            source_id=getattr(record, "source_id", None),
+            source_display_name=getattr(record, "source_display_name", None),
+            source_sheet=getattr(record, "source_sheet", None),
+            source_row=getattr(record, "source_row", None),
+            provider_override=getattr(record, "provider_override", None),
+            account_profile_override=getattr(record, "account_profile_override", None),
+            voice_override=getattr(record, "voice_override", None),
+            model_override=getattr(record, "model_override", None),
+            language_override=getattr(record, "language_override", None),
+            output_subfolder=getattr(record, "output_subfolder", None),
         )
 
     @staticmethod

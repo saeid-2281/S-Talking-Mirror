@@ -177,6 +177,16 @@ class ReportService:
                     "pronunciation_dictionary",
                     "pronunciation_override",
                     "language_code",
+                    "source_id",
+                    "source_name",
+                    "source_sheet",
+                    "source_row",
+                    "provider",
+                    "account_profile_id",
+                    "model_id",
+                    "voice_id",
+                    "usage_amount",
+                    "usage_unit",
                 ],
             )
             writer.writeheader()
@@ -261,7 +271,17 @@ class ReportService:
                     pronunciation_strategy=pronunciation.strategy,
                     pronunciation_dictionary=pronunciation.dictionary_fingerprint or "",
                     pronunciation_override=job.pronunciation_override or "project",
-                    language_code=settings.language_code or "",
+                    language_code=job.language_override or settings.language_code or "",
+                    source_id=job.source_id or "",
+                    source_name=job.source_display_name or "",
+                    source_sheet=job.source_sheet or "",
+                    source_row=job.source_row,
+                    provider=job.provider_override or settings.provider,
+                    account_profile_id=job.account_profile_override or settings.active_api_profile_id or "",
+                    model_id=job.model_override or settings.model_id,
+                    voice_id=job.voice_override or settings.voice_id,
+                    usage_amount=float(len(job.text)),
+                    usage_unit="characters",
                 )
             )
         return report_jobs

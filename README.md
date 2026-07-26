@@ -60,6 +60,9 @@ Advanced terminal commands are documented in `docs/DEVELOPER_TOOLS.md`.
 - Troubleshooting: `docs/TROUBLESHOOTING.md`
 - Release checklist: `docs/RELEASE_CHECKLIST.md`
 - Project behavior: `docs/PROJECTS.md`
+- Multi-source projects: `docs/MULTI_SOURCE_PROJECTS.md`
+- Provider setup: `docs/PROVIDERS.md`
+- Provider capability matrix: `docs/PROVIDER_CAPABILITIES.md`
 - Reports and diagnostics: `docs/REPORTS.md`
 - Developer tools: `docs/DEVELOPER_TOOLS.md`
 - Architecture: `docs/ARCHITECTURE.md`

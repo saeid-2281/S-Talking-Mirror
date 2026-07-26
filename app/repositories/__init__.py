@@ -8,6 +8,7 @@ from app.repositories.cache_repository import (
 from app.repositories.history_repository import HistoryRepository
 from app.repositories.job_repository import JobRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.source_repository import ProjectSourceRepository
 from app.repositories.voice_repository import VoiceRepository
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "HistoryRepository",
     "JobRepository",
     "ProjectRepository",
+    "ProjectSourceRepository",
     "VoiceRepository",
     "build_cache_key",
     "hash_settings",

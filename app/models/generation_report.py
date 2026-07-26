@@ -22,6 +22,16 @@ class ReportJob:
     pronunciation_dictionary: str = ""
     pronunciation_override: str = ""
     language_code: str = ""
+    source_id: str = ""
+    source_name: str = ""
+    source_sheet: str = ""
+    source_row: int | None = None
+    provider: str = ""
+    account_profile_id: str = ""
+    model_id: str = ""
+    voice_id: str = ""
+    usage_amount: float | None = None
+    usage_unit: str = "characters"
 
 
 @dataclass
