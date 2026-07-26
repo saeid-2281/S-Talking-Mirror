@@ -17,10 +17,19 @@ from PySide6 import QtCore
 import app
 from app.config.runtime import RuntimeConfig
 from app.models import AppSettings, GenerationReport, ProjectState, ReportJob, TTSJob
+from app.services.monitor_formatting import (
+    format_characters_per_minute,
+    format_duration,
+    format_files_per_minute,
+)
+from app.services.pronunciation_service import PronunciationService
 
 REPORT_SCHEMA_VERSION = 1
 SECRET_KEYS = re.compile(r"(api[_-]?key|authorization|token|secret|password)", re.IGNORECASE)
-SECRET_VALUE = re.compile(r"(sk_[A-Za-z0-9_=-]+|Bearer\s+[A-Za-z0-9._=-]+)", re.IGNORECASE)
+SECRET_VALUE = re.compile(
+    r"(sk[_-][A-Za-z0-9_=-]+|Bearer\s+[A-Za-z0-9._=-]+|(?:api[_-]?key|token|secret|password)\s*[:=]\s*['\"]?[^'\"\s,;}]+)",
+    re.IGNORECASE,
+)
 
 
 class ReportService:
@@ -39,6 +48,7 @@ class ReportService:
         started_at: datetime,
         ended_at: datetime | None = None,
         log_events: list[str] | None = None,
+        monitor_metrics: dict[str, Any] | None = None,
     ) -> GenerationReport:
         ended = ended_at or datetime.now(timezone.utc)
         project_name = self._safe_name(project.name if project else "No project")
@@ -54,6 +64,8 @@ class ReportService:
             started_at=started_at,
             ended_at=ended,
             counts=counts,
+            monitor_metrics=monitor_metrics or {},
+            provider_diagnostics=summary.get("provider_diagnostics", {}),
         )
         report = GenerationReport(
             report_dir=report_dir,
@@ -158,6 +170,13 @@ class ReportService:
                     "character_count",
                     "error",
                     "output_path",
+                    "original_text",
+                    "provider_text",
+                    "pronunciation_aid_applied",
+                    "pronunciation_strategy",
+                    "pronunciation_dictionary",
+                    "pronunciation_override",
+                    "language_code",
                 ],
             )
             writer.writeheader()
@@ -174,9 +193,12 @@ class ReportService:
         started_at: datetime,
         ended_at: datetime,
         counts: dict[str, Any],
+        monitor_metrics: dict[str, Any],
+        provider_diagnostics: dict[str, Any],
     ) -> dict[str, Any]:
         return {
             "application_version": app.__version__,
+            "release_channel": getattr(app, "__release_channel__", "dev"),
             "report_schema_version": REPORT_SCHEMA_VERSION,
             "project_name": project.name if project else "No project",
             "project_id": project.project_id if project else None,
@@ -186,6 +208,12 @@ class ReportService:
             "provider": settings.provider,
             "voice_id": settings.voice_id,
             "model_id": settings.model_id,
+            "active_api_profile_id": settings.active_api_profile_id,
+            "api_profile_failover": settings.api_profile_failover,
+            "execution_order": settings.execution_order,
+            "generation_scope": settings.generation_scope,
+            "pronunciation_dictionary_id": settings.active_pronunciation_dictionary_id,
+            "pronunciation_dictionary_locators": settings.pronunciation_dictionary_locators,
             "total_files": counts["total"],
             "completed": counts["completed"],
             "failed": counts["failed"],
@@ -200,6 +228,8 @@ class ReportService:
             "python_version": sys.version,
             "qt_version": QtCore.qVersion(),
             "pyside_version": QtCore.__version__,
+            "monitor_metrics": monitor_metrics,
+            "provider_diagnostics": self.sanitize(provider_diagnostics),
         }
 
     def _safe_settings(self, settings: AppSettings) -> dict[str, Any]:
@@ -209,21 +239,32 @@ class ReportService:
 
     def _report_jobs(self, jobs: list[TTSJob], output_dir: Path, settings: AppSettings) -> list[ReportJob]:
         extension = ".wav" if settings.provider in {"mock", "piper"} else settings.file_extension
-        return [
-            ReportJob(
-                filename=job.filename,
-                row_number=job.row_number,
-                status=str(job.status),
-                retry_count=job.retry_count,
-                duration=job.duration_seconds,
-                character_count=len(job.text),
-                error=self.sanitize_text(job.error or ""),
-                output_path=str(output_dir / job.generated_output_path)
-                if job.generated_output_path
-                else str(job.output_path(output_dir, extension)),
+        pronunciation_service = PronunciationService()
+        report_jobs: list[ReportJob] = []
+        for job in jobs:
+            pronunciation = pronunciation_service.prepare_job(job, settings)
+            report_jobs.append(
+                ReportJob(
+                    filename=job.filename,
+                    row_number=job.row_number,
+                    status=str(job.status),
+                    retry_count=job.retry_count,
+                    duration=job.duration_seconds,
+                    character_count=len(job.text),
+                    error=self.sanitize_text(job.error or ""),
+                    output_path=str(output_dir / job.generated_output_path)
+                    if job.generated_output_path
+                    else str(job.output_path(output_dir, extension)),
+                    original_text=job.text,
+                    provider_text=pronunciation.provider_text,
+                    pronunciation_aid_applied=pronunciation.aid_applied,
+                    pronunciation_strategy=pronunciation.strategy,
+                    pronunciation_dictionary=pronunciation.dictionary_fingerprint or "",
+                    pronunciation_override=job.pronunciation_override or "project",
+                    language_code=settings.language_code or "",
+                )
             )
-            for job in jobs
-        ]
+        return report_jobs
 
     def _counts(self, jobs: list[ReportJob], summary: dict[str, Any]) -> dict[str, Any]:
         total = len(jobs)
@@ -244,6 +285,7 @@ class ReportService:
     def _markdown(self, report: GenerationReport) -> str:
         summary = report.summary
         failed = [job for job in report.jobs if job.status == "failed"]
+        metrics = summary.get("monitor_metrics", {})
         lines = [
             "# S Talking Generation Report",
             "",
@@ -254,7 +296,13 @@ class ReportService:
             f"- Completed: {summary['completed']}",
             f"- Skipped: {summary['skipped']}",
             f"- Failed: {summary['failed']}",
-            f"- Elapsed seconds: {summary['elapsed_seconds']:.2f}",
+            f"- Stopped by user: {'Yes' if summary['stopped'] else 'No'}",
+            f"- Pending: {summary['pending']}",
+            f"- Elapsed: {format_duration(summary['elapsed_seconds'])}",
+            f"- Active generation time: {format_duration(metrics.get('active_generation_time', 0), empty_zero=True)}",
+            f"- Average job duration: {format_duration(metrics.get('average_seconds_per_job', 0), empty_zero=True)}",
+            f"- Files/minute: {format_files_per_minute(metrics.get('files_per_minute', 0))}",
+            f"- Characters/minute: {format_characters_per_minute(metrics.get('characters_per_minute', 0))}",
             "",
             "## Troubleshooting Context",
             f"- Output directory: {summary['output_directory']}",
@@ -266,6 +314,12 @@ class ReportService:
         ]
         if failed:
             lines.extend(f"- Row {job.row_number} `{job.filename}`: {job.error or 'No error text'}" for job in failed)
+        else:
+            lines.append("- None")
+        lines.extend(["", "## Output Files"])
+        outputs = [job for job in report.jobs if job.output_path]
+        if outputs:
+            lines.extend(f"- Row {job.row_number} `{job.filename}`: {job.output_path}" for job in outputs)
         else:
             lines.append("- None")
         return "\n".join(lines) + "\n"
@@ -282,6 +336,16 @@ class ReportService:
         )
         if not failed_rows:
             failed_rows = "<tr><td colspan='3'>No failed jobs</td></tr>"
+        output_rows = "\n".join(
+            "<tr>"
+            f"<td>{job.row_number}</td><td>{html.escape(job.filename)}</td>"
+            f"<td>{self._output_link(job.output_path)}</td>"
+            "</tr>"
+            for job in report.jobs
+            if job.output_path and Path(job.output_path).exists()
+        )
+        if not output_rows:
+            output_rows = "<tr><td colspan='3'>No local output files found</td></tr>"
         cards = "".join(
             f"<section><strong>{label}</strong><span>{summary[key]}</span></section>"
             for label, key in [
@@ -290,6 +354,19 @@ class ReportService:
                 ("Skipped", "skipped"),
                 ("Failed", "failed"),
                 ("Characters", "total_characters"),
+            ]
+        )
+        metrics = summary.get("monitor_metrics", {})
+        metric_rows = "".join(
+            f"<tr><th>{html.escape(label)}</th><td>{html.escape(str(value))}</td></tr>"
+            for label, value in [
+                ("Average job duration", format_duration(metrics.get("average_seconds_per_job", 0), empty_zero=True)),
+                ("Files/minute", format_files_per_minute(metrics.get("files_per_minute", 0))),
+                ("Characters/minute", format_characters_per_minute(metrics.get("characters_per_minute", 0))),
+                ("Active generation time", format_duration(metrics.get("active_generation_time", 0), empty_zero=True)),
+                ("Paused time", format_duration(metrics.get("paused_time", 0), empty_zero=True)),
+                ("Stopped by user", metrics.get("stopped_by_user", False)),
+                ("Peak concurrent jobs", metrics.get("peak_concurrent_jobs", 1)),
             ]
         )
         return f"""<!doctype html>
@@ -311,11 +388,19 @@ td,th{{border-bottom:1px solid #334155;padding:.55rem;text-align:left}}
 <h1>S Talking Generation Report</h1>
 <p>{html.escape(summary["project_name"])} · {html.escape(summary["provider"])}</p>
 <div class="cards">{cards}</div>
+<h2>Monitor Metrics</h2>
+<table><tbody>{metric_rows}</tbody></table>
 <h2>Failed Jobs</h2>
 <table><thead><tr><th>Row</th><th>Filename</th><th>Error</th></tr></thead><tbody>{failed_rows}</tbody></table>
+<h2>Output Files</h2>
+<table><thead><tr><th>Row</th><th>Filename</th><th>Path</th></tr></thead><tbody>{output_rows}</tbody></table>
 </main>
 </html>
 """
+
+    def _output_link(self, output_path: str) -> str:
+        escaped = html.escape(output_path)
+        return f'<a href="{Path(output_path).as_uri()}">{escaped}</a>'
 
     def _diagnostics(self, report: GenerationReport) -> dict[str, Any]:
         packages = {}

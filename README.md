@@ -1,5 +1,4 @@
-# S Talking v0.3
-
+# S Talking v0.13.0-rc2
 S Talking is a Windows-friendly PySide6 audio-generation tool for CSV-driven
 text-to-speech batches.
 
@@ -56,7 +55,36 @@ Advanced terminal commands are documented in `docs/DEVELOPER_TOOLS.md`.
 
 ## Documentation
 
+- User guide: `docs/USER_GUIDE.md`
+- Installation: `docs/INSTALLATION.md`
+- Troubleshooting: `docs/TROUBLESHOOTING.md`
+- Release checklist: `docs/RELEASE_CHECKLIST.md`
 - Project behavior: `docs/PROJECTS.md`
 - Reports and diagnostics: `docs/REPORTS.md`
 - Developer tools: `docs/DEVELOPER_TOOLS.md`
 - Architecture: `docs/ARCHITECTURE.md`
+
+## Release Candidate Checks
+
+Run:
+
+```powershell
+.\scripts\release-check.ps1
+```
+
+Build the unsigned portable ZIP:
+
+```powershell
+.\scripts\build.ps1
+```
+
+## Health Center and Task Center
+
+S Talking now includes a zero-terminal development overview:
+
+- Click the health indicator in the status bar or open **Developer Tools → Health Center**.
+- Use **Copy summary** for a compact update.
+- Use **Copy for ChatGPT** for a structured Markdown health report.
+- Open **Developer Tools → Task Center** to review tasks stored in `docs/tasks/`, copy their prompts, and update task status.
+
+See `docs/HEALTH_CENTER.md` for details.

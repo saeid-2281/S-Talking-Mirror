@@ -53,8 +53,8 @@ class ProjectController:
             name,
             csv_path,
             output_path,
-            "mock",
-            settings.model_copy(update={"provider": "mock"}),
+            settings.provider,
+            settings,
         )
 
     def open_project(self, path: Path) -> ProjectState:

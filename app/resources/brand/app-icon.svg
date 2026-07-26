@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="S Talking app icon">
+  <rect x="16" y="16" width="224" height="224" rx="48" fill="#0A0F1C"/>
+  <path d="M76 100c22-34 82-33 103 0 14 22-4 40-35 45l-38 5c-25 3-32 30-11 44 21 14 65 9 85-14" fill="none" stroke="#3B82F6" stroke-width="22" stroke-linecap="round"/>
+  <path d="M56 128h22m100 0h22M98 70v116m30-132v148m30-112v76" fill="none" stroke="#2DD4BF" stroke-width="10" stroke-linecap="round"/>
+</svg>

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -28,6 +29,18 @@ class AppSettings(BaseModel):
     style: float = Field(default=0.2, ge=0.0, le=1.0)
     use_speaker_boost: bool = True
     speed: float = Field(default=1.0, ge=0.7, le=1.2)
+    short_text_pronunciation_aid: bool = True
+    pronunciation_dictionary_locators: list[dict[str, Any]] = Field(default_factory=list)
+    active_pronunciation_dictionary_id: str | None = None
+    job_pronunciation_overrides: dict[int, str] = Field(default_factory=dict)
+    active_api_profile_id: str | None = None
+    api_profile_failover: str = "never"
+    api_profile_failover_max_switches: int = Field(default=1, ge=0, le=20)
+    api_profile_failover_sequence_mode: str = "active_then_backups"
+    api_profile_failover_manual_sequence: list[str] = Field(default_factory=list)
+    allow_unknown_quota_override: bool = False
+    generation_scope: str = "entire_queue"
+    execution_order: str = "csv"
 
     delay_seconds: float = Field(default=0.5, ge=0.0, le=60.0)
     timeout_seconds: float = Field(default=90.0, ge=5.0, le=600.0)
@@ -54,11 +67,21 @@ class TTSJob(BaseModel):
     row_number: int
     text: str
     filename: str
+    source_physical_row: int | None = None
+    import_status: str = "imported"
+    import_issue_code: str | None = None
     status: JobStatus = JobStatus.PENDING
     error: str | None = None
     retry_count: int = 0
     duration_seconds: float = 0.0
     generated_output_path: str | None = None
+    pronunciation_override: str | None = None
+    original_order: int | None = None
+    custom_order: int | None = None
+
+    @property
+    def character_count(self) -> int:
+        return len(self.text)
 
     @field_validator("text", "filename")
     @classmethod

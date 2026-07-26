@@ -19,7 +19,10 @@ from PySide6.QtWidgets import (
 
 import app
 from app.bootstrap import ApplicationContext
+from app.gui.health_center import HealthCenterDialog
+from app.gui.task_center import TaskCenterDialog
 from app.models import DevCheckResult
+from app.release import build_metadata
 
 
 class DevCheckRunner(QObject):
@@ -84,57 +87,145 @@ class DevCheckRunner(QObject):
         self.output.emit(text)
 
     def _finished(self, exit_code: int, _status: QProcess.ExitStatus) -> None:
-        finished_at = datetime.now().isoformat()
-        artifact_dir = self.artifact_dir or self.artifact_root / "unknown"
-        artifact_dir.mkdir(parents=True, exist_ok=True)
-        stdout_path = artifact_dir / "stdout.txt"
-        stderr_path = artifact_dir / "stderr.txt"
-        stdout_path.write_text(self.stdout, encoding="utf-8")
-        stderr_path.write_text(self.stderr, encoding="utf-8")
-        stage = self._stage(exit_code)
-        result = DevCheckResult(
-            started_at=self.started_at,
-            finished_at=finished_at,
-            elapsed_seconds=perf_counter() - self.started_seconds,
-            success=exit_code == 0,
-            exit_code=exit_code,
-            stage=stage,
-            summary="All checks passed" if exit_code == 0 else f"Checks failed at {stage}",
-            stdout_path=stdout_path,
-            stderr_path=stderr_path,
-            artifact_directory=artifact_dir,
-        )
-        (artifact_dir / "result.json").write_text(
-            json.dumps(
-                {
-                    "started_at": result.started_at,
-                    "finished_at": result.finished_at,
-                    "elapsed_seconds": result.elapsed_seconds,
-                    "success": result.success,
-                    "exit_code": result.exit_code,
-                    "stage": result.stage,
-                    "summary": result.summary,
-                    "stdout_path": str(result.stdout_path),
-                    "stderr_path": str(result.stderr_path),
-                    "artifact_directory": str(result.artifact_directory),
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-        latest = self.artifact_root / "latest"
-        latest.mkdir(parents=True, exist_ok=True)
-        (latest / "runner-result.json").write_text((artifact_dir / "result.json").read_text(encoding="utf-8"), encoding="utf-8")
+        result = self._read_authoritative_result(exit_code)
         self.finished.emit(result)
 
-    def _stage(self, exit_code: int) -> str:
-        if exit_code == 0:
-            return "complete"
-        combined = f"{self.stdout}\n{self.stderr}"
-        for marker in ["FAILED: compileall", "FAILED: pytest", "FAILED: ruff"]:
-            if marker in combined:
-                return marker.removeprefix("FAILED: ")
-        return "unknown"
+    def _read_authoritative_result(self, exit_code: int) -> DevCheckResult:
+        latest = self.artifact_root / "latest"
+        result_path = latest / "result.json"
+        if not result_path.exists():
+            return self._unknown_result(exit_code, "Check status unknown: latest/result.json is missing.")
+        try:
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return self._unknown_result(exit_code, "Check status unknown: latest/result.json is malformed.")
+        return DevCheckResult(
+            started_at=str(payload.get("started_at") or self.started_at),
+            finished_at=str(payload.get("finished_at") or datetime.now().isoformat()),
+            elapsed_seconds=float(payload.get("elapsed_seconds") or max(0, perf_counter() - self.started_seconds)),
+            success=bool(payload.get("success", False)),
+            exit_code=int(payload.get("exit_code") if payload.get("exit_code") is not None else exit_code),
+            stage=str(payload.get("stage") or "unknown"),
+            summary=str(payload.get("summary") or "Check completed with no summary."),
+            stdout_path=latest / "stdout.txt",
+            stderr_path=latest / "stderr.txt",
+            artifact_directory=Path(payload.get("artifact_directory") or latest),
+        )
+
+    def _unknown_result(self, exit_code: int, summary: str) -> DevCheckResult:
+        latest = self.artifact_root / "latest"
+        return DevCheckResult(
+            started_at=self.started_at,
+            finished_at=datetime.now().isoformat(),
+            elapsed_seconds=max(0, perf_counter() - self.started_seconds),
+            success=False,
+            exit_code=exit_code,
+            stage="unknown",
+            summary=summary,
+            stdout_path=latest / "stdout.txt",
+            stderr_path=latest / "stderr.txt",
+            artifact_directory=latest,
+        )
+
+
+class ReleaseCheckRunner(DevCheckRunner):
+    def _read_authoritative_result(self, exit_code: int) -> DevCheckResult:
+        latest = self.artifact_root / "latest"
+        result_path = latest / "result.json"
+        if not result_path.exists():
+            return self._unknown_result(exit_code, "Release check status unknown: latest/result.json is missing.")
+        try:
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return self._unknown_result(exit_code, "Release check status unknown: latest/result.json is malformed.")
+        return DevCheckResult(
+            started_at=str(payload.get("started_at") or self.started_at),
+            finished_at=str(payload.get("finished_at") or datetime.now().isoformat()),
+            elapsed_seconds=float(payload.get("elapsed_seconds") or max(0, perf_counter() - self.started_seconds)),
+            success=bool(payload.get("success", False)),
+            exit_code=int(payload.get("exit_code") if payload.get("exit_code") is not None else exit_code),
+            stage=str(payload.get("stage") or "unknown"),
+            summary=str(payload.get("summary") or "Release check completed with no summary."),
+            stdout_path=latest / "stdout.txt",
+            stderr_path=latest / "stderr.txt",
+            artifact_directory=Path(payload.get("artifact_directory") or latest),
+        )
+
+
+class ReleaseReadinessDialog(QDialog):
+    def __init__(self, parent: QWidget, context: ApplicationContext, tools: "DeveloperTools") -> None:
+        super().__init__(parent)
+        self.context = context
+        self.tools = tools
+        self.setWindowTitle("Release readiness")
+        self.setModal(False)
+        self.resize(820, 560)
+        self.runner = ReleaseCheckRunner(
+            context.container.runtime.app_root,
+            context.container.runtime.artifacts_dir / "release-check",
+            self,
+        )
+        root = QVBoxLayout(self)
+        self.summary = QPlainTextEdit()
+        self.summary.setReadOnly(True)
+        root.addWidget(self.summary, 1)
+        row = QHBoxLayout()
+        for label, callback in [
+            ("Run release checks", self.run),
+            ("Export release diagnostics", self.export_release_diagnostics),
+            ("Copy release summary", self.copy_summary),
+            ("Open artifact folder", self.open_artifact_folder),
+            ("Close", self.close),
+        ]:
+            button = QPushButton(label)
+            button.clicked.connect(callback)
+            row.addWidget(button)
+            if label == "Run release checks":
+                self.run_button = button
+        root.addLayout(row)
+        self.runner.output.connect(self.summary.insertPlainText)
+        self.runner.finished.connect(self.finished_result)
+        self.refresh()
+
+    def current_state(self):
+        parent = self.parent()
+        csv_path = Path(parent.csv.text()) if hasattr(parent, "csv") and parent.csv.text().strip() else None
+        output_dir = Path(parent.out.text()) if hasattr(parent, "out") and parent.out.text().strip() else None
+        settings = parent.settings() if hasattr(parent, "settings") else None
+        return self.context.release_readiness_service.snapshot(
+            csv_path=csv_path,
+            jobs=list(self.context.generation_controller.jobs),
+            settings=settings,
+            output_dir=output_dir,
+            preflight_status=getattr(self.context.preflight_service.latest, "status", None),
+        )
+
+    def refresh(self) -> None:
+        state = self.current_state()
+        self.summary.setPlainText(self.context.release_readiness_service.copy_summary_text(state))
+
+    def run(self) -> None:
+        script = self.context.container.runtime.app_root / "scripts" / "release-check.ps1"
+        self.summary.clear()
+        if self.runner.start(script):
+            self.run_button.setEnabled(False)
+
+    def finished_result(self, result: DevCheckResult) -> None:
+        self.run_button.setEnabled(True)
+        self.context.health_service.invalidate()
+        self.summary.appendPlainText("\n" + result.summary)
+        self.refresh()
+
+    def export_release_diagnostics(self) -> None:
+        path = self.context.release_readiness_service.export(self.current_state())
+        self.context.desktop_service.copy_to_clipboard(str(path))
+        self.context.desktop_service.open_path(path.parent)
+
+    def copy_summary(self) -> None:
+        self.context.desktop_service.copy_to_clipboard(self.context.release_readiness_service.copy_summary_text(self.current_state()))
+
+    def open_artifact_folder(self) -> None:
+        self.context.desktop_service.open_path(self.context.container.runtime.artifacts_dir / "release-check" / "latest")
 
 
 class DevCheckDialog(QDialog):
@@ -160,13 +251,17 @@ class DevCheckDialog(QDialog):
         self.cancel_button = QPushButton("Cancel checks")
         self.open_button = QPushButton("Open artifact folder")
         self.export_button = QPushButton("Export diagnostics")
-        self.copy_button = QPushButton("Copy output")
+        self.copy_summary_button = QPushButton("Copy summary")
+        self.copy_chatgpt_button = QPushButton("Copy for ChatGPT")
+        self.copy_button = QPushButton("Copy detailed output")
         self.cancel_button.setEnabled(False)
         for button, callback in [
             (self.run_button, self.run),
             (self.cancel_button, self.cancel),
             (self.open_button, self.open_latest),
             (self.export_button, self.export_diagnostics),
+            (self.copy_summary_button, self.copy_summary),
+            (self.copy_chatgpt_button, self.copy_for_chatgpt),
             (self.copy_button, self.copy_output),
         ]:
             button.clicked.connect(callback)
@@ -190,9 +285,13 @@ class DevCheckDialog(QDialog):
         self.status.setText("Cancelling...")
 
     def finished_result(self, result: DevCheckResult) -> None:
+        self.context.health_service.invalidate()
         self.status.setText(result.summary)
         self.run_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
+        tools = getattr(self.parent(), "developer_tools", None)
+        if tools:
+            tools.refresh_after_checks()
 
     def open_latest(self) -> None:
         path = self.context.container.runtime.artifacts_dir / "dev-check" / "latest"
@@ -207,10 +306,29 @@ class DevCheckDialog(QDialog):
                 "paused": self.context.generation_controller.is_paused,
             },
         )
+        self.context.health_service.invalidate()
         self.context.desktop_service.open_path(bundle.parent)
 
     def copy_output(self) -> None:
         self.context.desktop_service.copy_to_clipboard(self.output.toPlainText())
+
+    def copy_summary(self) -> None:
+        state = self.context.health_service.snapshot(
+            project=self.context.project_controller.current_project,
+            dashboard=None,
+        )
+        self.context.desktop_service.copy_to_clipboard(
+            self.context.health_service.compact_summary(state)
+        )
+
+    def copy_for_chatgpt(self) -> None:
+        state = self.context.health_service.snapshot(
+            project=self.context.project_controller.current_project,
+            dashboard=None,
+        )
+        self.context.desktop_service.copy_to_clipboard(
+            self.context.health_service.markdown_summary(state)
+        )
 
     def closeEvent(self, event) -> None:
         self.runner.cancel()
@@ -245,6 +363,8 @@ class RuntimeInformationDialog(QDialog):
         env = self.context.diagnostics_service.environment()
         values = {
             "application_version": app.__version__,
+            "release_channel": getattr(app, "__release_channel__", "dev"),
+            "build_metadata": build_metadata(),
             "repository_root": runtime.app_root,
             "data_directory": runtime.data_dir,
             "reports_directory": runtime.reports_dir,
@@ -268,12 +388,19 @@ class DeveloperTools:
         self.check_dialog: DevCheckDialog | None = None
         self.tools_dialog: DevelopmentAssistantDialog | None = None
         self.runtime_dialog: RuntimeInformationDialog | None = None
+        self.health_dialog: HealthCenterDialog | None = None
+        self.task_dialog: TaskCenterDialog | None = None
+        self.release_dialog: ReleaseReadinessDialog | None = None
         self.actions: dict[str, object] = {}
 
     def populate_menu(self, menu: QMenu) -> dict[str, object]:
         specs = [
+            ("Health Center", self.show_health_center),
+            ("Task Center", self.show_task_center),
             ("Development Assistant", self.show_assistant),
+            ("Release readiness", self.show_release_readiness),
             ("Run all checks", self.show_checks),
+            ("Clear saved API key", self.clear_saved_api_key),
             ("Export diagnostics", self.export_diagnostics),
             ("Open diagnostics folder", lambda: self.open_path(self.context.container.runtime.artifacts_dir / "diagnostics")),
             ("Open latest report", self.open_latest_report),
@@ -304,6 +431,23 @@ class DeveloperTools:
             report_action.setEnabled(bool(latest))
             report_action.setToolTip("" if latest else "No generation report has been created yet.")
 
+    def show_health_center(self) -> None:
+        self.health_dialog = self.health_dialog or HealthCenterDialog(self.parent, self.context)
+        parent = self.parent
+        dashboard_method = getattr(parent, "current_dashboard_state", None)
+        if callable(dashboard_method):
+            self.health_dialog.set_dashboard(dashboard_method())
+        else:
+            self.health_dialog.refresh()
+        self.health_dialog.show()
+        self.health_dialog.raise_()
+
+    def show_task_center(self) -> None:
+        self.task_dialog = self.task_dialog or TaskCenterDialog(self.parent, self.context)
+        self.task_dialog.refresh()
+        self.task_dialog.show()
+        self.task_dialog.raise_()
+
     def show_checks(self) -> None:
         self.check_dialog = self.check_dialog or DevCheckDialog(self.parent, self.context)
         self.check_dialog.show()
@@ -325,6 +469,7 @@ class DeveloperTools:
                 "paused": self.context.generation_controller.is_paused,
             },
         )
+        self.context.health_service.invalidate()
         self.context.desktop_service.copy_to_clipboard(str(bundle))
         self.open_path(bundle.parent)
 
@@ -361,6 +506,41 @@ class DeveloperTools:
             self.tools_dialog.close()
         if self.runtime_dialog:
             self.runtime_dialog.close()
+        if self.health_dialog:
+            self.health_dialog.close()
+        if self.task_dialog:
+            self.task_dialog.close()
+        if self.release_dialog:
+            self.release_dialog.close()
+
+    def refresh_after_checks(self) -> None:
+        self.context.health_service.invalidate()
+        parent = self.parent
+        if hasattr(parent, "update_status_bar"):
+            parent.update_status_bar()
+        if self.health_dialog and self.health_dialog.isVisible():
+            dashboard_method = getattr(parent, "current_dashboard_state", None)
+            if callable(dashboard_method):
+                self.health_dialog.set_dashboard(dashboard_method())
+            else:
+                self.health_dialog.refresh()
+        if self.tools_dialog and self.tools_dialog.isVisible():
+            self.tools_dialog.refresh()
+
+    def show_release_readiness(self) -> None:
+        self.release_dialog = self.release_dialog or ReleaseReadinessDialog(self.parent, self.context, self)
+        self.release_dialog.refresh()
+        self.release_dialog.show()
+        self.release_dialog.raise_()
+
+    def clear_saved_api_key(self) -> None:
+        parent = self.parent
+        if hasattr(parent, "key"):
+            parent.key.clear()
+        settings = self.context.settings_controller.load_global_settings()
+        if settings:
+            self.context.settings_controller.save_global_settings(settings.model_copy(update={"api_key": ""}))
+        self.context.voice_service.invalidate_provider_cache()
 
 
 class DevelopmentAssistantDialog(QDialog):
@@ -377,6 +557,8 @@ class DevelopmentAssistantDialog(QDialog):
         root.addWidget(self.summary)
         row = QHBoxLayout()
         for label, callback in [
+            ("Health Center", tools.show_health_center),
+            ("Task Center", tools.show_task_center),
             ("Run all checks", tools.show_checks),
             ("Cancel checks", self.cancel_checks),
             ("Export diagnostics", tools.export_diagnostics),

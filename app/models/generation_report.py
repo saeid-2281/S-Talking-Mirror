@@ -15,6 +15,13 @@ class ReportJob:
     character_count: int = 0
     error: str = ""
     output_path: str = ""
+    original_text: str = ""
+    provider_text: str = ""
+    pronunciation_aid_applied: bool = False
+    pronunciation_strategy: str = "none"
+    pronunciation_dictionary: str = ""
+    pronunciation_override: str = ""
+    language_code: str = ""
 
 
 @dataclass

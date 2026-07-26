@@ -296,7 +296,7 @@ def test_project_controller_delegates_to_project_manager(tmp_path: Path) -> None
 
     state = controller.new_project("Lesson", None, None, AppSettings(provider="elevenlabs"))
 
-    assert state.provider == "mock"
+    assert state.provider == "elevenlabs"
     assert service.current_project is state
 
 

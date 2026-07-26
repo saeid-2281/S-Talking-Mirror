@@ -8,6 +8,7 @@ from loguru import logger
 
 from app.models import AppSettings, JobStatus, TTSJob
 from app.providers.base import TTSProvider
+from app.services.pronunciation_service import PronunciationService
 from app.state import JobStateStore
 
 
@@ -55,7 +56,7 @@ class BatchEngine:
             try:
                 job.status = JobStatus.RUNNING
                 logger.info("[{}/{}] Generating: {}", index, len(jobs), output_path.name)
-                audio = self.provider.synthesize(job.text, self.settings)
+                audio = self.provider.synthesize(PronunciationService().prepare_job(job, self.settings).provider_text, self.settings)
                 output_path.write_bytes(audio)
                 job.status = JobStatus.COMPLETED
                 summary.completed += 1

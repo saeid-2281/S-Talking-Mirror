@@ -173,22 +173,94 @@ def test_background_self_check_starts_qprocess(monkeypatch: pytest.MonkeyPatch, 
 
 def test_qprocess_runner_captures_success(qt_app, tmp_path: Path) -> None:
     script = tmp_path / "success.ps1"
-    script.write_text("Write-Output 'hello'; exit 0", encoding="utf-8")
+    artifact_root = tmp_path / "artifacts"
+    script.write_text(
+        f"""
+$latest = '{(artifact_root / "latest").as_posix()}'
+New-Item -ItemType Directory -Force $latest | Out-Null
+@{{
+  schema_version = 1
+  started_at = '2026-01-01T00:00:00Z'
+  finished_at = '2026-01-01T00:00:01Z'
+  elapsed_seconds = 1
+  success = $true
+  exit_code = 0
+  stage = 'complete'
+  summary = 'All checks passed'
+  artifact_directory = $latest
+  steps = @{{
+    compileall = @{{ success = $true; exit_code = 0 }}
+    pytest = @{{ success = $true; exit_code = 0; passed = 98; failed = 0; errors = 0 }}
+    ruff = @{{ success = $true; exit_code = 0 }}
+  }}
+}} | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $latest 'result.json')
+Write-Output 'hello'
+exit 0
+""",
+        encoding="utf-8",
+    )
     runner = DevCheckRunner(tmp_path, tmp_path / "artifacts")
     results = []
+    output = []
     runner.finished.connect(results.append)
+    runner.output.connect(output.append)
 
     assert runner.start(script) is True
     wait_for(lambda: bool(results), qt_app)
 
     assert results[0].success is True
     assert results[0].exit_code == 0
-    assert "hello" in results[0].stdout_path.read_text(encoding="utf-8")
+    assert results[0].summary == "All checks passed"
+    assert "hello" in "".join(output)
+    assert not (artifact_root / "latest" / "runner-result.json").exists()
 
 
 def test_qprocess_runner_captures_failure(qt_app, tmp_path: Path) -> None:
     script = tmp_path / "failure.ps1"
-    script.write_text("Write-Error 'bad'; exit 3", encoding="utf-8")
+    artifact_root = tmp_path / "artifacts"
+    script.write_text(
+        f"""
+$latest = '{(artifact_root / "latest").as_posix()}'
+New-Item -ItemType Directory -Force $latest | Out-Null
+@{{
+  schema_version = 1
+  started_at = '2026-01-01T00:00:00Z'
+  finished_at = '2026-01-01T00:00:01Z'
+  elapsed_seconds = 1
+  success = $false
+  exit_code = 3
+  stage = 'pytest'
+  summary = 'Checks failed at pytest'
+  artifact_directory = $latest
+  steps = @{{
+    compileall = @{{ success = $true; exit_code = 0 }}
+    pytest = @{{ success = $false; exit_code = 3; passed = 10; failed = 1; errors = 0 }}
+    ruff = @{{ success = $false; exit_code = $null }}
+  }}
+}} | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $latest 'result.json')
+Write-Error 'bad'
+exit 3
+""",
+        encoding="utf-8",
+    )
+    runner = DevCheckRunner(tmp_path, artifact_root)
+    results = []
+    output = []
+    runner.finished.connect(results.append)
+    runner.output.connect(output.append)
+
+    assert runner.start(script) is True
+    wait_for(lambda: bool(results), qt_app)
+
+    assert results[0].success is False
+    assert results[0].exit_code == 3
+    assert results[0].stage == "pytest"
+    assert "bad" in "".join(output)
+
+
+def test_qprocess_runner_reports_unknown_when_result_missing(qt_app, tmp_path: Path) -> None:
+    script = tmp_path / "missing.ps1"
+    script.write_text("Write-Output 'no result'; exit 0", encoding="utf-8")
     runner = DevCheckRunner(tmp_path, tmp_path / "artifacts")
     results = []
     runner.finished.connect(results.append)
@@ -197,8 +269,8 @@ def test_qprocess_runner_captures_failure(qt_app, tmp_path: Path) -> None:
     wait_for(lambda: bool(results), qt_app)
 
     assert results[0].success is False
-    assert results[0].exit_code == 3
-    assert "bad" in results[0].stderr_path.read_text(encoding="utf-8")
+    assert results[0].stage == "unknown"
+    assert "missing" in results[0].summary.lower()
 
 
 def test_second_check_cannot_start_while_active(qt_app, tmp_path: Path) -> None:
@@ -287,3 +359,53 @@ def wait_for(predicate, qt_app, timeout: float = 5.0) -> None:
         qt_app.processEvents()
         time.sleep(0.01)
     assert predicate()
+
+
+def test_health_breakdown_and_recommendations(tmp_path):
+    from app.config.runtime import RuntimeConfig
+    from app.models.dashboard_state import DashboardState
+    from app.services.health_service import HealthService
+
+    class Git:
+        def status(self):
+            from app.services.git_service import GitStatus
+            return GitStatus(branch="feature/test", clean=False, changed_files=["app/x.py"])
+
+    class Reports:
+        def latest_report_dir(self):
+            return None
+
+    class Diagnostics:
+        latest_bundle = None
+
+    runtime = RuntimeConfig.from_root(tmp_path)
+    latest = runtime.artifacts_dir / "dev-check" / "latest"
+    latest.mkdir(parents=True)
+    (latest / "result.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "success": True,
+                "exit_code": 0,
+                "stage": "complete",
+                "summary": "All checks passed",
+                "artifact_directory": str(latest),
+                "steps": {
+                    "compileall": {"success": True, "exit_code": 0},
+                    "pytest": {"success": True, "exit_code": 0, "passed": 86, "failed": 0, "errors": 0},
+                    "ruff": {"success": True, "exit_code": 0},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    service = HealthService(runtime, Git(), Reports(), Diagnostics())
+
+    state = service.snapshot(dashboard=DashboardState(total_files=2, total_characters=10))
+
+    assert state.check.tests_passed == 86
+    assert state.check.ruff_passed is True
+    assert any(item.name == "Tests" and item.points == 30 for item in state.breakdown)
+    assert any("commit" in item.lower() for item in state.recommendations)
+    assert "Score breakdown" in service.markdown_summary(state)
+    assert "Recommended next actions" in service.markdown_summary(state)

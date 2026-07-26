@@ -136,7 +136,9 @@ def test_offscreen_app_smoke_creates_dashboard_and_report(qt_app, tmp_path: Path
     assert (report_dir / "summary.json").exists()
     report_text = "\n".join(path.read_text(encoding="utf-8") for path in report_dir.iterdir())
     assert "sk_SECRET" not in report_text
-    assert window.report_dialogs
+    assert not window.report_dialogs
+    assert not window.report_button.isHidden()
+    assert "Report" in window.report_button.text()
     window.close()
     qt_app.processEvents()
 

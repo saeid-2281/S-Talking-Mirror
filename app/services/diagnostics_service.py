@@ -17,6 +17,7 @@ import app
 from app.config import load_settings
 from app.config.runtime import RuntimeConfig
 from app.models import DashboardState, ProjectState
+from app.release import RELEASE_CHANNEL, build_metadata
 from app.services.git_service import GitService
 from app.services.report_service import ReportService
 
@@ -40,6 +41,7 @@ class DiagnosticsService:
         bundle_dir.mkdir(parents=True, exist_ok=True)
         bundle = bundle_dir / f"S-Talking-Diagnostics-{timestamp}.zip"
         files: dict[str, bytes] = {}
+        files["diagnostics/build_metadata.json"] = self._json_bytes(build_metadata())
         files["diagnostics/environment.json"] = self._json_bytes(self.environment())
         files["diagnostics/application_state.json"] = self._json_bytes(
             self.application_state(project=project, dashboard=dashboard, queue_state=queue_state)
@@ -77,6 +79,8 @@ class DiagnosticsService:
             "pyside_version": QtCore.__version__,
             "qt_version": QtCore.qVersion(),
             "application_version": app.__version__,
+            "release_channel": RELEASE_CHANNEL,
+            "build_metadata": build_metadata(),
             "executable_path": sys.executable,
             "repository_root": str(self.runtime.app_root),
             "virtual_environment_path": os.environ.get("VIRTUAL_ENV") or str(self.runtime.app_root / ".venv"),
@@ -201,12 +205,14 @@ class DiagnosticsService:
         )
 
     def _latest_check_result(self) -> str:
-        summary = self.runtime.artifacts_dir / "dev-check" / "latest" / "summary.txt"
-        if not summary.exists():
+        result = self.runtime.artifacts_dir / "dev-check" / "latest" / "result.json"
+        if not result.exists():
             return "No development check artifact found."
-        lines = summary.read_text(encoding="utf-8", errors="ignore").splitlines()
-        failed = [line for line in lines if line.startswith("FAILED")]
-        return failed[-1] if failed else "All latest checks passed."
+        try:
+            payload = json.loads(result.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return "Latest development check result is malformed."
+        return str(payload.get("summary") or ("All latest checks passed." if payload.get("success") else "Latest checks need attention."))
 
     def _manifest(self, files: dict[str, bytes]) -> str:
         return "\n".join(f"{name}\t{len(content)} bytes" for name, content in sorted(files.items())) + "\n"

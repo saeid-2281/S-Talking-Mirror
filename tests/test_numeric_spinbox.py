@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 from pathlib import Path
@@ -86,7 +86,7 @@ def test_spinbox_cursor_uses_actual_subcontrols(qt_app, main_window) -> None:
     QTest.mouseMove(main_window.delay, QPoint(0, 0))
     QTest.mouseMove(main_window.delay, spin_rect(main_window.delay, QStyle.SC_SpinBoxEditField).center())
     qt_app.processEvents()
-    assert main_window.delay.cursor().shape() == Qt.IBeamCursor
+    assert main_window.delay.lineEdit().cursor().shape() == Qt.IBeamCursor
 
     QTest.mouseMove(main_window.delay, spin_rect(main_window.delay, QStyle.SC_SpinBoxUp).center())
     qt_app.processEvents()
