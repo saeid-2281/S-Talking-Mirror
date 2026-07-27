@@ -65,3 +65,48 @@ def test_model_normalization_removes_duplicate_model_ids(tmp_path: Path) -> None
 
     assert [item.model_id for item in items] == ["eleven_v3", "eleven_flash_v2_5"]
     assert items[0].name == "Current"
+
+class _VoiceProvider:
+    def __init__(self, profile_id: str) -> None:
+        self.profile_id = profile_id
+
+    def list_voices(self):
+        common = {
+            "voice_id": "shared",
+            "name": f"Shared {self.profile_id}",
+            "labels": {"language": "da"},
+        }
+        unique = {
+            "voice_id": f"voice-{self.profile_id}",
+            "name": f"Voice {self.profile_id}",
+            "labels": {"language": "da"},
+        }
+        # Include a duplicate response record to verify response-level deduping.
+        return [common, unique, dict(unique)]
+
+    def list_models(self):
+        return [{"model_id": f"model-{self.profile_id}", "name": self.profile_id}]
+
+    def get_subscription(self):
+        return {"tier": self.profile_id, "status": "active"}
+
+    def close(self):
+        return None
+
+
+def test_live_voice_catalog_does_not_leak_provider_repository_rows_between_profiles(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "app.services.voice_service.create_provider",
+        lambda settings: _VoiceProvider(str(settings.active_api_profile_id)),
+    )
+    service = _service(tmp_path)
+    first = AppSettings(provider="elevenlabs", api_key="key-a", active_api_profile_id="first")
+    second = AppSettings(provider="elevenlabs", api_key="key-b", active_api_profile_id="second")
+
+    first_catalog = service.refresh_catalog(first, force=True)
+    second_catalog = service.refresh_catalog(second, force=True)
+
+    assert [voice.voice_id for voice in first_catalog.voices] == ["shared", "voice-first"]
+    assert [voice.voice_id for voice in second_catalog.voices] == ["shared", "voice-second"]
+    assert all(voice.voice_id != "voice-first" for voice in second_catalog.voices)
+    assert second_catalog.models[0].model_id == "model-second"

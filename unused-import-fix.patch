@@ -1,0 +1,6 @@
+diff --git a/app/gui/main.py b/app/gui/main.py
+--- a/app/gui/main.py
++++ b/app/gui/main.py
+@@
+-from app.gui.widgets import ControlledDoubleSpinBox, ControlledSpinBox
++from app.gui.widgets import ControlledSpinBox

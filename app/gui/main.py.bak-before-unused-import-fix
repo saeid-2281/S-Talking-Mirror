@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 import json,sys
 
 import app
@@ -16,7 +16,7 @@ from app.gui.icons import action_icon, icon
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
 from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog
-from app.gui.widgets import ControlledSpinBox
+from app.gui.widgets import ControlledDoubleSpinBox, ControlledSpinBox
 from app.gui.widgets.provider_workspace import ProviderWorkspaceBuilder
 from app.models import AppSettings
 from app.models.product_events import BatchSessionRecord
@@ -1408,4 +1408,3 @@ class MainWindow(QMainWindow):
 def main():
     app=QApplication(sys.argv); win=MainWindow(create_application_context()); win.show(); sys.exit(app.exec())
 if __name__=='__main__':main()
-

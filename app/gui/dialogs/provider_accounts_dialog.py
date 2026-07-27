@@ -282,6 +282,8 @@ class ProviderAccountsDialog(QDialog):
             label.setWordWrap(True)
         self.details_form.addRow("Tier", self.details_tier)
         self.details_form.addRow("Quota", self.details_quota)
+        self.details_form.addRow("Voices", self.details_voices)
+        self.details_form.addRow("TTS models", self.details_models)
         self.details_form.addRow("Last checked", self.details_last_checked)
         self.details_form.addRow("Credential", self.details_key)
         details.addLayout(self.details_form)
@@ -637,7 +639,7 @@ class ProviderAccountsDialog(QDialog):
         )
         if force:
             self.voice_service.invalidate_provider_cache(settings)
-        result = self.voice_service.test_connection(settings)
+        result = self.voice_service.test_connection(settings, force_refresh=force)
         cap = result.capability
         if cap is not None:
             profile.metadata["voice_count"] = cap.voice_count

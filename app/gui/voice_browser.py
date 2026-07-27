@@ -102,6 +102,7 @@ class VoiceBrowserDialog(QDialog):
         open_account_manager: Callable[[], None] | None = None,
         open_dictionary_manager: Callable[[], None] | None = None,
         dictionary_summary_provider: Callable[[], str] | None = None,
+        profile_name_provider: Callable[[str], str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -112,6 +113,7 @@ class VoiceBrowserDialog(QDialog):
         self.open_account_manager = open_account_manager
         self.open_dictionary_manager = open_dictionary_manager
         self.dictionary_summary_provider = dictionary_summary_provider
+        self.profile_name_provider = profile_name_provider
         self.catalog: VoiceCatalog | None = None
         self.items: list[VoiceItem] = []
         self.models: list[VoiceModelItem] = []
@@ -497,24 +499,53 @@ class VoiceBrowserDialog(QDialog):
     def _load_cached(self) -> None:
         settings = self.settings_provider()
         self.provider_label.setText(f"Provider: {settings.provider}")
-        self.profile_label.setText(f"Profile: {settings.active_api_profile_id or 'temporary'}")
+        profile_id = str(settings.active_api_profile_id or "")
+        profile_name = (
+            self.profile_name_provider(profile_id)
+            if profile_id and self.profile_name_provider is not None
+            else ("Temporary key" if not profile_id else profile_id)
+        )
+        self.profile_label.setText(f"Profile: {profile_name}")
+        self.profile_label.setToolTip(profile_id or "Temporary, unsaved credential")
         summary = self.dictionary_summary_provider() if self.dictionary_summary_provider else (settings.active_pronunciation_dictionary_id or "none")
         self.dictionary_label.setText(f"Dictionary: {summary or 'none'}")
         self.dictionary_enabled.setChecked(bool(settings.pronunciation_dictionary_locators))
         cached = self.service.cached_catalog(settings)
         if cached:
             self.catalog = cached
+            self.items = list(cached.voices)
             self.models = list(cached.models)
             self._set_account(cached)
             self._rebuild_models()
-        self.items = self.service.list(provider=settings.provider)
+        else:
+            # A provider-wide repository may contain voices from another API
+            # profile. Keep the browser empty until an account-specific catalog
+            # is fetched rather than presenting stale cross-account entries.
+            self.items = []
+            self.models = []
         self._rebuild_filters()
         self.apply_filters()
 
     def refresh_catalog(self) -> None:
         settings = self.settings_provider()
         self.provider_label.setText(f"Provider: {settings.provider}")
-        self._busy(True, "Refreshing voice catalog…")
+        profile_id = str(settings.active_api_profile_id or "")
+        profile_name = (
+            self.profile_name_provider(profile_id)
+            if profile_id and self.profile_name_provider is not None
+            else ("Temporary key" if not profile_id else profile_id)
+        )
+        self.profile_label.setText(f"Profile: {profile_name}")
+        self.profile_label.setToolTip(profile_id or "Temporary, unsaved credential")
+        # Clear the visible account-specific data immediately so a slow network
+        # refresh never leaves the previous account's models looking current.
+        self.catalog = None
+        self.items = []
+        self.models = []
+        self.apply_filters()
+        self._rebuild_models()
+        self._set_account(None)
+        self._busy(True, "Refreshing account-specific voice catalog…")
         thread = QThread(self)
         worker = _CatalogWorker(self.service, settings, force=True)
         worker.moveToThread(thread)
@@ -553,8 +584,13 @@ class VoiceBrowserDialog(QDialog):
         )
 
     def _rebuild_filters(self) -> None:
-        settings = self.settings_provider()
-        values = self.service.available_filters(settings.provider)
+        values = {
+            "language": sorted({item.language for item in self.items if item.language}),
+            "category": sorted({item.category for item in self.items if item.category}),
+            "accent": sorted({item.accent for item in self.items if item.accent}),
+            "gender": sorted({item.gender for item in self.items if item.gender}),
+            "age": sorted({item.age for item in self.items if item.age}),
+        }
         for name, combo in (
             ("language", self.language),
             ("category", self.category),

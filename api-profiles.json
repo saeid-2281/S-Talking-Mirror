@@ -61,17 +61,20 @@
       "provider": "elevenlabs",
       "enabled": true,
       "priority": 100,
-      "active": false,
+      "active": true,
       "has_saved_key": true,
       "account_tier": "creator",
-      "remaining_characters": 148500,
+      "remaining_characters": 148492,
       "character_limit": 148500,
-      "last_checked_at": "2026-07-27T14:44:37.881939+00:00",
-      "last_success_at": "2026-07-27T14:44:37.881939+00:00",
+      "last_checked_at": "2026-07-27T19:43:23.144586+00:00",
+      "last_success_at": "2026-07-27T19:43:23.144586+00:00",
       "last_used_at": null,
       "last_error": null,
       "status": "ready",
-      "metadata": {}
+      "metadata": {
+        "voice_count": 44,
+        "tts_model_count": 6
+      }
     },
     {
       "profile_id": "b938a85d3f014c49880f27d3817c4f48",
@@ -115,17 +118,20 @@
       "provider": "elevenlabs",
       "enabled": true,
       "priority": 100,
-      "active": true,
+      "active": false,
       "has_saved_key": true,
       "account_tier": "free",
       "remaining_characters": 10000,
       "character_limit": 10000,
-      "last_checked_at": "2026-07-27T14:21:45.037010+00:00",
-      "last_success_at": "2026-07-27T14:21:45.037010+00:00",
+      "last_checked_at": "2026-07-27T19:42:46.148456+00:00",
+      "last_success_at": "2026-07-27T19:42:46.148456+00:00",
       "last_used_at": null,
       "last_error": null,
       "status": "ready",
-      "metadata": {}
+      "metadata": {
+        "voice_count": 44,
+        "tts_model_count": 6
+      }
     }
   ]
 }

@@ -141,13 +141,16 @@ class VoiceService:
             if callable(close):
                 close()
 
+        account_voices: list[VoiceItem] = []
+        seen_voice_ids: set[str] = set()
         for voice in raw_voices:
             voice_id = str(voice.get("voice_id") or "").strip()
-            if not voice_id:
+            if not voice_id or voice_id in seen_voice_ids:
                 continue
+            seen_voice_ids.add(voice_id)
             labels = voice.get("labels") if isinstance(voice.get("labels"), dict) else {}
             language = self._language_from(labels, voice)
-            self.repository.upsert(
+            record = self.repository.upsert(
                 provider=settings.provider,
                 voice_id=voice_id,
                 name=str(voice.get("name") or voice_id),
@@ -162,10 +165,17 @@ class VoiceService:
                     or voice.get("high_quality_base_model_ids")
                     or [],
                     "is_owner": voice.get("is_owner"),
+                    "catalog_profile_id": settings.active_api_profile_id or "temporary",
                 },
             )
+            # The persistent repository is provider-wide so favorites survive
+            # account switches.  The live catalog must *not* be rebuilt from
+            # that repository, otherwise voices from another ElevenLabs account
+            # leak into the current account.  Build this snapshot only from the
+            # current API response while preserving the persisted favorite bit.
+            account_voices.append(VoiceItem.from_record(record))
         catalog = VoiceCatalog(
-            voices=tuple(self.list(provider=settings.provider)),
+            voices=tuple(account_voices),
             models=tuple(self._normalize_models(raw_models)),
             account=self._normalize_account(account_data),
             refreshed_at=datetime.now(timezone.utc).isoformat(),
