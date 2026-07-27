@@ -13,9 +13,11 @@ def test_voice_browser_uses_account_specific_catalog_snapshot() -> None:
 
 def test_provider_account_details_show_catalog_counts_and_force_refresh() -> None:
     source = Path("app/gui/dialogs/provider_accounts_dialog.py").read_text(encoding="utf-8")
-    assert 'self.details_form.addRow("Voices", self.details_voices)' in source
-    assert 'self.details_form.addRow("TTS models", self.details_models)' in source
+    assert 'self._metric_widget("Voices", self.details_voices)' in source
+    assert 'self._metric_widget("TTS models", self.details_models)' in source
     assert "force_refresh=force" in source
+    assert "catalog_refreshed_at" in source
+    assert "invalidate_catalog=False" in source
 
 
 def test_voice_catalog_is_built_from_current_response_not_provider_wide_repository() -> None:

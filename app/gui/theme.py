@@ -201,6 +201,18 @@ QLabel#dialogTitle{{font-size:18px;font-weight:800;color:{tokens['text_primary']
 QLabel#dialogSubtitle{{font-size:11px;color:{tokens['text_secondary']};}}
 QLabel#sectionTitle,QLabel#accountName{{font-size:14px;font-weight:800;color:{tokens['text_primary']};}}
 QLabel#accountStatus{{background:{tokens['input']};border:1px solid {tokens['border_subtle']};border-radius:7px;padding:8px;color:{tokens['text_secondary']};}}
+QFrame#providerAccountIdentity,QFrame#providerAccountQuotaCard,QFrame#providerAccountCatalogCard,QFrame#providerAccountMetadataCard{{background:{tokens['surface_soft']};border:1px solid {tokens['border_subtle']};border-radius:8px;}}
+QLabel#accountStatusBadge{{border-radius:7px;padding:3px 8px;font-size:10px;font-weight:800;background:{tokens['elevated']};color:{tokens['text_secondary']};}}
+QLabel#accountStatusBadge[status=active],QLabel#accountStatusBadge[status=success]{{background:{tokens['surface_soft']};color:{tokens['success']};border:1px solid {tokens['success']};}}
+QLabel#accountStatusBadge[status=error]{{background:{tokens['surface_soft']};color:{tokens['error']};border:1px solid {tokens['error']};}}
+QLabel#accountStatusBadge[status=info]{{background:{tokens['surface_soft']};color:{tokens['info']};border:1px solid {tokens['info']};}}
+QLabel#accountStatusBadge[status=disabled]{{background:{tokens['elevated']};color:{tokens['text_disabled']};border:1px solid {tokens['border_subtle']};}}
+QLabel#cardTitle{{font-size:11px;font-weight:800;color:{tokens['text_secondary']};}}
+QLabel#cardValue{{font-size:12px;font-weight:800;color:{tokens['text_primary']};}}
+QFrame#providerCatalogMetric{{background:{tokens['panel']};border:1px solid {tokens['border_subtle']};border-radius:7px;}}
+QLabel#catalogMetric{{font-size:18px;font-weight:850;color:{tokens['text_primary']};}}
+QProgressBar#providerQuotaProgress{{background:{tokens['input']};border:0;border-radius:4px;}}
+QProgressBar#providerQuotaProgress::chunk{{background:{tokens['primary']};border-radius:4px;}}
 QLabel#failoverPreview{{background:{tokens['input']};border:1px solid {tokens['border_subtle']};border-radius:7px;padding:10px;color:{tokens['text_secondary']};}}
 QTabWidget::pane{{border:1px solid {tokens['border_subtle']};border-radius:7px;background:{tokens['panel']};}}
 QTabBar::tab{{background:{tokens['elevated']};color:{tokens['text_secondary']};padding:6px 10px;border:1px solid {tokens['border_subtle']};border-bottom:0;border-top-left-radius:6px;border-top-right-radius:6px;}}

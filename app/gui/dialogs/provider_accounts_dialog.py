@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QProgressBar,
     QLineEdit,
     QMenu,
     QMessageBox,
@@ -257,45 +258,115 @@ class ProviderAccountsDialog(QDialog):
         details_hint.setObjectName("dialogSubtitle")
         details_hint.setWordWrap(True)
         details.addWidget(details_hint)
+        identity = QFrame()
+        identity.setObjectName("providerAccountIdentity")
+        identity_layout = QVBoxLayout(identity)
+        identity_layout.setContentsMargins(10, 10, 10, 10)
+        identity_layout.setSpacing(6)
+        identity_header = QHBoxLayout()
         self.details_name = QLabel("No profile selected")
         self.details_name.setObjectName("accountName")
         self.details_name.setWordWrap(True)
+        self.details_badge = QLabel("No selection")
+        self.details_badge.setObjectName("accountStatusBadge")
+        self.details_badge.setAlignment(Qt.AlignCenter)
+        identity_header.addWidget(self.details_name, 1)
+        identity_header.addWidget(self.details_badge)
+        identity_layout.addLayout(identity_header)
         self.details_status = QLabel("Select an account to see its connection status.")
         self.details_status.setObjectName("accountStatus")
         self.details_status.setWordWrap(True)
         self.details_status.setMinimumHeight(64)
         self.details_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.details_status.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        details.addWidget(self.details_name)
-        details.addWidget(self.details_status)
+        identity_layout.addWidget(self.details_status)
+        details.addWidget(identity)
+
+        quota_card = QFrame()
+        quota_card.setObjectName("providerAccountQuotaCard")
+        quota_layout = QVBoxLayout(quota_card)
+        quota_layout.setContentsMargins(10, 10, 10, 10)
+        quota_layout.setSpacing(6)
+        quota_title_row = QHBoxLayout()
+        quota_title = QLabel("Quota")
+        quota_title.setObjectName("cardTitle")
+        self.details_quota = QLabel("Unavailable")
+        self.details_quota.setObjectName("cardValue")
+        self.details_quota.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        quota_title_row.addWidget(quota_title)
+        quota_title_row.addStretch()
+        quota_title_row.addWidget(self.details_quota)
+        quota_layout.addLayout(quota_title_row)
+        self.quota_progress = QProgressBar()
+        self.quota_progress.setObjectName("providerQuotaProgress")
+        self.quota_progress.setRange(0, 100)
+        self.quota_progress.setValue(0)
+        self.quota_progress.setTextVisible(False)
+        self.quota_progress.setFixedHeight(8)
+        quota_layout.addWidget(self.quota_progress)
+        details.addWidget(quota_card)
+
+        catalog_card = QFrame()
+        catalog_card.setObjectName("providerAccountCatalogCard")
+        catalog_layout = QVBoxLayout(catalog_card)
+        catalog_layout.setContentsMargins(10, 10, 10, 10)
+        catalog_layout.setSpacing(8)
+        catalog_header = QHBoxLayout()
+        catalog_title = QLabel("Account catalog")
+        catalog_title.setObjectName("cardTitle")
+        self.details_catalog_state = QLabel("Not refreshed")
+        self.details_catalog_state.setObjectName("summaryMuted")
+        catalog_header.addWidget(catalog_title)
+        catalog_header.addStretch()
+        catalog_header.addWidget(self.details_catalog_state)
+        catalog_layout.addLayout(catalog_header)
+        catalog_stats = QHBoxLayout()
+        self.details_voices = QLabel("—")
+        self.details_voices.setObjectName("catalogMetric")
+        self.details_models = QLabel("—")
+        self.details_models.setObjectName("catalogMetric")
+        catalog_stats.addWidget(self._metric_widget("Voices", self.details_voices))
+        catalog_stats.addWidget(self._metric_widget("TTS models", self.details_models))
+        catalog_layout.addLayout(catalog_stats)
+        details.addWidget(catalog_card)
+
+        account_card = QFrame()
+        account_card.setObjectName("providerAccountMetadataCard")
+        account_layout = QVBoxLayout(account_card)
+        account_layout.setContentsMargins(10, 10, 10, 10)
+        account_layout.setSpacing(8)
+        account_title = QLabel("Account metadata")
+        account_title.setObjectName("cardTitle")
+        account_layout.addWidget(account_title)
         self.details_form = QFormLayout()
         self.details_form.setHorizontalSpacing(12)
         self.details_form.setVerticalSpacing(8)
         self.details_tier = QLabel("—")
-        self.details_quota = QLabel("—")
-        self.details_voices = QLabel("—")
-        self.details_models = QLabel("—")
+        self.details_provider = QLabel("—")
         self.details_last_checked = QLabel("—")
         self.details_key = QLabel("—")
-        for label in [self.details_tier, self.details_quota, self.details_last_checked, self.details_key]:
+        for label in [self.details_tier, self.details_provider, self.details_last_checked, self.details_key]:
             label.setTextInteractionFlags(Qt.TextSelectableByMouse)
             label.setWordWrap(True)
+        self.details_form.addRow("Provider", self.details_provider)
         self.details_form.addRow("Tier", self.details_tier)
-        self.details_form.addRow("Quota", self.details_quota)
-        self.details_form.addRow("Voices", self.details_voices)
-        self.details_form.addRow("TTS models", self.details_models)
         self.details_form.addRow("Last checked", self.details_last_checked)
         self.details_form.addRow("Credential", self.details_key)
-        details.addLayout(self.details_form)
+        account_layout.addLayout(self.details_form)
+        details.addWidget(account_card)
         details.addStretch()
         detail_actions = QHBoxLayout()
         self.details_test = QPushButton("Test")
         self.details_test.setIcon(action_icon("provider.test_connection"))
         self.details_test.clicked.connect(self.test_selected)
+        self.details_refresh = QPushButton("Refresh catalog")
+        self.details_refresh.setIcon(action_icon("general.refresh"))
+        self.details_refresh.clicked.connect(self.refresh_selected_account)
         self.details_activate = QPushButton("Set active")
         self.details_activate.setIcon(action_icon("provider.set_active_profile"))
         self.details_activate.clicked.connect(self.set_active)
         detail_actions.addWidget(self.details_test)
+        detail_actions.addWidget(self.details_refresh)
         detail_actions.addWidget(self.details_activate)
         details.addLayout(detail_actions)
         self.account_splitter.addWidget(self.details_panel)
@@ -359,6 +430,21 @@ class ProviderAccountsDialog(QDialog):
         close_row.addWidget(close)
         root.addLayout(close_row)
         self.provider.currentIndexChanged.connect(self.refresh)
+    @staticmethod
+    def _metric_widget(title: str, value_label: QLabel) -> QFrame:
+        metric = QFrame()
+        metric.setObjectName("providerCatalogMetric")
+        layout = QVBoxLayout(metric)
+        layout.setContentsMargins(8, 7, 8, 7)
+        layout.setSpacing(2)
+        value_label.setAlignment(Qt.AlignCenter)
+        caption = QLabel(title)
+        caption.setObjectName("summaryMuted")
+        caption.setAlignment(Qt.AlignCenter)
+        layout.addWidget(value_label)
+        layout.addWidget(caption)
+        return metric
+
     def refresh(self) -> None:
         provider = self.provider.currentData()
         selected_id = self.selected_profile().profile_id if self.selected_profile() else None
@@ -511,13 +597,13 @@ class ProviderAccountsDialog(QDialog):
             self.refresh()
             return
         self._test_profile(profile, force=True)
-        self._changed()
+        self._changed(invalidate_catalog=False)
 
     def test_selected(self) -> None:
         profile = self.selected_profile()
         if profile:
-            self._test_profile(profile)
-            self._changed()
+            self._test_profile(profile, force=False)
+            self._changed(invalidate_catalog=False)
 
     def run_live_verification(self) -> None:
         profile = self.selected_profile()
@@ -570,8 +656,8 @@ class ProviderAccountsDialog(QDialog):
 
     def test_all(self) -> None:
         for profile in self.service.list_profiles(self.provider.currentData()):
-            self._test_profile(profile)
-        self._changed()
+            self._test_profile(profile, force=False)
+        self._changed(invalidate_catalog=False)
 
     def clear_exhausted(self) -> None:
         profile = self.selected_profile()
@@ -619,7 +705,7 @@ class ProviderAccountsDialog(QDialog):
             f"Excluded: {excluded}"
         )
 
-    def _test_profile(self, profile: ApiProfile, *, force: bool = True) -> None:
+    def _test_profile(self, profile: ApiProfile, *, force: bool = False) -> None:
         if not profile.enabled:
             profile.status = ApiProfileStatus.DISABLED
             self.service.update_profile(profile)
@@ -639,11 +725,20 @@ class ProviderAccountsDialog(QDialog):
         )
         if force:
             self.voice_service.invalidate_provider_cache(settings)
+        profile.status = ApiProfileStatus.TESTING
+        profile.last_error = None
+        self.service.update_profile(profile)
+        self._update_details(profile)
+        QApplication.processEvents()
         result = self.voice_service.test_connection(settings, force_refresh=force)
         cap = result.capability
         if cap is not None:
-            profile.metadata["voice_count"] = cap.voice_count
-            profile.metadata["tts_model_count"] = cap.tts_model_count
+            profile.metadata["voice_count"] = str(cap.voice_count)
+            profile.metadata["tts_model_count"] = str(cap.tts_model_count)
+        catalog = self.voice_service.cached_catalog(settings)
+        if catalog is not None:
+            profile.metadata["catalog_refreshed_at"] = str(catalog.refreshed_at or "")
+            profile.metadata["catalog_profile_id"] = profile.profile_id
         profile.mark_checked(
             success=result.status == "connected",
             account_tier=cap.account_tier if cap else None,
@@ -657,8 +752,9 @@ class ProviderAccountsDialog(QDialog):
             profile.status = ApiProfileStatus.UNAVAILABLE
         self.service.update_profile(profile)
 
-    def _changed(self) -> None:
-        self.voice_service.invalidate_provider_cache()
+    def _changed(self, *, invalidate_catalog: bool = True) -> None:
+        if invalidate_catalog:
+            self.voice_service.invalidate_provider_cache()
         self.refresh()
         self.profiles_changed.emit()
 
@@ -675,34 +771,69 @@ class ProviderAccountsDialog(QDialog):
     def _update_details(self, profile: ApiProfile | None) -> None:
         enabled = profile is not None
         self.details_test.setEnabled(enabled)
+        self.details_refresh.setEnabled(enabled)
         self.details_activate.setEnabled(enabled and not bool(profile.active) if profile else False)
         if profile is None:
             self.details_name.setText("No profile selected")
+            self.details_badge.setText("No selection")
+            self.details_badge.setProperty("status", "neutral")
             self.details_status.setText("Select an account to see its connection status.")
+            self.details_provider.setText("—")
             self.details_tier.setText("—")
-            self.details_quota.setText("—")
+            self.details_quota.setText("Unavailable")
+            self.quota_progress.setValue(0)
             self.details_voices.setText("—")
             self.details_models.setText("—")
+            self.details_catalog_state.setText("Not refreshed")
             self.details_last_checked.setText("—")
             self.details_key.setText("—")
+            self.details_badge.style().unpolish(self.details_badge)
+            self.details_badge.style().polish(self.details_badge)
             return
         self.details_name.setText(profile.display_name)
-        status = self._status_label(profile)
+        status_label = self._status_label(profile)
+        self.details_badge.setText("Active" if profile.active else status_label)
+        self.details_badge.setProperty("status", self._status_property(profile))
+        self.details_badge.style().unpolish(self.details_badge)
+        self.details_badge.style().polish(self.details_badge)
+        status = status_label
         if profile.last_error:
             status = f"{status}\n{profile.last_error}"
         self.details_status.setText(status)
         self.details_status.setToolTip(status)
+        self.details_provider.setText("ElevenLabs" if profile.provider == "elevenlabs" else profile.provider)
         self.details_tier.setText(profile.account_tier or "Unknown")
         if profile.remaining_characters is None:
             self.details_quota.setText("Unavailable")
-        elif profile.character_limit is not None:
-            self.details_quota.setText(f"{profile.remaining_characters:,} remaining of {profile.character_limit:,}")
+            self.quota_progress.setValue(0)
+        elif profile.character_limit:
+            self.details_quota.setText(f"{profile.remaining_characters:,} / {profile.character_limit:,}")
+            percent = round((profile.remaining_characters / profile.character_limit) * 100)
+            self.quota_progress.setValue(max(0, min(100, percent)))
         else:
             self.details_quota.setText(f"{profile.remaining_characters:,} remaining")
+            self.quota_progress.setValue(0)
         self.details_voices.setText(str(profile.metadata.get("voice_count", "Unknown")))
         self.details_models.setText(str(profile.metadata.get("tts_model_count", "Unknown")))
+        refreshed = str(profile.metadata.get("catalog_refreshed_at") or "").strip()
+        self.details_catalog_state.setText(refreshed or "Not refreshed")
+        self.details_catalog_state.setToolTip(refreshed or "Catalog has not been refreshed for this account.")
         self.details_last_checked.setText(profile.last_checked_at or "Not checked")
         self.details_key.setText(profile.masked_key if profile.has_saved_key else "No saved credential")
+
+    @staticmethod
+    def _status_property(profile: ApiProfile) -> str:
+        if profile.active and profile.status == ApiProfileStatus.READY:
+            return "active"
+        if profile.status == ApiProfileStatus.READY:
+            return "success"
+        if profile.status in {ApiProfileStatus.INVALID, ApiProfileStatus.UNAVAILABLE, ApiProfileStatus.EXHAUSTED}:
+            return "error"
+        if profile.status == ApiProfileStatus.TESTING:
+            return "info"
+        if not profile.enabled or profile.status == ApiProfileStatus.DISABLED:
+            return "disabled"
+        return "neutral"
 
     @staticmethod
     def _status_label(profile: ApiProfile) -> str:
