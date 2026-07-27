@@ -172,6 +172,15 @@ QToolBar#mainToolbar QToolButton:focus{{border:1px solid {tokens['focus']};}}
 QToolBar#mainToolbar QToolButton:disabled{{color:{tokens['text_disabled']};background:transparent;border-color:transparent;}}
 QToolButton#toolbarOverflowButton{{padding:5px;min-width:28px;}}
 QFrame#providerPanel{{border:0;background:transparent;margin:0;padding:0;}}
+QScrollArea#providerScrollArea{{border:0;background:transparent;}}
+QScrollArea#providerScrollArea > QWidget > QWidget{{background:transparent;}}
+QFrame#providerSection{{background:{tokens['panel']};border:1px solid {tokens['border_subtle']};border-radius:8px;margin:0 0 6px 0;}}
+QToolButton#providerSectionHeader{{background:transparent;border:0;border-radius:7px;color:{tokens['text_primary']};font-size:12px;font-weight:700;text-align:left;padding:8px 10px;min-height:20px;}}
+QToolButton#providerSectionHeader:hover{{background:{tokens['surface_soft']};}}
+QWidget#providerSectionContent{{background:transparent;border:0;}}
+QFrame#providerField{{background:transparent;border:0;}}
+QLabel#providerFieldLabel{{color:{tokens['text_secondary']};font-size:11px;font-weight:650;padding:0 0 1px 1px;}}
+QFrame#providerFieldEditorRow{{background:transparent;border:0;}}
 QFrame#collapsibleSection{{background:{tokens['panel']};border:0;border-top:1px solid {tokens['border_subtle']};}}
 QToolButton#sectionHeader{{background:transparent;border:0;color:{tokens['text_primary']};font-weight:700;text-align:left;padding:6px 4px;}}
 QLabel#formLabel{{color:{tokens['text_secondary']};font-weight:600;font-size:11px;padding-left:1px;}}
@@ -179,7 +188,14 @@ QWidget#sectionContent{{background:transparent;border:0;}}
 QFrame#providerFieldRow,QFrame#inlineFieldRow{{background:transparent;border:0;}}
 QPushButton#connectionStatus{{background:{tokens['input']};border:1px solid {tokens['border_subtle']};border-radius:7px;padding:6px 10px;color:{tokens['text_primary']};text-align:left;font-weight:600;}}
 QPushButton#connectionStatus:hover{{background:{tokens['hover']};border-color:{tokens['focus']};}}
+QDialog#providerAccountsDialog{{background:{tokens['canvas']};}}
 QFrame#providerAccountsHeader,QFrame#providerAccountsToolbar,QFrame#providerAccountDetails{{background:{tokens['panel']};border:1px solid {tokens['border_subtle']};border-radius:8px;}}
+QFrame#providerAccountsSummary{{background:{tokens['surface_soft']};border:1px solid {tokens['border_subtle']};border-radius:7px;}}
+QLabel#summaryStrong{{font-size:12px;font-weight:800;color:{tokens['text_primary']};}}
+QLabel#summaryMuted{{font-size:11px;color:{tokens['text_secondary']};}}
+QTableWidget#providerProfilesTable{{background:{tokens['panel']};border:1px solid {tokens['border_subtle']};border-radius:8px;gridline-color:transparent;}}
+QTableWidget#providerProfilesTable::item{{padding:7px 6px;border-bottom:1px solid {tokens['border_subtle']};}}
+QTableWidget#providerProfilesTable::item:selected{{background:{tokens['selected_row']};color:{tokens['text_primary']};}}
 QFrame#temporaryCredentialBanner{{background:{tokens['surface_soft']};border:1px solid {tokens['focus']};border-radius:7px;}}
 QLabel#dialogTitle{{font-size:18px;font-weight:800;color:{tokens['text_primary']};}}
 QLabel#dialogSubtitle{{font-size:11px;color:{tokens['text_secondary']};}}
@@ -261,3 +277,29 @@ class ThemeManager:
             palette = QApplication.palette()
             return "Dark" if palette.window().color().lightness() < 128 else "Light"
         return "Dark" if name == "Dark" else "Light"
+
+# v0.19 product UI foundation additions are appended to both generated themes.
+_PROVIDER_WORKSPACE_STYLE = r"""
+QFrame#providerPanelHeader {
+    border: 1px solid palette(midlight);
+    border-radius: 9px;
+    background: palette(base);
+}
+QLabel#panelTitle {
+    font-size: 14px;
+    font-weight: 800;
+}
+QLabel#panelSubtitle {
+    font-size: 11px;
+    color: palette(mid);
+}
+QFrame#providerPanel QCheckBox {
+    spacing: 8px;
+    min-height: 24px;
+}
+QFrame#providerPanel QPushButton#connectionStatus {
+    text-align: left;
+}
+"""
+DARK_STYLE += _PROVIDER_WORKSPACE_STYLE
+LIGHT_STYLE += _PROVIDER_WORKSPACE_STYLE
