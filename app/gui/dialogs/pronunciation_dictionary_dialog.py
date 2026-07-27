@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QDialog,
+    QFrame,
     QFileDialog,
     QGridLayout,
     QHBoxLayout,
@@ -53,8 +54,28 @@ class PronunciationDictionaryDialog(QDialog):
 
     def _build(self) -> None:
         root = QVBoxLayout(self)
+        root.setContentsMargins(14, 14, 14, 14)
+        root.setSpacing(10)
+        self.setObjectName("pronunciationDictionaryDialog")
+
+        header = QFrame()
+        header.setObjectName("dictionaryHeaderCard")
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(12, 10, 12, 10)
+        title_label = QLabel("Pronunciation dictionaries")
+        title_label.setObjectName("dialogTitle")
+        subtitle_label = QLabel(
+            "Manage provider-safe pronunciation rules without changing the original CSV text."
+        )
+        subtitle_label.setObjectName("dialogSubtitle")
+        subtitle_label.setWordWrap(True)
+        header_layout.addWidget(title_label)
+        header_layout.addWidget(subtitle_label)
+        root.addWidget(header)
+
         top = QHBoxLayout()
         self.compatibility = QLabel("Select a dictionary to view compatibility.")
+        self.compatibility.setObjectName("dictionaryCompatibility")
         self.compatibility.setWordWrap(True)
         top.addWidget(self.compatibility, 1)
         root.addLayout(top)
@@ -90,6 +111,10 @@ class PronunciationDictionaryDialog(QDialog):
             button.clicked.connect(handler)
             secondary.addWidget(button)
         empty.addStretch()
+        title.setAlignment(Qt.AlignCenter)
+        explanation.setAlignment(Qt.AlignCenter)
+        self.empty_provider_status.setAlignment(Qt.AlignCenter)
+        workflow.setAlignment(Qt.AlignCenter)
         empty.addWidget(title)
         empty.addWidget(explanation)
         empty.addWidget(self.empty_provider_status)
@@ -138,7 +163,12 @@ class PronunciationDictionaryDialog(QDialog):
         self.stack.addWidget(self.empty_state)
         root.addWidget(self.stack, 1)
 
-        actions = QGridLayout()
+        action_card = QFrame()
+        action_card.setObjectName("dictionaryActionCard")
+        actions = QGridLayout(action_card)
+        actions.setContentsMargins(10, 8, 10, 8)
+        actions.setHorizontalSpacing(8)
+        actions.setVerticalSpacing(8)
         items = [
             ("Refresh provider dictionaries", "refresh", self.refresh_remote),
             ("Sync selected", "sync", self.sync_selected),
@@ -165,9 +195,9 @@ class PronunciationDictionaryDialog(QDialog):
             button = QPushButton(text)
             button.setIcon(icon(icon_name))
             button.clicked.connect(handler)
-            actions.addWidget(button, index // 6, index % 6)
+            actions.addWidget(button, index // 5, index % 5)
             self.buttons.append(button)
-        root.addLayout(actions)
+        root.addWidget(action_card)
 
         bottom = QHBoxLayout()
         bottom.addStretch()

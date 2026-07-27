@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QFrame,
     QFormLayout,
     QGridLayout,
     QGroupBox,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -129,25 +131,33 @@ class VoiceBrowserDialog(QDialog):
 
     def _build(self) -> None:
         root = QVBoxLayout(self)
+        root.setContentsMargins(14, 14, 14, 14)
+        root.setSpacing(10)
+        self.setObjectName("voiceBrowserDialog")
 
-        top = QHBoxLayout()
+        context_card = QFrame()
+        context_card.setObjectName("voiceContextCard")
+        top = QHBoxLayout(context_card)
+        top.setContentsMargins(12, 10, 12, 10)
+        top.setSpacing(10)
         self.provider_label = QLabel("Provider: —")
         self.profile_label = QLabel("Profile: —")
         self.dictionary_label = QLabel("Dictionary: —")
         self.dictionary_enabled = QCheckBox("Enable dictionary")
         self.dictionary_enabled.setChecked(bool(self.settings_provider().pronunciation_dictionary_locators))
         self.dictionary_enabled.toggled.connect(lambda _checked: self.settings_updated.emit(self.preview_settings()))
-        self.accounts_button = QPushButton()
+        self.accounts_button = QToolButton()
         self.accounts_button.setIcon(icon("settings"))
         self.accounts_button.setToolTip("Provider accounts")
         self.accounts_button.clicked.connect(lambda: self.open_account_manager() if self.open_account_manager else None)
-        self.dictionaries_button = QPushButton()
+        self.dictionaries_button = QToolButton()
         self.dictionaries_button.setIcon(icon("settings"))
         self.dictionaries_button.setToolTip("Pronunciation dictionaries")
         self.dictionaries_button.clicked.connect(lambda: self.open_dictionary_manager() if self.open_dictionary_manager else None)
         self.account_label = QLabel("Account: not loaded")
         self.account_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.refresh_button = QPushButton("Refresh catalog")
+        self.refresh_button.setObjectName("primaryQuietButton")
         self.refresh_button.clicked.connect(self.refresh_catalog)
         top.addWidget(self.provider_label)
         top.addSpacing(18)
@@ -159,10 +169,14 @@ class VoiceBrowserDialog(QDialog):
         top.addWidget(self.dictionaries_button)
         top.addWidget(self.account_label, 1)
         top.addWidget(self.refresh_button)
-        root.addLayout(top)
+        root.addWidget(context_card)
 
-        filters = QGroupBox("Search and filters")
+        filters = QFrame()
+        filters.setObjectName("voiceFilterCard")
         form = QFormLayout(filters)
+        form.setContentsMargins(12, 10, 12, 10)
+        form.setHorizontalSpacing(10)
+        form.setVerticalSpacing(8)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search name, voice ID, description, language, accent…")
         self.favorites = QCheckBox("Favorites only")
@@ -206,6 +220,7 @@ class VoiceBrowserDialog(QDialog):
         self.tabs = QTabWidget()
         self.tabs.addTab(QWidget(), "All voices")
         self.tabs.addTab(QWidget(), "Favorites")
+        self.tabs.addTab(QWidget(), "Recent")
         root.addWidget(self.tabs)
 
         splitter = QSplitter(Qt.Horizontal)
@@ -230,7 +245,7 @@ class VoiceBrowserDialog(QDialog):
         details = QWidget()
         details_layout = QVBoxLayout(details)
         self.title = QLabel("Select a voice")
-        self.title.setStyleSheet("font-size:18px;font-weight:700")
+        self.title.setObjectName("voiceDetailsTitle")
         self.meta = QLabel("")
         self.meta.setWordWrap(True)
         self.provider_id = QLabel("")
@@ -246,6 +261,7 @@ class VoiceBrowserDialog(QDialog):
         self.copy_name_button.setIcon(icon("copy"))
         self.copy_name_button.clicked.connect(self.copy_selected_voice_name)
         self.favorite_button = QPushButton("☆")
+        self.favorite_button.setObjectName("favoriteButton")
         self.favorite_button.setToolTip("Add to favorites")
         self.favorite_button.setMinimumWidth(36)
         self.favorite_button.clicked.connect(self.toggle_favorite)
@@ -280,6 +296,7 @@ class VoiceBrowserDialog(QDialog):
         self.preview_status.setWordWrap(True)
         self.audio_player = AudioPlayerWidget(self.audio_player_service, open_folder=self._open_folder)
         self.audio_settings = self._build_audio_settings()
+        self.audio_settings.setObjectName("voiceAudioSettings")
         preview_actions = QWidget()
         preview_actions_layout = QGridLayout(preview_actions)
         preview_actions_layout.setContentsMargins(0, 0, 0, 0)
@@ -309,11 +326,11 @@ class VoiceBrowserDialog(QDialog):
         self.regenerate_saved_button.clicked.connect(self.regenerate_selected_saved_preview)
         self.clear_saved_button.clicked.connect(self.clear_saved_previews_for_voice)
         saved_actions = QWidget()
-        saved_actions_layout = QHBoxLayout(saved_actions)
+        saved_actions_layout = QGridLayout(saved_actions)
         saved_actions_layout.setContentsMargins(0, 0, 0, 0)
-        for button in (self.play_saved_button, self.stop_saved_button, self.open_saved_button, self.copy_saved_button, self.delete_saved_button, self.regenerate_saved_button):
-            button.setMinimumWidth(72)
-            saved_actions_layout.addWidget(button)
+        for index, button in enumerate((self.play_saved_button, self.stop_saved_button, self.open_saved_button, self.copy_saved_button, self.delete_saved_button, self.regenerate_saved_button)):
+            button.setMinimumWidth(84)
+            saved_actions_layout.addWidget(button, index // 3, index % 3)
         details_layout.addWidget(self.title)
         details_layout.addWidget(self.meta)
         details_layout.addWidget(self.provider_id)
@@ -456,8 +473,17 @@ class VoiceBrowserDialog(QDialog):
         )
 
     def _tab_changed(self) -> None:
-        self.favorites.setChecked(self.tabs.currentIndex() == 1)
-        QSettings("S Talking", "S Talking").setValue("voice_browser/tab", self.tabs.currentIndex())
+        index = self.tabs.currentIndex()
+        self.favorites.blockSignals(True)
+        self.favorites.setChecked(index == 1)
+        self.favorites.blockSignals(False)
+        if index == 2:
+            recent_index = self.sort.findData("recent")
+            if recent_index >= 0:
+                self.sort.blockSignals(True)
+                self.sort.setCurrentIndex(recent_index)
+                self.sort.blockSignals(False)
+        QSettings("S Talking", "S Talking").setValue("voice_browser/tab", index)
         self.apply_filters()
 
     def restore_splitter_state(self) -> None:
@@ -582,6 +608,7 @@ class VoiceBrowserDialog(QDialog):
         self.account_label.setText(
             f"Account: {account.tier or 'unknown'} • {account.status or 'unknown'}{remaining_text}{counts}{refreshed}"
         )
+        self.account_label.setToolTip(self.account_label.text())
 
     def _rebuild_filters(self) -> None:
         values = {

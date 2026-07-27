@@ -315,3 +315,77 @@ QFrame#providerPanel QPushButton#connectionStatus {
 """
 DARK_STYLE += _PROVIDER_WORKSPACE_STYLE
 LIGHT_STYLE += _PROVIDER_WORKSPACE_STYLE
+DARK_STYLE += r"""
+QDialog#voiceBrowserDialog,QDialog#pronunciationDictionaryDialog {
+    background: palette(window);
+}
+QFrame#voiceContextCard,QFrame#voiceFilterCard,QFrame#dictionaryHeaderCard,QFrame#dictionaryActionCard {
+    background: palette(base);
+    border: 1px solid palette(midlight);
+    border-radius: 9px;
+}
+QLabel#voiceDetailsTitle {
+    font-size: 18px;
+    font-weight: 800;
+}
+QPushButton#favoriteButton {
+    font-size: 18px;
+    min-width: 36px;
+    max-width: 44px;
+    padding: 3px;
+}
+QPushButton#primaryQuietButton {
+    font-weight: 700;
+}
+QLabel#dictionaryCompatibility {
+    padding: 7px 10px;
+    border: 1px solid palette(midlight);
+    border-radius: 7px;
+    background: palette(base);
+}
+QFrame#dictionaryActionCard QPushButton {
+    min-width: 120px;
+}
+QGroupBox#voiceAudioSettings {
+    margin-top: 12px;
+    padding-top: 10px;
+    font-weight: 700;
+}
+"""
+LIGHT_STYLE += r"""
+QDialog#voiceBrowserDialog,QDialog#pronunciationDictionaryDialog {
+    background: palette(window);
+}
+QFrame#voiceContextCard,QFrame#voiceFilterCard,QFrame#dictionaryHeaderCard,QFrame#dictionaryActionCard {
+    background: palette(base);
+    border: 1px solid palette(midlight);
+    border-radius: 9px;
+}
+QLabel#voiceDetailsTitle {
+    font-size: 18px;
+    font-weight: 800;
+}
+QPushButton#favoriteButton {
+    font-size: 18px;
+    min-width: 36px;
+    max-width: 44px;
+    padding: 3px;
+}
+QPushButton#primaryQuietButton {
+    font-weight: 700;
+}
+QLabel#dictionaryCompatibility {
+    padding: 7px 10px;
+    border: 1px solid palette(midlight);
+    border-radius: 7px;
+    background: palette(base);
+}
+QFrame#dictionaryActionCard QPushButton {
+    min-width: 120px;
+}
+QGroupBox#voiceAudioSettings {
+    margin-top: 12px;
+    padding-top: 10px;
+    font-weight: 700;
+}
+"""
