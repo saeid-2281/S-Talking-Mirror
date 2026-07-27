@@ -56,8 +56,9 @@ class ProviderAccountsDialog(QDialog):
         self.generation_active = generation_active or (lambda: False)
         self.verification_service = verification_service
         self.setWindowTitle("Provider Accounts")
-        self.resize(1080, 680)
-        self.setMinimumSize(820, 540)
+        self.resize(1120, 720)
+        self.setMinimumSize(900, 600)
+        self.setObjectName("providerAccountsDialog")
         self._build()
         self.refresh()
 
@@ -90,6 +91,9 @@ class ProviderAccountsDialog(QDialog):
 
         self.tabs = QTabWidget()
         self.tabs.setObjectName("providerAccountsTabs")
+        self.tabs.setTabPosition(QTabWidget.West)
+        self.tabs.setDocumentMode(True)
+        self.tabs.setMovable(False)
         root.addWidget(self.tabs, 1)
 
         accounts_page = QWidget()
@@ -120,6 +124,7 @@ class ProviderAccountsDialog(QDialog):
             ("Add account", "provider.add_profile", self.add_profile),
             ("Test", "provider.test_connection", self.test_selected),
             ("Set active", "provider.set_active_profile", self.set_active),
+            ("Refresh", "general.refresh", self.refresh_selected_account),
         ]
         self.action_buttons: list[QPushButton] = []
         for text, icon_name, handler in actions:
@@ -164,6 +169,23 @@ class ProviderAccountsDialog(QDialog):
         buttons.addWidget(self.move_down_button)
         buttons.addWidget(self.more_button)
         accounts_layout.addWidget(toolbar)
+
+        self.accounts_summary = QFrame()
+        self.accounts_summary.setObjectName("providerAccountsSummary")
+        summary_layout = QHBoxLayout(self.accounts_summary)
+        summary_layout.setContentsMargins(10, 6, 10, 6)
+        summary_layout.setSpacing(12)
+        self.accounts_count_label = QLabel("0 accounts")
+        self.accounts_count_label.setObjectName("summaryStrong")
+        self.active_account_label = QLabel("Active: none")
+        self.active_account_label.setObjectName("summaryMuted")
+        self.accounts_hint_label = QLabel("Select an account to test, activate or inspect quota.")
+        self.accounts_hint_label.setObjectName("summaryMuted")
+        summary_layout.addWidget(self.accounts_count_label)
+        summary_layout.addWidget(self.active_account_label)
+        summary_layout.addStretch()
+        summary_layout.addWidget(self.accounts_hint_label)
+        accounts_layout.addWidget(self.accounts_summary)
 
         self.account_splitter = QSplitter(Qt.Horizontal)
         self.account_splitter.setObjectName("providerAccountsSplitter")
@@ -212,7 +234,10 @@ class ProviderAccountsDialog(QDialog):
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.table.setMinimumWidth(560)
+        self.table.setMinimumWidth(600)
+        self.table.setMinimumHeight(300)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setShowGrid(False)
         self.table.itemSelectionChanged.connect(self._selection_changed)
         self.stack.addWidget(self.table)
         self.stack.addWidget(self.empty_state)
@@ -228,13 +253,18 @@ class ProviderAccountsDialog(QDialog):
         details_title = QLabel("Account details")
         details_title.setObjectName("sectionTitle")
         details.addWidget(details_title)
+        details_hint = QLabel("Connection, quota and credential state for the selected account.")
+        details_hint.setObjectName("dialogSubtitle")
+        details_hint.setWordWrap(True)
+        details.addWidget(details_hint)
         self.details_name = QLabel("No profile selected")
         self.details_name.setObjectName("accountName")
         self.details_name.setWordWrap(True)
         self.details_status = QLabel("Select an account to see its connection status.")
         self.details_status.setObjectName("accountStatus")
         self.details_status.setWordWrap(True)
-        self.details_status.setMinimumHeight(48)
+        self.details_status.setMinimumHeight(64)
+        self.details_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.details_status.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         details.addWidget(self.details_name)
         details.addWidget(self.details_status)
@@ -243,6 +273,8 @@ class ProviderAccountsDialog(QDialog):
         self.details_form.setVerticalSpacing(8)
         self.details_tier = QLabel("—")
         self.details_quota = QLabel("—")
+        self.details_voices = QLabel("—")
+        self.details_models = QLabel("—")
         self.details_last_checked = QLabel("—")
         self.details_key = QLabel("—")
         for label in [self.details_tier, self.details_quota, self.details_last_checked, self.details_key]:
@@ -329,6 +361,13 @@ class ProviderAccountsDialog(QDialog):
         provider = self.provider.currentData()
         selected_id = self.selected_profile().profile_id if self.selected_profile() else None
         profiles = self.service.list_profiles(provider)
+        active_profile = next((profile for profile in profiles if profile.active), None)
+        if hasattr(self, "accounts_count_label"):
+            suffix = "account" if len(profiles) == 1 else "accounts"
+            self.accounts_count_label.setText(f"{len(profiles)} {suffix}")
+            self.active_account_label.setText(
+                f"Active: {active_profile.display_name}" if active_profile else "Active: none"
+            )
         temporary_key = str(getattr(self.settings_provider(), "api_key", "") or "").strip()
         self.temporary_banner.setVisible(bool(temporary_key))
         self.temporary_save.setEnabled(bool(temporary_key))
@@ -463,6 +502,15 @@ class ProviderAccountsDialog(QDialog):
             self.service.set_active(profile.profile_id)
             self._changed()
 
+    def refresh_selected_account(self) -> None:
+        """Force-refresh the selected account instead of reusing another profile's catalog."""
+        profile = self.selected_profile()
+        if profile is None:
+            self.refresh()
+            return
+        self._test_profile(profile, force=True)
+        self._changed()
+
     def test_selected(self) -> None:
         profile = self.selected_profile()
         if profile:
@@ -569,7 +617,7 @@ class ProviderAccountsDialog(QDialog):
             f"Excluded: {excluded}"
         )
 
-    def _test_profile(self, profile: ApiProfile) -> None:
+    def _test_profile(self, profile: ApiProfile, *, force: bool = True) -> None:
         if not profile.enabled:
             profile.status = ApiProfileStatus.DISABLED
             self.service.update_profile(profile)
@@ -580,9 +628,20 @@ class ProviderAccountsDialog(QDialog):
             profile.last_error = "Missing saved key"
             self.service.update_profile(profile)
             return
-        settings = self.settings_provider().model_copy(update={"provider": profile.provider, "api_key": key})
+        settings = self.settings_provider().model_copy(
+            update={
+                "provider": profile.provider,
+                "api_key": key,
+                "active_api_profile_id": profile.profile_id,
+            }
+        )
+        if force:
+            self.voice_service.invalidate_provider_cache(settings)
         result = self.voice_service.test_connection(settings)
         cap = result.capability
+        if cap is not None:
+            profile.metadata["voice_count"] = cap.voice_count
+            profile.metadata["tts_model_count"] = cap.tts_model_count
         profile.mark_checked(
             success=result.status == "connected",
             account_tier=cap.account_tier if cap else None,
@@ -620,6 +679,8 @@ class ProviderAccountsDialog(QDialog):
             self.details_status.setText("Select an account to see its connection status.")
             self.details_tier.setText("—")
             self.details_quota.setText("—")
+            self.details_voices.setText("—")
+            self.details_models.setText("—")
             self.details_last_checked.setText("—")
             self.details_key.setText("—")
             return
@@ -636,6 +697,8 @@ class ProviderAccountsDialog(QDialog):
             self.details_quota.setText(f"{profile.remaining_characters:,} remaining of {profile.character_limit:,}")
         else:
             self.details_quota.setText(f"{profile.remaining_characters:,} remaining")
+        self.details_voices.setText(str(profile.metadata.get("voice_count", "Unknown")))
+        self.details_models.setText(str(profile.metadata.get("tts_model_count", "Unknown")))
         self.details_last_checked.setText(profile.last_checked_at or "Not checked")
         self.details_key.setText(profile.masked_key if profile.has_saved_key else "No saved credential")
 

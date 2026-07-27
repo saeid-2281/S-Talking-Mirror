@@ -68,6 +68,10 @@ class ProviderVerificationService:
         test_settings = settings.model_copy(update={"provider": "elevenlabs"})
         try:
             self.voice_service.invalidate_provider_cache(test_settings)
+            # The cache was invalidated immediately above, so a normal refresh
+            # is guaranteed to hit the provider. Avoid requiring every test fake
+            # and third-party VoiceService implementation to accept the newer
+            # ``force`` keyword.
             catalog = self.voice_service.refresh_catalog(test_settings)
             account = self._account_snapshot(catalog)
             checks.append(

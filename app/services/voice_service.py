@@ -120,10 +120,16 @@ class VoiceService:
         self._catalog_cache: dict[tuple[str, str], tuple[float, VoiceCatalog]] = {}
         self.cache_ttl_seconds = 300.0
 
-    def refresh_catalog(self, settings: AppSettings) -> VoiceCatalog:
+    def refresh_catalog(self, settings: AppSettings, *, force: bool = False) -> VoiceCatalog:
+        """Return the catalog for exactly one provider account.
+
+        ``force=True`` always calls the provider and replaces the cached snapshot.
+        Cache identity includes the selected profile as well as the credential
+        fingerprint so two accounts can never share model/voice data.
+        """
         key = self._cache_key(settings)
         cached = self._catalog_cache.get(key)
-        if cached and time.monotonic() - cached[0] < self.cache_ttl_seconds:
+        if not force and cached and time.monotonic() - cached[0] < self.cache_ttl_seconds:
             return cached[1]
         provider = create_provider(settings)
         try:
@@ -179,11 +185,19 @@ class VoiceService:
             return cached[1]
         return None
 
-    def test_connection(self, settings: AppSettings) -> ProviderConnectionResult:
+    def test_connection(self, settings: AppSettings, *, force_refresh: bool = False) -> ProviderConnectionResult:
+        """Validate the selected ElevenLabs account and summarize its catalog.
+
+        Normal callers reuse the short-lived account-specific catalog cache. UI
+        actions that explicitly promise a remote refresh can pass
+        ``force_refresh=True``. Keeping the default cached preserves the original
+        connection-test contract and avoids duplicate provider calls when the
+        same account is tested repeatedly.
+        """
         if settings.provider != "elevenlabs":
             return ProviderConnectionResult("network_error", "Connection test is only available for ElevenLabs.")
         try:
-            catalog = self.refresh_catalog(settings)
+            catalog = self.refresh_catalog(settings, force=force_refresh)
             capability = ProviderCapability(
                 voice_count=len(catalog.voices),
                 tts_model_count=sum(1 for model in catalog.models if model.can_do_text_to_speech),
@@ -373,7 +387,11 @@ class VoiceService:
 
     @staticmethod
     def _normalize_models(raw_models: list[dict[str, Any]]) -> list[VoiceModelItem]:
-        result: list[VoiceModelItem] = []
+        # Some ElevenLabs workspaces return duplicate model records. Keep one
+        # normalized item per model_id so account switches cannot show repeated
+        # entries inherited from a previous catalog snapshot.
+        by_id: dict[str, VoiceModelItem] = {}
+        order: list[str] = []
         for model in raw_models:
             model_id = str(model.get("model_id") or "").strip()
             if not model_id:
@@ -386,19 +404,26 @@ class VoiceService:
                     language = value
                 if language:
                     languages.append(str(language))
-            result.append(
-                VoiceModelItem(
-                    model_id=model_id,
-                    name=str(model.get("name") or model_id),
-                    languages=tuple(languages),
-                    can_do_text_to_speech=bool(model.get("can_do_text_to_speech", True)),
-                    can_use_style=bool(model.get("can_use_style", False)),
-                    can_use_speaker_boost=bool(model.get("can_use_speaker_boost", False)),
-                    maximum_text_length=VoiceService._optional_int(model.get("maximum_text_length")),
-                    cost_factor=VoiceService._optional_float(model.get("model_rates", {}).get("character_cost_multiplier") if isinstance(model.get("model_rates"), dict) else model.get("cost_factor")),
-                )
+            rates = model.get("model_rates")
+            multiplier = (
+                rates.get("character_cost_multiplier")
+                if isinstance(rates, dict)
+                else model.get("cost_factor")
             )
-        return result
+            item = VoiceModelItem(
+                model_id=model_id,
+                name=str(model.get("name") or model_id),
+                languages=tuple(languages),
+                can_do_text_to_speech=bool(model.get("can_do_text_to_speech", True)),
+                can_use_style=bool(model.get("can_use_style", False)),
+                can_use_speaker_boost=bool(model.get("can_use_speaker_boost", False)),
+                maximum_text_length=VoiceService._optional_int(model.get("maximum_text_length")),
+                cost_factor=VoiceService._optional_float(multiplier),
+            )
+            if model_id not in by_id:
+                order.append(model_id)
+            by_id[model_id] = item
+        return [by_id[model_id] for model_id in order]
 
     @staticmethod
     def _normalize_account(data: Any) -> AccountUsage | None:
@@ -422,8 +447,10 @@ class VoiceService:
 
     @staticmethod
     def _cache_key(settings: AppSettings) -> tuple[str, str]:
-        digest = hashlib.sha256((settings.api_key or "").encode("utf-8")).hexdigest()
-        return settings.provider, digest
+        profile = str(settings.active_api_profile_id or "temporary")
+        secret_digest = hashlib.sha256((settings.api_key or "").encode("utf-8")).hexdigest()
+        identity = hashlib.sha256(f"{profile}:{secret_digest}".encode("utf-8")).hexdigest()
+        return settings.provider, identity
 
     @staticmethod
     def _preview_cache_key(item: VoiceItem, text: str, settings: AppSettings) -> str:

@@ -43,14 +43,15 @@ class _CatalogWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, service: VoiceService, settings: AppSettings) -> None:
+    def __init__(self, service: VoiceService, settings: AppSettings, *, force: bool = True) -> None:
         super().__init__()
         self.service = service
         self.settings = settings
+        self.force = force
 
     def run(self) -> None:
         try:
-            self.finished.emit(self.service.refresh_catalog(self.settings))
+            self.finished.emit(self.service.refresh_catalog(self.settings, force=self.force))
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -515,7 +516,7 @@ class VoiceBrowserDialog(QDialog):
         self.provider_label.setText(f"Provider: {settings.provider}")
         self._busy(True, "Refreshing voice catalog…")
         thread = QThread(self)
-        worker = _CatalogWorker(self.service, settings)
+        worker = _CatalogWorker(self.service, settings, force=True)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(self._catalog_loaded)
