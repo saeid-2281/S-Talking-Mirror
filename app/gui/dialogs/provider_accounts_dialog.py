@@ -6,10 +6,11 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QFrame,
     QComboBox,
     QDialog,
     QFormLayout,
-    QGroupBox,
+    QHeaderView,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -19,6 +20,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QStackedWidget,
     QSpinBox,
+    QSplitter,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -53,73 +56,68 @@ class ProviderAccountsDialog(QDialog):
         self.generation_active = generation_active or (lambda: False)
         self.verification_service = verification_service
         self.setWindowTitle("Provider Accounts")
-        self.resize(1040, 640)
-        self.setMinimumSize(900, 560)
+        self.resize(1080, 680)
+        self.setMinimumSize(820, 540)
         self._build()
         self.refresh()
 
     def _build(self) -> None:
         root = QVBoxLayout(self)
-        top = QHBoxLayout()
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(10)
+
+        header = QFrame()
+        header.setObjectName("providerAccountsHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(10, 8, 10, 8)
+        header_layout.setSpacing(8)
+        title_box = QVBoxLayout()
+        title_box.setContentsMargins(0, 0, 0, 0)
+        title_box.setSpacing(1)
+        title = QLabel("Provider accounts")
+        title.setObjectName("dialogTitle")
+        subtitle = QLabel("Manage named credentials, account status and failover order.")
+        subtitle.setObjectName("dialogSubtitle")
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+        header_layout.addLayout(title_box, 1)
+        header_layout.addWidget(QLabel("Provider"))
         self.provider = QComboBox()
+        self.provider.setMinimumWidth(180)
         self.provider.addItem("ElevenLabs", "elevenlabs")
-        top.addWidget(QLabel("Provider"))
-        top.addWidget(self.provider)
-        top.addStretch()
-        root.addLayout(top)
+        header_layout.addWidget(self.provider)
+        root.addWidget(header)
 
-        self.stack = QStackedWidget()
-        self.empty_state = QWidget()
-        empty_layout = QVBoxLayout(self.empty_state)
-        empty_layout.addStretch()
-        empty_title = QLabel("No saved ElevenLabs accounts")
-        empty_title.setObjectName("emptyTitle")
-        empty_title.setAlignment(Qt.AlignCenter)
-        empty_help = QLabel("Add an account, use a temporary key, or learn how named profiles work.")
-        empty_help.setAlignment(Qt.AlignCenter)
-        empty_help.setWordWrap(True)
-        empty_actions = QHBoxLayout()
-        self.empty_add = QPushButton("Add account")
-        self.empty_add.setIcon(action_icon("provider.add_profile"))
-        self.empty_temp = QPushButton("Use temporary key")
-        self.empty_temp.setIcon(action_icon("provider.temporary_key"))
-        self.empty_learn = QPushButton("Learn how profiles work")
-        self.empty_learn.setIcon(action_icon("general.info"))
-        self.empty_add.clicked.connect(self.add_profile)
-        self.empty_temp.clicked.connect(self.enter_temporary_key)
-        self.empty_learn.clicked.connect(lambda: QMessageBox.information(self, "Provider profiles", "Profiles are named API accounts. The active enabled profile supplies the saved credential, quota snapshot, and failover order for generation."))
-        for button in [self.empty_add, self.empty_temp, self.empty_learn]:
-            empty_actions.addWidget(button)
-        empty_layout.addWidget(empty_title)
-        empty_layout.addWidget(empty_help)
-        empty_layout.addLayout(empty_actions)
-        empty_layout.addStretch()
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("providerAccountsTabs")
+        root.addWidget(self.tabs, 1)
 
-        self.table = QTableWidget(0, 10)
-        self.table.setHorizontalHeaderLabels([
-            "Active",
-            "Profile name",
-            "Provider",
-            "Masked key",
-            "Enabled",
-            "Priority",
-            "Connection",
-            "Tier",
-            "Remaining quota",
-            "Last checked",
-        ])
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.itemSelectionChanged.connect(self._selection_changed)
-        self.stack.addWidget(self.table)
-        self.stack.addWidget(self.empty_state)
-        root.addWidget(self.stack, 1)
+        accounts_page = QWidget()
+        accounts_layout = QVBoxLayout(accounts_page)
+        accounts_layout.setContentsMargins(0, 8, 0, 0)
+        accounts_layout.setSpacing(8)
 
-        buttons = QHBoxLayout()
+        self.temporary_banner = QFrame()
+        self.temporary_banner.setObjectName("temporaryCredentialBanner")
+        temporary_layout = QHBoxLayout(self.temporary_banner)
+        temporary_layout.setContentsMargins(10, 7, 10, 7)
+        temporary_layout.setSpacing(8)
+        self.temporary_label = QLabel("A temporary API key is active in the main Provider panel. Save it as a named account to manage quota, testing and failover.")
+        self.temporary_label.setWordWrap(True)
+        self.temporary_save = QPushButton("Save as account")
+        self.temporary_save.setIcon(action_icon("provider.add_profile"))
+        self.temporary_save.clicked.connect(self.save_temporary_as_profile)
+        temporary_layout.addWidget(self.temporary_label, 1)
+        temporary_layout.addWidget(self.temporary_save)
+        accounts_layout.addWidget(self.temporary_banner)
+
+        toolbar = QFrame()
+        toolbar.setObjectName("providerAccountsToolbar")
+        buttons = QHBoxLayout(toolbar)
+        buttons.setContentsMargins(6, 4, 6, 4)
+        buttons.setSpacing(6)
         actions = [
-            ("Add", "provider.add_profile", self.add_profile),
+            ("Add account", "provider.add_profile", self.add_profile),
             ("Test", "provider.test_connection", self.test_selected),
             ("Set active", "provider.set_active_profile", self.set_active),
         ]
@@ -127,20 +125,25 @@ class ProviderAccountsDialog(QDialog):
         for text, icon_name, handler in actions:
             button = QPushButton(text)
             button.setIcon(action_icon(icon_name))
+            button.setMinimumHeight(34)
             button.clicked.connect(handler)
             buttons.addWidget(button)
             self.action_buttons.append(button)
+        buttons.addStretch()
         self.move_up_button = QPushButton("")
+        self.move_up_button.setFixedSize(34, 34)
         self.move_up_button.setIcon(action_icon("provider.move_up"))
         self.move_up_button.setToolTip("Move selected profile up")
         self.move_up_button.setAccessibleName("Move selected profile up")
         self.move_up_button.clicked.connect(lambda: self.move_profile(-1))
         self.move_down_button = QPushButton("")
+        self.move_down_button.setFixedSize(34, 34)
         self.move_down_button.setIcon(action_icon("provider.move_down"))
         self.move_down_button.setToolTip("Move selected profile down")
         self.move_down_button.setAccessibleName("Move selected profile down")
         self.move_down_button.clicked.connect(lambda: self.move_profile(1))
         self.more_button = QPushButton("More")
+        self.more_button.setMinimumHeight(34)
         self.more_button.setIcon(action_icon("general.more"))
         self.more_menu = QMenu(self)
         for text, icon_name, handler in [
@@ -160,11 +163,125 @@ class ProviderAccountsDialog(QDialog):
         buttons.addWidget(self.move_up_button)
         buttons.addWidget(self.move_down_button)
         buttons.addWidget(self.more_button)
-        buttons.addStretch()
-        root.addLayout(buttons)
+        accounts_layout.addWidget(toolbar)
 
-        failover_box = QGroupBox("Failover")
-        form = QFormLayout(failover_box)
+        self.account_splitter = QSplitter(Qt.Horizontal)
+        self.account_splitter.setObjectName("providerAccountsSplitter")
+        self.account_splitter.setChildrenCollapsible(False)
+
+        self.stack = QStackedWidget()
+        self.empty_state = QWidget()
+        empty_layout = QVBoxLayout(self.empty_state)
+        empty_layout.setContentsMargins(24, 24, 24, 24)
+        empty_layout.addStretch()
+        empty_title = QLabel("No saved ElevenLabs accounts")
+        empty_title.setObjectName("emptyTitle")
+        empty_title.setAlignment(Qt.AlignCenter)
+        empty_help = QLabel("Add an account, use a temporary key, or learn how named profiles work.")
+        empty_help.setAlignment(Qt.AlignCenter)
+        empty_help.setWordWrap(True)
+        empty_actions = QHBoxLayout()
+        self.empty_add = QPushButton("Add account")
+        self.empty_add.setIcon(action_icon("provider.add_profile"))
+        self.empty_temp = QPushButton("Use temporary key")
+        self.empty_temp.setIcon(action_icon("provider.temporary_key"))
+        self.empty_learn = QPushButton("Learn how profiles work")
+        self.empty_learn.setIcon(action_icon("general.info"))
+        self.empty_add.clicked.connect(self.add_profile)
+        self.empty_temp.clicked.connect(self.enter_temporary_key)
+        self.empty_learn.clicked.connect(lambda: QMessageBox.information(self, "Provider profiles", "Profiles are named API accounts. The active enabled profile supplies the saved credential, quota snapshot, and failover order for generation."))
+        for button in [self.empty_add, self.empty_temp, self.empty_learn]:
+            button.setMinimumHeight(34)
+            empty_actions.addWidget(button)
+        empty_layout.addWidget(empty_title)
+        empty_layout.addWidget(empty_help)
+        empty_layout.addLayout(empty_actions)
+        empty_layout.addStretch()
+
+        self.table = QTableWidget(0, 10)
+        self.table.setObjectName("providerProfilesTable")
+        self.table.setHorizontalHeaderLabels([
+            "Active", "Profile name", "Provider", "Masked key", "Enabled",
+            "Priority", "Connection", "Tier", "Remaining quota", "Last checked",
+        ])
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setAlternatingRowColors(True)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.table.setVerticalScrollMode(QTableWidget.ScrollPerPixel)
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.setMinimumWidth(560)
+        self.table.itemSelectionChanged.connect(self._selection_changed)
+        self.stack.addWidget(self.table)
+        self.stack.addWidget(self.empty_state)
+        self.account_splitter.addWidget(self.stack)
+
+        self.details_panel = QFrame()
+        self.details_panel.setObjectName("providerAccountDetails")
+        self.details_panel.setMinimumWidth(270)
+        self.details_panel.setMaximumWidth(360)
+        details = QVBoxLayout(self.details_panel)
+        details.setContentsMargins(14, 14, 14, 14)
+        details.setSpacing(10)
+        details_title = QLabel("Account details")
+        details_title.setObjectName("sectionTitle")
+        details.addWidget(details_title)
+        self.details_name = QLabel("No profile selected")
+        self.details_name.setObjectName("accountName")
+        self.details_name.setWordWrap(True)
+        self.details_status = QLabel("Select an account to see its connection status.")
+        self.details_status.setObjectName("accountStatus")
+        self.details_status.setWordWrap(True)
+        self.details_status.setMinimumHeight(48)
+        self.details_status.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        details.addWidget(self.details_name)
+        details.addWidget(self.details_status)
+        self.details_form = QFormLayout()
+        self.details_form.setHorizontalSpacing(12)
+        self.details_form.setVerticalSpacing(8)
+        self.details_tier = QLabel("—")
+        self.details_quota = QLabel("—")
+        self.details_last_checked = QLabel("—")
+        self.details_key = QLabel("—")
+        for label in [self.details_tier, self.details_quota, self.details_last_checked, self.details_key]:
+            label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            label.setWordWrap(True)
+        self.details_form.addRow("Tier", self.details_tier)
+        self.details_form.addRow("Quota", self.details_quota)
+        self.details_form.addRow("Last checked", self.details_last_checked)
+        self.details_form.addRow("Credential", self.details_key)
+        details.addLayout(self.details_form)
+        details.addStretch()
+        detail_actions = QHBoxLayout()
+        self.details_test = QPushButton("Test")
+        self.details_test.setIcon(action_icon("provider.test_connection"))
+        self.details_test.clicked.connect(self.test_selected)
+        self.details_activate = QPushButton("Set active")
+        self.details_activate.setIcon(action_icon("provider.set_active_profile"))
+        self.details_activate.clicked.connect(self.set_active)
+        detail_actions.addWidget(self.details_test)
+        detail_actions.addWidget(self.details_activate)
+        details.addLayout(detail_actions)
+        self.account_splitter.addWidget(self.details_panel)
+        self.account_splitter.setStretchFactor(0, 1)
+        self.account_splitter.setStretchFactor(1, 0)
+        self.account_splitter.setSizes([700, 300])
+        accounts_layout.addWidget(self.account_splitter, 1)
+        self.tabs.addTab(accounts_page, action_icon("provider.accounts"), "Accounts")
+
+        failover_page = QWidget()
+        failover_root = QVBoxLayout(failover_page)
+        failover_root.setContentsMargins(16, 16, 16, 16)
+        failover_root.setSpacing(12)
+        intro = QLabel("Choose how S Talking should continue when the active account cannot complete the current batch.")
+        intro.setWordWrap(True)
+        failover_root.addWidget(intro)
+        failover_form = QFormLayout()
+        failover_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        failover_form.setHorizontalSpacing(16)
+        failover_form.setVerticalSpacing(10)
         self.failover_mode = QComboBox()
         self.failover_mode.addItem("Never switch automatically", ApiProfileFailoverMode.NEVER)
         self.failover_mode.addItem("Pause and ask", ApiProfileFailoverMode.PAUSE)
@@ -176,34 +293,45 @@ class ProviderAccountsDialog(QDialog):
         self.sequence_mode.addItem("Active profile then backups", "active_then_backups")
         self.sequence_mode.addItem("Manually ordered profile sequence", "manual")
         self.allow_unknown_quota = QCheckBox("Allow unknown quota with explicit override")
-        self.preview_label = QLabel("Preview unavailable")
+        failover_form.addRow("Mode", self.failover_mode)
+        failover_form.addRow("Maximum switches", self.max_switches)
+        failover_form.addRow("Profile sequence", self.sequence_mode)
+        failover_form.addRow("", self.allow_unknown_quota)
+        failover_root.addLayout(failover_form)
+        self.preview_label = QLabel("Select Preview to see the next eligible account without changing anything.")
+        self.preview_label.setObjectName("failoverPreview")
         self.preview_label.setWordWrap(True)
+        self.preview_label.setMinimumHeight(92)
+        failover_root.addWidget(self.preview_label)
+        failover_actions = QHBoxLayout()
         self.preview_button = QPushButton("Preview failover")
+        self.preview_button.setIcon(action_icon("general.info"))
         self.preview_button.clicked.connect(self.preview_failover)
         self.save_failover_button = QPushButton("Save failover settings")
+        self.save_failover_button.setIcon(action_icon("project.save"))
         self.save_failover_button.clicked.connect(self.save_failover)
-        failover_box.setMaximumHeight(150)
-        form.addRow("Mode", self.failover_mode)
-        form.addRow("Maximum switches per run", self.max_switches)
-        form.addRow("Sequence", self.sequence_mode)
-        form.addRow("", self.allow_unknown_quota)
-        form.addRow("", self.preview_button)
-        form.addRow("Preview", self.preview_label)
-        form.addRow("", self.save_failover_button)
-        root.addWidget(failover_box)
+        failover_actions.addWidget(self.preview_button)
+        failover_actions.addStretch()
+        failover_actions.addWidget(self.save_failover_button)
+        failover_root.addLayout(failover_actions)
+        failover_root.addStretch()
+        self.tabs.addTab(failover_page, action_icon("general.warning"), "Failover")
 
         close_row = QHBoxLayout()
         close_row.addStretch()
         close = QPushButton("Close")
+        close.setMinimumWidth(92)
         close.clicked.connect(self.accept)
         close_row.addWidget(close)
         root.addLayout(close_row)
         self.provider.currentIndexChanged.connect(self.refresh)
-
     def refresh(self) -> None:
         provider = self.provider.currentData()
         selected_id = self.selected_profile().profile_id if self.selected_profile() else None
         profiles = self.service.list_profiles(provider)
+        temporary_key = str(getattr(self.settings_provider(), "api_key", "") or "").strip()
+        self.temporary_banner.setVisible(bool(temporary_key))
+        self.temporary_save.setEnabled(bool(temporary_key))
         self.table.setRowCount(len(profiles))
         for row, profile in enumerate(profiles):
             values = [
@@ -253,6 +381,28 @@ class ProviderAccountsDialog(QDialog):
             QMessageBox.warning(self, "Provider accounts", "Profile changes are blocked while generation is running.")
             return False
         return True
+
+    def save_temporary_as_profile(self) -> None:
+        if not self.ensure_editable():
+            return
+        key = str(getattr(self.settings_provider(), "api_key", "") or "").strip()
+        if not key:
+            QMessageBox.information(self, "Provider accounts", "No temporary API key is currently available.")
+            return
+        name, ok = QInputDialog.getText(self, "Save temporary key", "Account name", text="My ElevenLabs account")
+        if not ok or not name.strip():
+            return
+        try:
+            self.service.create_profile(
+                name.strip(),
+                provider=self.provider.currentData(),
+                api_key=key,
+                active=not self.service.list_profiles(self.provider.currentData()),
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "Provider accounts", str(exc))
+            return
+        self._changed()
 
     def add_profile(self) -> None:
         if not self.ensure_editable():
@@ -459,6 +609,35 @@ class ProviderAccountsDialog(QDialog):
         self.move_up_button.setEnabled(has_selection and row > 0)
         self.move_down_button.setEnabled(has_selection and 0 <= row < self.table.rowCount() - 1)
         self.more_button.setEnabled(True)
+        self._update_details(self.selected_profile())
+
+    def _update_details(self, profile: ApiProfile | None) -> None:
+        enabled = profile is not None
+        self.details_test.setEnabled(enabled)
+        self.details_activate.setEnabled(enabled and not bool(profile.active) if profile else False)
+        if profile is None:
+            self.details_name.setText("No profile selected")
+            self.details_status.setText("Select an account to see its connection status.")
+            self.details_tier.setText("—")
+            self.details_quota.setText("—")
+            self.details_last_checked.setText("—")
+            self.details_key.setText("—")
+            return
+        self.details_name.setText(profile.display_name)
+        status = self._status_label(profile)
+        if profile.last_error:
+            status = f"{status}\n{profile.last_error}"
+        self.details_status.setText(status)
+        self.details_status.setToolTip(status)
+        self.details_tier.setText(profile.account_tier or "Unknown")
+        if profile.remaining_characters is None:
+            self.details_quota.setText("Unavailable")
+        elif profile.character_limit is not None:
+            self.details_quota.setText(f"{profile.remaining_characters:,} remaining of {profile.character_limit:,}")
+        else:
+            self.details_quota.setText(f"{profile.remaining_characters:,} remaining")
+        self.details_last_checked.setText(profile.last_checked_at or "Not checked")
+        self.details_key.setText(profile.masked_key if profile.has_saved_key else "No saved credential")
 
     @staticmethod
     def _status_label(profile: ApiProfile) -> str:

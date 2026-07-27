@@ -171,11 +171,21 @@ QToolBar#mainToolbar QToolButton:checked{{background:{tokens['surface_soft']};bo
 QToolBar#mainToolbar QToolButton:focus{{border:1px solid {tokens['focus']};}}
 QToolBar#mainToolbar QToolButton:disabled{{color:{tokens['text_disabled']};background:transparent;border-color:transparent;}}
 QToolButton#toolbarOverflowButton{{padding:5px;min-width:28px;}}
-QGroupBox#providerPanel{{border:0;background:transparent;margin-top:0;padding:0;}}
+QFrame#providerPanel{{border:0;background:transparent;margin:0;padding:0;}}
 QFrame#collapsibleSection{{background:{tokens['panel']};border:0;border-top:1px solid {tokens['border_subtle']};}}
 QToolButton#sectionHeader{{background:transparent;border:0;color:{tokens['text_primary']};font-weight:700;text-align:left;padding:6px 4px;}}
-QLabel#formLabel{{color:{tokens['text_secondary']};font-weight:600;}}
-QLabel#connectionStatus{{background:{tokens['input']};border:1px solid {tokens['border_subtle']};border-radius:6px;padding:5px;color:{tokens['text_secondary']};}}
+QLabel#formLabel{{color:{tokens['text_secondary']};font-weight:600;font-size:11px;padding-left:1px;}}
+QWidget#sectionContent{{background:transparent;border:0;}}
+QFrame#providerFieldRow,QFrame#inlineFieldRow{{background:transparent;border:0;}}
+QPushButton#connectionStatus{{background:{tokens['input']};border:1px solid {tokens['border_subtle']};border-radius:7px;padding:6px 10px;color:{tokens['text_primary']};text-align:left;font-weight:600;}}
+QPushButton#connectionStatus:hover{{background:{tokens['hover']};border-color:{tokens['focus']};}}
+QFrame#providerAccountsHeader,QFrame#providerAccountsToolbar,QFrame#providerAccountDetails{{background:{tokens['panel']};border:1px solid {tokens['border_subtle']};border-radius:8px;}}
+QFrame#temporaryCredentialBanner{{background:{tokens['surface_soft']};border:1px solid {tokens['focus']};border-radius:7px;}}
+QLabel#dialogTitle{{font-size:18px;font-weight:800;color:{tokens['text_primary']};}}
+QLabel#dialogSubtitle{{font-size:11px;color:{tokens['text_secondary']};}}
+QLabel#sectionTitle,QLabel#accountName{{font-size:14px;font-weight:800;color:{tokens['text_primary']};}}
+QLabel#accountStatus{{background:{tokens['input']};border:1px solid {tokens['border_subtle']};border-radius:7px;padding:8px;color:{tokens['text_secondary']};}}
+QLabel#failoverPreview{{background:{tokens['input']};border:1px solid {tokens['border_subtle']};border-radius:7px;padding:10px;color:{tokens['text_secondary']};}}
 QTabWidget::pane{{border:1px solid {tokens['border_subtle']};border-radius:7px;background:{tokens['panel']};}}
 QTabBar::tab{{background:{tokens['elevated']};color:{tokens['text_secondary']};padding:6px 10px;border:1px solid {tokens['border_subtle']};border-bottom:0;border-top-left-radius:6px;border-top-right-radius:6px;}}
 QTabBar::tab:selected{{color:{tokens['text_primary']};background:{tokens['panel']};border-color:{tokens['border']};}}
