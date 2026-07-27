@@ -34,9 +34,11 @@ class GenerationController(QObject):
         self.source_filter: str | None = None
         self._active_jobs: list[TTSJob] = []
         self.row_range: tuple[int | None, int | None] = (None, None)
+        self.display_range: tuple[int | None, int | None] = (None, None)
         self.generation_selection: set[int] | None = None
         self.scope_mode = "row_range"
         self.execution_order = "csv"
+        self.display_order = "csv"
         self.scope_service = GenerationScopeService()
         self.quota_remaining: int | None = None
 
@@ -109,6 +111,11 @@ class GenerationController(QObject):
             start, end = end, start
         self.row_range = (start, end)
 
+    def set_display_range(self, start: int | None, end: int | None) -> None:
+        if start is not None and end is not None and start > end:
+            start, end = end, start
+        self.display_range = (start, end)
+
     def range_summary(self) -> tuple[int | None, int | None, int]:
         start, end = self.row_range
         return start, end, len(self.range_jobs())
@@ -127,13 +134,15 @@ class GenerationController(QObject):
         return list(self.generation_plan().jobs)
 
     def generation_plan(self, *, quota_remaining: int | None = None) -> GenerationPlan:
+        plan_order = self.display_order if self.scope_mode == "display_range" else self.execution_order
         return self.scope_service.build_plan(
             self._state.jobs,
             scope_mode=self.scope_mode,
-            execution_order=self.execution_order,
+            execution_order=plan_order,
             filtered_jobs=self.visible_jobs(),
             selected_rows=self.generation_selection,
             row_range=self.row_range,
+            display_range=self.display_range,
             quota_remaining=self.quota_remaining if quota_remaining is None else quota_remaining,
         )
 
@@ -145,6 +154,9 @@ class GenerationController(QObject):
 
     def set_execution_order(self, execution_order: str) -> None:
         self.execution_order = execution_order or "csv"
+
+    def set_display_order(self, display_order: str) -> None:
+        self.display_order = display_order or "csv"
 
     def use_visible_order_as_generation_order(self) -> None:
         self.scope_service.use_current_order_as_custom(self.visible_jobs())

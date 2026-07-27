@@ -177,7 +177,7 @@ def test_interruptible_backoff_cancellation() -> None:
         provider.close()
 
 
-def test_preflight_quota_blocks_only_confirmed_insufficient_quota(monkeypatch, tmp_path: Path) -> None:
+def test_preflight_quota_warns_only_for_confirmed_insufficient_quota(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         "app.services.voice_service.create_provider",
         lambda _settings: FakeProvider(subscription={"tier": "free", "status": "active", "character_count": 95, "character_limit": 100}),
@@ -189,9 +189,9 @@ def test_preflight_quota_blocks_only_confirmed_insufficient_quota(monkeypatch, t
 
     state = container.preflight_service.run(jobs=[TTSJob(row_number=2, filename="one.mp3", text="x" * 10)], settings=settings(), output_dir=output)
 
-    assert state.can_start is False
-    assert state.blocking_errors >= 1
-    assert any(issue.severity == "hard_error" and "quota is insufficient" in issue.message for issue in state.issues)
+    assert state.can_start is True
+    assert state.blocking_errors == 0
+    assert any(issue.severity == "warning" and issue.code == "insufficient_quota" for issue in state.issues)
     assert state.quota_snapshot["remaining"] == 5
 
 

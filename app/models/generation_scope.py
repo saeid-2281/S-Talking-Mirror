@@ -12,6 +12,7 @@ class GenerationScopeMode(StrEnum):
     FILTERED = "filtered"
     SELECTED = "selected"
     ROW_RANGE = "row_range"
+    DISPLAY_RANGE = "display_range"
     QUOTA_BATCH = "quota_batch"
 
 

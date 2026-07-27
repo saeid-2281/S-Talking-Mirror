@@ -95,16 +95,20 @@ def test_scoped_quota_sufficient_insufficient_and_unknown(tmp_path: Path, monkey
     container = create_service_container(RuntimeConfig.from_root(tmp_path / "low"))
     container.voice_service.refresh_catalog(settings)
     low = container.preflight_service.run(jobs=jobs, settings=settings, output_dir=output)
-    assert low.can_start is False
-    assert any(issue.code == "insufficient_quota" and issue.severity == "hard_error" for issue in low.issues)
+    assert low.can_start is True
+    assert any(issue.code == "insufficient_quota" and issue.severity == "warning" for issue in low.issues)
 
     unknown_container = create_service_container(RuntimeConfig.from_root(tmp_path / "unknown"))
+    unknown_container.voice_repository.upsert(
+        provider="elevenlabs",
+        voice_id="voice",
+        name="Voice",
+        metadata={"compatible_model_ids": ["model"]},
+    )
     unknown = unknown_container.preflight_service.run(jobs=jobs, settings=settings, output_dir=output)
-    assert unknown.can_start is False
-    issue = next(issue for issue in unknown.issues if issue.code == "quota_unknown")
-    assert issue.overridable is True
-    assert unknown.override_all_eligible("Known small test batch") >= 1
     assert unknown.can_start is True
+    issue = next(issue for issue in unknown.issues if issue.code == "quota_unknown")
+    assert issue.severity == "warning"
 
 
 def test_danish_short_pronunciation_aid_and_original_text_preserved() -> None:

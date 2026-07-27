@@ -16,12 +16,14 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
-from app.gui.icons import icon
+from app.gui.icons import action_icon, icon
 from app.models.domain import AppSettings
 from app.models.pronunciation_dictionary import PronunciationDictionary, PronunciationRule
 from app.provider_factory import create_provider
@@ -56,6 +58,45 @@ class PronunciationDictionaryDialog(QDialog):
         self.compatibility.setWordWrap(True)
         top.addWidget(self.compatibility, 1)
         root.addLayout(top)
+
+        self.stack = QStackedWidget()
+        self.empty_state = QWidget()
+        empty = QVBoxLayout(self.empty_state)
+        title = QLabel("Pronunciation dictionaries")
+        title.setObjectName("emptyTitle")
+        explanation = QLabel("Pronunciation dictionaries help the provider pronounce specific words, names and short phrases consistently without adding audible helper text.")
+        explanation.setWordWrap(True)
+        self.empty_provider_status = QLabel("")
+        self.empty_provider_status.setWordWrap(True)
+        workflow = QLabel("1. Create or import a dictionary\n2. Add a word or phrase\n3. Define its alias or supported phoneme form\n4. Test it with the selected voice\n5. Activate it for the project")
+        workflow.setWordWrap(True)
+        primary = QHBoxLayout()
+        for text, icon_name, handler in [
+            ("Create dictionary", "pronunciation.dictionary", self.create_dictionary),
+            ("Import .PLS", "pronunciation.import_pls", self.import_pls),
+            ("Refresh provider dictionaries", "general.refresh", self.refresh_remote),
+        ]:
+            button = QPushButton(text)
+            button.setIcon(action_icon(icon_name))
+            button.clicked.connect(handler)
+            primary.addWidget(button)
+        secondary = QHBoxLayout()
+        for text, handler in [
+            ("Learn how dictionaries work", lambda: QMessageBox.information(self, "Pronunciation dictionaries", "Use dictionaries for stable pronunciations of names and short phrases. Rules are metadata sent to supported providers; original CSV text remains unchanged.")),
+            ("Open documentation", lambda: QMessageBox.information(self, "Documentation", "See docs/PROVIDERS.md and docs/USER_GUIDE.md for provider-specific pronunciation support.")),
+            ("Try a pronunciation test", self.test_dictionary),
+        ]:
+            button = QPushButton(text)
+            button.clicked.connect(handler)
+            secondary.addWidget(button)
+        empty.addStretch()
+        empty.addWidget(title)
+        empty.addWidget(explanation)
+        empty.addWidget(self.empty_provider_status)
+        empty.addWidget(workflow)
+        empty.addLayout(primary)
+        empty.addLayout(secondary)
+        empty.addStretch()
 
         splitter = QSplitter(Qt.Vertical)
         self.dictionary_table = QTableWidget(0, 9)
@@ -93,27 +134,29 @@ class PronunciationDictionaryDialog(QDialog):
         self.rule_table.horizontalHeader().setStretchLastSection(True)
         splitter.addWidget(self.rule_table)
         splitter.setSizes([260, 280])
-        root.addWidget(splitter, 1)
+        self.stack.addWidget(splitter)
+        self.stack.addWidget(self.empty_state)
+        root.addWidget(self.stack, 1)
 
         actions = QGridLayout()
         items = [
             ("Refresh provider dictionaries", "refresh", self.refresh_remote),
-            ("Sync selected", "refresh", self.sync_selected),
-            ("Create dictionary", "new", self.create_dictionary),
-            ("Import .pls", "open", self.import_pls),
+            ("Sync selected", "sync", self.sync_selected),
+            ("Create dictionary", "dictionary-add", self.create_dictionary),
+            ("Import .pls", "import-pls", self.import_pls),
             ("Export metadata", "save", self.export_metadata),
             ("Rename local alias", "settings", self.rename_dictionary),
             ("Delete / archive", "delete", self.delete_dictionary),
             ("Set active", "start", self.set_active),
             ("Disable for project", "stop", self.disable_current_project_dictionary),
             ("Test selected dictionary", "play", self.test_dictionary),
-            ("Add rule", "new", self.add_rule),
+            ("Add rule", "dictionary-add", self.add_rule),
             ("Edit rule", "settings", self.edit_rule),
             ("Delete rule", "delete", self.delete_rule),
             ("Duplicate rule", "copy", self.duplicate_rule),
             ("Import rules", "open", self.import_pls),
             ("Export .pls", "save", self.export_pls),
-            ("Test rule with Preview", "play", self.test_rule),
+            ("Test rule with Preview", "pronunciation-test", self.test_rule),
             ("Undo", "refresh", self.undo),
             ("Redo", "refresh", self.redo),
         ]
@@ -136,6 +179,14 @@ class PronunciationDictionaryDialog(QDialog):
     def refresh(self) -> None:
         summaries = self.service.list_dictionaries()
         self.dictionary_table.setRowCount(len(summaries))
+        self.stack.setCurrentWidget(self.empty_state if not summaries else self.stack.widget(0))
+        settings = self.settings_provider()
+        provider_support = "remote dictionaries supported" if settings.provider == "elevenlabs" else "remote dictionaries unavailable for current provider"
+        model_support = "alias rules supported; phoneme rules depend on provider/model metadata"
+        self.empty_provider_status.setText(
+            f"Provider: {settings.provider} · Language: {settings.language_code or 'default'} · "
+            f"{provider_support} · {model_support}"
+        )
         for row, summary in enumerate(summaries):
             values = [
                 "Yes" if summary.active else "",

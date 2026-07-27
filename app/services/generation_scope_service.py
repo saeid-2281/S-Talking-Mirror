@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 from app.models.domain import JobStatus, TTSJob
 from app.models.generation_scope import ExecutionOrderMode, GenerationPlan, GenerationScopeMode
@@ -31,16 +32,21 @@ class GenerationScopeService:
         filtered_jobs: list[TTSJob] | None = None,
         selected_rows: set[int] | None = None,
         row_range: tuple[int | None, int | None] = (None, None),
+        display_range: tuple[int | None, int | None] = (None, None),
         quota_remaining: int | None = None,
     ) -> GenerationPlan:
         mode = self._scope(scope_mode)
         order = self._order(execution_order)
+        display_basis = list(filtered_jobs) if mode == GenerationScopeMode.DISPLAY_RANGE and filtered_jobs is not None else jobs
+        ordered_all = self.order_jobs(display_basis, order)
         scoped = self._scope_jobs(
             jobs,
             mode=mode,
             filtered_jobs=filtered_jobs,
             selected_rows=selected_rows,
             row_range=row_range,
+            display_range=display_range,
+            ordered_jobs=ordered_all,
         )
         ordered = self.order_jobs(scoped, order)
         reserved = self.quota_reserve(quota_remaining) if mode == GenerationScopeMode.QUOTA_BATCH else 0
@@ -58,9 +64,9 @@ class GenerationScopeService:
 
     def order_jobs(self, jobs: list[TTSJob], order: ExecutionOrderMode) -> list[TTSJob]:
         if order == ExecutionOrderMode.FILENAME_ASC:
-            return sorted(jobs, key=lambda job: job.filename.casefold())
+            return sorted(jobs, key=lambda job: (self._natural_key(job.filename), job.row_number))
         if order == ExecutionOrderMode.FILENAME_DESC:
-            return sorted(jobs, key=lambda job: job.filename.casefold(), reverse=True)
+            return sorted(jobs, key=lambda job: (self._natural_key(job.filename), job.row_number), reverse=True)
         if order == ExecutionOrderMode.CHARACTER_SHORTEST:
             return sorted(jobs, key=lambda job: (job.character_count, job.row_number))
         if order == ExecutionOrderMode.CHARACTER_LONGEST:
@@ -130,11 +136,18 @@ class GenerationScopeService:
         filtered_jobs: list[TTSJob] | None,
         selected_rows: set[int] | None,
         row_range: tuple[int | None, int | None],
+        display_range: tuple[int | None, int | None],
+        ordered_jobs: list[TTSJob],
     ) -> list[TTSJob]:
         if mode in {GenerationScopeMode.FILTERED, GenerationScopeMode.CURRENT_SOURCE}:
             return list(filtered_jobs or [])
         if mode == GenerationScopeMode.SELECTED:
             return [job for job in jobs if selected_rows and job.row_number in selected_rows]
+        if mode == GenerationScopeMode.DISPLAY_RANGE:
+            start, end = display_range
+            start_index = max((start or 1) - 1, 0)
+            end_index = len(ordered_jobs) if end is None else max(end, 0)
+            return list(ordered_jobs[start_index:end_index])
         if mode == GenerationScopeMode.ROW_RANGE:
             start, end = row_range
             scoped = jobs
@@ -144,6 +157,11 @@ class GenerationScopeService:
                 scoped = [job for job in scoped if job.row_number <= end]
             return list(scoped)
         return list(jobs)
+
+    @staticmethod
+    def _natural_key(value: str) -> tuple[object, ...]:
+        parts = re.split(r"(\d+)", value.casefold())
+        return tuple(int(part) if part.isdigit() else part for part in parts)
 
     @staticmethod
     def _scope(value: str) -> GenerationScopeMode:

@@ -446,12 +446,21 @@ class PreflightService:
                 "catalog_revision": catalog.refreshed_at,
             }
             if characters > account.remaining_characters:
-                self._issue(issues, "hard_error", None, "", f"ElevenLabs quota is insufficient: {account.remaining_characters:,} characters remaining for {characters:,} pending characters.", "Reduce the batch or upgrade/refill quota.", "insufficient_quota")
+                shortfall = characters - account.remaining_characters
+                self._issue(
+                    issues,
+                    "warning",
+                    None,
+                    "",
+                    f"ElevenLabs quota shortfall. Required: {characters:,} characters. Available: {account.remaining_characters:,} characters. Shortfall: {shortfall:,} characters.",
+                    "Continue anyway, select a smaller scope, auto-select jobs that fit quota, choose another account, or enable account failover.",
+                    "insufficient_quota",
+                )
             else:
                 self._issue(issues, "warning", None, "", f"ElevenLabs quota snapshot: {account.character_count or 0:,} used, {account.remaining_characters:,} remaining.", "Refresh account data before starting if this is stale.", "quota_snapshot")
             return snapshot
         if characters > 0:
-            self._issue(issues, "overridable_error", None, "", "Quota unavailable.", "Test connection to refresh account data or override for this run.", "quota_unknown", overridable=True)
+            self._issue(issues, "warning", None, "", "Quota unavailable.", "Test connection to refresh account data. You can continue, but the provider may stop when quota is exhausted.", "quota_unknown")
         return None
 
     def _model_limit(self, settings: AppSettings) -> int | None:

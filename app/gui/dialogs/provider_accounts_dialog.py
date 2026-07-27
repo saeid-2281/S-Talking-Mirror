@@ -9,21 +9,23 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFormLayout,
-    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
+    QStackedWidget,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
-from app.gui.icons import icon
+from app.gui.icons import action_icon
 from app.models.api_profile import ApiProfile, ApiProfileFailoverMode, ApiProfileStatus, FailoverSettings
 from app.models.domain import AppSettings
 from app.services.api_profile_service import ApiProfileService
@@ -66,7 +68,34 @@ class ProviderAccountsDialog(QDialog):
         top.addStretch()
         root.addLayout(top)
 
-        self.table = QTableWidget(0, 13)
+        self.stack = QStackedWidget()
+        self.empty_state = QWidget()
+        empty_layout = QVBoxLayout(self.empty_state)
+        empty_layout.addStretch()
+        empty_title = QLabel("No saved ElevenLabs accounts")
+        empty_title.setObjectName("emptyTitle")
+        empty_title.setAlignment(Qt.AlignCenter)
+        empty_help = QLabel("Add an account, use a temporary key, or learn how named profiles work.")
+        empty_help.setAlignment(Qt.AlignCenter)
+        empty_help.setWordWrap(True)
+        empty_actions = QHBoxLayout()
+        self.empty_add = QPushButton("Add account")
+        self.empty_add.setIcon(action_icon("provider.add_profile"))
+        self.empty_temp = QPushButton("Use temporary key")
+        self.empty_temp.setIcon(action_icon("provider.temporary_key"))
+        self.empty_learn = QPushButton("Learn how profiles work")
+        self.empty_learn.setIcon(action_icon("general.info"))
+        self.empty_add.clicked.connect(self.add_profile)
+        self.empty_temp.clicked.connect(self.enter_temporary_key)
+        self.empty_learn.clicked.connect(lambda: QMessageBox.information(self, "Provider profiles", "Profiles are named API accounts. The active enabled profile supplies the saved credential, quota snapshot, and failover order for generation."))
+        for button in [self.empty_add, self.empty_temp, self.empty_learn]:
+            empty_actions.addWidget(button)
+        empty_layout.addWidget(empty_title)
+        empty_layout.addWidget(empty_help)
+        empty_layout.addLayout(empty_actions)
+        empty_layout.addStretch()
+
+        self.table = QTableWidget(0, 10)
         self.table.setHorizontalHeaderLabels([
             "Active",
             "Profile name",
@@ -74,45 +103,64 @@ class ProviderAccountsDialog(QDialog):
             "Masked key",
             "Enabled",
             "Priority",
-            "Connection status",
+            "Connection",
             "Tier",
             "Remaining quota",
             "Last checked",
-            "Last used",
-            "Last verified",
-            "Dictionary CRUD",
         ])
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemSelectionChanged.connect(self._selection_changed)
-        root.addWidget(self.table, 1)
+        self.stack.addWidget(self.table)
+        self.stack.addWidget(self.empty_state)
+        root.addWidget(self.stack, 1)
 
-        buttons = QGridLayout()
+        buttons = QHBoxLayout()
         actions = [
-            ("Add", "new", self.add_profile),
-            ("Rename", "settings", self.rename_profile),
-            ("Replace key", "settings", self.replace_key),
-            ("Delete", "delete", self.delete_profile),
-            ("Enable/disable", "settings", self.toggle_enabled),
-            ("Move up", "up", lambda: self.move_profile(-1)),
-            ("Move down", "down", lambda: self.move_profile(1)),
-            ("Set active", "start", self.set_active),
-            ("Test selected", "refresh", self.test_selected),
-            ("Run live verification", "refresh", self.run_live_verification),
-            ("Test all", "refresh", self.test_all),
-            ("Clear exhausted", "refresh", self.clear_exhausted),
-            ("Temporary key", "settings", self.enter_temporary_key),
-            ("Copy summary", "copy", self.copy_safe_summary),
+            ("Add", "provider.add_profile", self.add_profile),
+            ("Test", "provider.test_connection", self.test_selected),
+            ("Set active", "provider.set_active_profile", self.set_active),
         ]
         self.action_buttons: list[QPushButton] = []
-        for index, (text, icon_name, handler) in enumerate(actions):
+        for text, icon_name, handler in actions:
             button = QPushButton(text)
-            button.setIcon(icon(icon_name))
+            button.setIcon(action_icon(icon_name))
             button.clicked.connect(handler)
-            buttons.addWidget(button, index // 4, index % 4)
+            buttons.addWidget(button)
             self.action_buttons.append(button)
+        self.move_up_button = QPushButton("")
+        self.move_up_button.setIcon(action_icon("provider.move_up"))
+        self.move_up_button.setToolTip("Move selected profile up")
+        self.move_up_button.setAccessibleName("Move selected profile up")
+        self.move_up_button.clicked.connect(lambda: self.move_profile(-1))
+        self.move_down_button = QPushButton("")
+        self.move_down_button.setIcon(action_icon("provider.move_down"))
+        self.move_down_button.setToolTip("Move selected profile down")
+        self.move_down_button.setAccessibleName("Move selected profile down")
+        self.move_down_button.clicked.connect(lambda: self.move_profile(1))
+        self.more_button = QPushButton("More")
+        self.more_button.setIcon(action_icon("general.more"))
+        self.more_menu = QMenu(self)
+        for text, icon_name, handler in [
+            ("Rename", "provider.rename_profile", self.rename_profile),
+            ("Replace key", "provider.replace_key", self.replace_key),
+            ("Enable/disable", "provider.toggle_enabled", self.toggle_enabled),
+            ("Delete", "provider.delete_profile", self.delete_profile),
+            ("Run live verification", "provider.live_verification", self.run_live_verification),
+            ("Test all", "provider.test_all", self.test_all),
+            ("Clear exhausted", "provider.clear_exhausted", self.clear_exhausted),
+            ("Use temporary key", "provider.temporary_key", self.enter_temporary_key),
+            ("Copy summary", "provider.copy_summary", self.copy_safe_summary),
+        ]:
+            action = self.more_menu.addAction(action_icon(icon_name), text)
+            action.triggered.connect(handler)
+        self.more_button.setMenu(self.more_menu)
+        buttons.addWidget(self.move_up_button)
+        buttons.addWidget(self.move_down_button)
+        buttons.addWidget(self.more_button)
+        buttons.addStretch()
         root.addLayout(buttons)
 
         failover_box = QGroupBox("Failover")
@@ -134,6 +182,7 @@ class ProviderAccountsDialog(QDialog):
         self.preview_button.clicked.connect(self.preview_failover)
         self.save_failover_button = QPushButton("Save failover settings")
         self.save_failover_button.clicked.connect(self.save_failover)
+        failover_box.setMaximumHeight(150)
         form.addRow("Mode", self.failover_mode)
         form.addRow("Maximum switches per run", self.max_switches)
         form.addRow("Sequence", self.sequence_mode)
@@ -153,6 +202,7 @@ class ProviderAccountsDialog(QDialog):
 
     def refresh(self) -> None:
         provider = self.provider.currentData()
+        selected_id = self.selected_profile().profile_id if self.selected_profile() else None
         profiles = self.service.list_profiles(provider)
         self.table.setRowCount(len(profiles))
         for row, profile in enumerate(profiles):
@@ -167,15 +217,18 @@ class ProviderAccountsDialog(QDialog):
                 profile.account_tier or "—",
                 f"{profile.remaining_characters:,}" if profile.remaining_characters is not None else "—",
                 profile.last_checked_at or "—",
-                profile.last_used_at or "—",
-                profile.metadata.get("last_verified_at", "—"),
-                profile.metadata.get("dictionary_crud_available", "Unknown"),
             ]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 item.setData(Qt.UserRole, profile.profile_id)
                 item.setToolTip(str(value))
                 self.table.setItem(row, column, item)
+            if profile.profile_id == selected_id:
+                self.table.selectRow(row)
+        if profiles and self.table.currentRow() < 0:
+            active_row = next((row for row, profile in enumerate(profiles) if profile.active), 0)
+            self.table.selectRow(active_row)
+        self.stack.setCurrentWidget(self.empty_state if not profiles else self.table)
         settings = self.service.failover_settings(provider)
         self._set_combo(self.failover_mode, settings.mode)
         self.max_switches.setValue(settings.max_switches_per_run)
@@ -400,8 +453,12 @@ class ProviderAccountsDialog(QDialog):
 
     def _selection_changed(self) -> None:
         has_selection = self.selected_profile() is not None
-        for button in self.action_buttons[1:12]:
+        for button in self.action_buttons[1:]:
             button.setEnabled(has_selection)
+        row = self.table.currentRow()
+        self.move_up_button.setEnabled(has_selection and row > 0)
+        self.move_down_button.setEnabled(has_selection and 0 <= row < self.table.rowCount() - 1)
+        self.more_button.setEnabled(True)
 
     @staticmethod
     def _status_label(profile: ApiProfile) -> str:

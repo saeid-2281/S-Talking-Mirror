@@ -164,7 +164,12 @@ QLabel#emptyTitle{{font-size:20px;font-weight:800;color:{tokens['text_primary']}
 QLabel#emptyHelper{{color:{tokens['text_secondary']};}}
 QLabel#compactSourceSummary,QLabel#compactOutputSummary,QLabel#projectContextBar{{color:{tokens['text_secondary']};font-weight:600;}}
 QToolBar#mainToolbar{{background:{tokens['panel']};border:0;border-bottom:1px solid {tokens['border_subtle']};spacing:6px;padding:3px 8px;}}
-QToolBar#mainToolbar QToolButton{{padding:5px 8px;min-height:24px;border-color:transparent;background:transparent;}}
+QToolBar#mainToolbar QToolButton{{padding:5px 8px;min-height:24px;min-width:34px;border-color:transparent;background:transparent;}}
+QToolBar#mainToolbar QToolButton:hover{{background:{tokens['hover']};border-color:{tokens['border_strong']};}}
+QToolBar#mainToolbar QToolButton:pressed{{background:{tokens['primary_pressed']};color:{tokens['text_inverse']};border-color:{tokens['primary_pressed']};}}
+QToolBar#mainToolbar QToolButton:checked{{background:{tokens['surface_soft']};border-color:{tokens['primary']};color:{tokens['text_primary']};}}
+QToolBar#mainToolbar QToolButton:focus{{border:1px solid {tokens['focus']};}}
+QToolBar#mainToolbar QToolButton:disabled{{color:{tokens['text_disabled']};background:transparent;border-color:transparent;}}
 QToolButton#toolbarOverflowButton{{padding:5px;min-width:28px;}}
 QGroupBox#providerPanel{{border:0;background:transparent;margin-top:0;padding:0;}}
 QFrame#collapsibleSection{{background:{tokens['panel']};border:0;border-top:1px solid {tokens['border_subtle']};}}
@@ -203,8 +208,19 @@ QScrollBar:vertical{{background:{tokens['panel']};width:12px;}}
 QScrollBar::handle:vertical{{background:{tokens['border']};border-radius:6px;min-height:28px;}}
 QScrollBar:horizontal{{background:{tokens['panel']};height:12px;}}
 QScrollBar::handle:horizontal{{background:{tokens['border']};border-radius:6px;min-width:28px;}}
-QMenuBar,QMenu{{background:{tokens['panel']};color:{tokens['text_primary']};}}
-QMenu::item:selected,QMenuBar::item:selected{{background:{tokens['hover']};}}
+QMenuBar{{background:{tokens['panel']};color:{tokens['text_primary']};padding:2px 6px;border-bottom:1px solid {tokens['border_subtle']};}}
+QMenuBar::item{{background:transparent;padding:5px 10px;border-radius:5px;spacing:6px;}}
+QMenuBar::item:selected,QMenuBar::item:pressed{{background:{tokens['hover']};color:{tokens['text_primary']};}}
+QMenuBar::item:focus{{border:1px solid {tokens['focus']};}}
+QMenu{{background:{tokens['overlay']};color:{tokens['text_primary']};border:1px solid {tokens['border']};padding:5px;}}
+QMenu::item{{padding:6px 28px 6px 26px;border-radius:5px;}}
+QMenu::item:selected{{background:{tokens['hover']};color:{tokens['text_primary']};}}
+QMenu::item:pressed{{background:{tokens['surface_soft']};}}
+QMenu::item:checked{{background:{tokens['surface_soft']};font-weight:700;}}
+QMenu::item:disabled{{color:{tokens['text_disabled']};background:transparent;}}
+QMenu::separator{{height:1px;background:{tokens['border_subtle']};margin:5px 8px;}}
+QMenu::right-arrow{{width:8px;height:8px;}}
+QMenu::icon{{padding-left:6px;}}
 """
 
 
