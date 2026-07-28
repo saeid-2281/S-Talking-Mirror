@@ -1,10 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 import json,sys
 
 import app
 from datetime import datetime, timezone
 from pathlib import Path
-from PySide6.QtCore import QItemSelectionModel,QSettings,Qt,QTimer,QUrl,QSize,Signal
+from PySide6.QtCore import QItemSelectionModel,QSettings,Qt,QTimer,QUrl,QSize
 from PySide6.QtGui import QAction,QColor,QDesktopServices,QDragEnterEvent,QDropEvent,QKeySequence
 from PySide6.QtWidgets import *
 from app.bootstrap import ApplicationContext, create_application_context
@@ -15,41 +15,28 @@ from app.gui.developer_tools import DeveloperTools
 from app.gui.icons import action_icon, icon
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.widgets import ControlledSpinBox
+from app.gui.widgets.application_shell import (
+    ActivityCenter,
+    ApplicationShell,
+    GenerationStatusStrip,
+    MetricsStrip,
+    ProjectContextBar,
+)
 from app.gui.widgets.provider_workspace import ProviderWorkspaceBuilder
+from app.gui.widgets.queue_workspace import QueueScopeSummary, QueueSelectionStats, configure_queue_table
 from app.models import AppSettings
 from app.models.product_events import BatchSessionRecord
 from app.models.ui_state import SettingsViewData
 from app.services.monitor_formatting import elide_middle, format_characters_per_minute, format_duration, format_files_per_minute, status_color
+from app.services.text_source_service import TextSourceService
 
 COLORS=STATUS_COLORS
 MONITOR_MIN_WIDTH=290
 MONITOR_DEFAULT_WIDTH=330
 MONITOR_MAX_FRACTION=0.32
 MONITOR_COMPACT_THRESHOLD=1180
-
-class Card(QFrame):
-    def __init__(self,title):
-        super().__init__(); self.setObjectName('card'); lay=QVBoxLayout(self); self.value=QLabel('0'); self.value.setObjectName('cardValue'); cap=QLabel(title); cap.setObjectName('cardCaption'); lay.addWidget(self.value); lay.addWidget(cap)
-
-class MetricPill(QFrame):
-    clicked=Signal(str)
-    def __init__(self,title):
-        super().__init__(); self.metric_key=''; self.filter_text=''; self.setObjectName('metricPill'); self.setCursor(Qt.PointingHandCursor); self.setMaximumHeight(42); self.setMinimumHeight(34); self.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
-        lay=QHBoxLayout(self); lay.setContentsMargins(7,2,7,2); lay.setSpacing(4)
-        self.icon_label=QLabel(''); self.icon_label.setObjectName('metricIcon'); self.icon_label.setAlignment(Qt.AlignCenter); self.icon_label.setFixedWidth(18)
-        self.value=QLabel('0'); self.value.setObjectName('metricValue'); self.value.setAlignment(Qt.AlignRight|Qt.AlignVCenter); self.value.setMinimumWidth(0); self.value.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred)
-        cap=QLabel(title); cap.setObjectName('metricCaption'); cap.setSizePolicy(QSizePolicy.Minimum,QSizePolicy.Preferred)
-        lay.addWidget(self.icon_label); lay.addWidget(self.value,1); lay.addWidget(cap)
-    def configure(self,key,filter_text='',icon_name='general.info'):
-        self.metric_key=key; self.filter_text=filter_text; self.icon_label.setPixmap(action_icon(icon_name,size=16).pixmap(16,16)); self.setToolTip(f'Filter queue by {filter_text.lower()}' if filter_text else 'Queue metric')
-    def set_active(self,active):
-        self.setProperty('active',active); self.style().unpolish(self); self.style().polish(self)
-    def mousePressEvent(self,event):
-        if event.button()==Qt.LeftButton and self.filter_text:
-            self.clicked.emit(self.filter_text); event.accept(); return
-        super().mousePressEvent(event)
 
 class LegacyCollapsibleSection(QFrame):
     """Compact section whose fields stack vertically instead of fighting for width."""
@@ -172,34 +159,49 @@ class MainWindow(QMainWindow):
         self.report_button=QPushButton('Report: none'); self.report_button.setFlat(True); self.report_button.setVisible(False); self.report_button.clicked.connect(self.view_latest_report_dialog); self.statusBar().addPermanentWidget(self.report_button)
         self.health_button=QPushButton('Health: checking…'); self.health_button.setFlat(True); self.health_button.clicked.connect(self.developer_tools.show_health_center); self.statusBar().addPermanentWidget(self.health_button)
         palette_action=QAction('Command Palette',self); palette_action.setShortcut(QKeySequence('Ctrl+K')); palette_action.setShortcutContext(Qt.ApplicationShortcut); palette_action.triggered.connect(self.open_command_palette); self.addAction(palette_action); self.actions_by_name['Command Palette']=palette_action
-        c=QWidget(); self.setCentralWidget(c); root=QVBoxLayout(c); root.setContentsMargins(10,8,10,8); root.setSpacing(8)
-        head=QHBoxLayout(); self.project_context_bar=QLabel('Project: No project · Source: none · Output: output · Provider: Mock / Test Provider · Preflight: not checked'); self.project_context_bar.setObjectName('projectContextBar'); self.project_context_bar.setTextInteractionFlags(Qt.TextSelectableByMouse); head.addWidget(self.project_context_bar,1); head.addStretch()
-        root.addLayout(head)
-        self.metrics_strip=QFrame(); self.metrics_strip.setObjectName('metricsStrip'); self.metrics_strip.setMaximumHeight(42); cards=QHBoxLayout(self.metrics_strip); cards.setContentsMargins(0,0,0,0); cards.setSpacing(2); self.cards={}
-        metric_defs=[('files','Files','All','project.open'),('chars','Characters','','general.info'),('pending','Pending','Pending','queue'),('running','Running','Running','generation.start'),('done','Completed','Completed','general.success'),('failed','Failed','Failed','general.error'),('skipped','Skipped','Skipped','generation.skip'),('quota','Quota','','general.quota'),('eta','ETA','','activity')]
-        for k,tx,filter_text,icon_name in metric_defs:
-            card=MetricPill(tx); card.configure(k,filter_text,icon_name); card.clicked.connect(self.metric_filter_clicked); self.cards[k]=card; cards.addWidget(card)
-        root.addWidget(self.metrics_strip)
-        self.project_context_frame=QFrame(); self.project_context_frame.setObjectName('projectContextStrip'); self.project_context_frame.setMaximumHeight(52); self.project_context_frame.setMinimumHeight(38); g=QHBoxLayout(self.project_context_frame); g.setContentsMargins(8,4,8,4); g.setSpacing(8); self.csv=QLineEdit(); self.csv.hide(); self.out=QLineEdit(str(self.project_controller.default_output_path)); self.out.hide(); self.source_summary=QLabel('Sources: none'); self.source_summary.setObjectName('compactSourceSummary'); self.source_summary.setMinimumWidth(0); self.source_summary.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred); self.source_summary.setToolTip('No source files loaded'); self.output_summary=QLabel(f'Output: {elide_middle(str(self.project_controller.default_output_path),48)}'); self.output_summary.setObjectName('compactOutputSummary'); self.output_summary.setMinimumWidth(0); self.output_summary.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred); self.output_summary.setToolTip(str(self.project_controller.default_output_path)); bc=QPushButton('CSV'); bc.setIcon(icon('open')); bc.setToolTip('Browse CSV'); bo=QPushButton('Output'); bo.setIcon(icon('folder')); bo.setToolTip('Choose output folder'); self.reloadb=QPushButton('Reload'); self.reloadb.setIcon(icon('refresh')); self.reloadb.setEnabled(False); bc.clicked.connect(self.pick_csv); bo.clicked.connect(self.pick_out); self.reloadb.clicked.connect(self.reload_csv); self.csv.textChanged.connect(lambda _text:self.update_reload_state()); self.out.textChanged.connect(lambda _text:self.update_source_output_strip()); g.addWidget(self.source_summary,2); g.addWidget(bc); g.addWidget(self.reloadb); g.addSpacing(12); g.addWidget(self.output_summary,2); g.addWidget(bo); root.addWidget(self.project_context_frame)
-        split=QSplitter(Qt.Horizontal); self.main_splitter=split; root.addWidget(split,1)
+        self.application_shell=ApplicationShell(); self.setCentralWidget(self.application_shell)
+        self.project_context_widget=ProjectContextBar(
+            self.project_controller.default_output_path,
+            pick_csv=self.pick_csv,
+            pick_output=self.pick_out,
+            reload_csv=self.reload_csv,
+            update_reload_state=self.update_reload_state,
+            update_source_output_strip=self.update_source_output_strip,
+        )
+        self.project_context_bar=self.project_context_widget.context_label
+        self.project_context_frame=self.project_context_widget.strip
+        self.csv=self.project_context_widget.csv
+        self.out=self.project_context_widget.output
+        self.source_summary=self.project_context_widget.source_summary
+        self.output_summary=self.project_context_widget.output_summary
+        self.reloadb=self.project_context_widget.reload_button
+        self.metrics_strip=MetricsStrip(self.metric_filter_clicked); self.cards=self.metrics_strip.cards
+        self.application_shell.add_header(self.project_context_widget,self.metrics_strip)
+        split=QSplitter(Qt.Horizontal); self.main_splitter=split; self.application_shell.add_workspace(split)
         provider_workspace = ProviderWorkspaceBuilder(self).build()
         self.left_tabs=DockTabWidget(); self.left_tabs.setObjectName('leftWorkspaceTabs')
         self.left_tabs.addTab(provider_workspace.scroll_area,icon('settings'),'Provider')
         self.left_dock=WorkspaceDockWidget('Workspace',self); self.left_dock.setObjectName('workspaceLeftDock'); self.left_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea); self.left_dock.setWidget(self.left_tabs); self.left_dock.setMinimumWidth(270); self.left_dock.setMaximumWidth(340); self.addDockWidget(Qt.LeftDockWidgetArea,self.left_dock)
         mid=QWidget(); ml=QVBoxLayout(mid); ml.setContentsMargins(0,0,0,0); ml.setSpacing(6); self.queue_count_labels={}
         rangebar=QHBoxLayout(); self.range_basis=QComboBox(); self.range_basis.addItem('Original source row','row_range'); self.range_basis.addItem('Current displayed order','display_range'); self.range_from=ControlledSpinBox(); self.range_to=ControlledSpinBox(); self.range_from.setRange(0,999999); self.range_to.setRange(0,999999); self.range_from.setSpecialValueText('First'); self.range_to.setSpecialValueText('Last'); self.range_summary_label=QLabel('Range basis: Original source row · all rows'); self.quota_scope_label=QLabel('Quota unavailable'); self.quota_scope_label.setToolTip('Scoped ElevenLabs quota comparison updates after account refresh and range changes.'); self.range_basis.currentIndexChanged.connect(self.apply_row_range); self.range_from.valueChanged.connect(self.apply_row_range); self.range_to.valueChanged.connect(self.apply_row_range); rangebar.addWidget(QLabel('Range basis')); rangebar.addWidget(self.range_basis); rangebar.addWidget(QLabel('From')); rangebar.addWidget(self.range_from); rangebar.addWidget(QLabel('To')); rangebar.addWidget(self.range_to); rangebar.addWidget(self.range_summary_label,1); rangebar.addWidget(self.quota_scope_label); ml.addLayout(rangebar)
-        qbar=QHBoxLayout(); self.queue_filter=QComboBox(); self.queue_filter.addItems(['All','Pending','Running','Completed','Failed','Skipped']); self.source_filter=QComboBox(); self.source_filter.addItem('All sources',None); self.source_filter.currentIndexChanged.connect(self.apply_source_filter); self.scope_selector=QComboBox(); self.scope_selector.addItem('Entire queue','entire_queue'); self.scope_selector.addItem('Current source','current_source'); self.scope_selector.addItem('Current filtered list','filtered'); self.scope_selector.addItem('Selected rows','selected'); self.scope_selector.addItem('Original row range','row_range'); self.scope_selector.addItem('Displayed range','display_range'); self.scope_selector.addItem('Automatic quota batch','quota_batch'); self.scope_selector.setCurrentIndex(4); self.scope_selector.currentIndexChanged.connect(self.apply_generation_scope); self.order_selector=QComboBox(); self.order_selector.addItem('CSV order','csv'); self.order_selector.addItem('Filename A-Z','filename_asc'); self.order_selector.addItem('Filename Z-A','filename_desc'); self.order_selector.addItem('Shortest first','character_shortest'); self.order_selector.addItem('Longest first','character_longest'); self.order_selector.addItem('Status order','status'); self.order_selector.addItem('Custom order','custom'); self.order_selector.currentIndexChanged.connect(self.apply_execution_order); self.use_sort_button=QPushButton('Use table order'); self.use_selection_scope_button=QPushButton('Use selection as scope'); self.use_selection_scope_button.clicked.connect(self.use_selection_as_scope); self.use_sort_button.clicked.connect(self.use_current_sort_as_generation_order); self.dry_run_button=QPushButton('Dry run'); self.dry_run_button.setIcon(action_icon('generation.dry_run')); self.retry_failed_button=QPushButton('Retry Failed'); self.retry_selected_button=QPushButton('Retry Selected'); self.skip_selected_button=QPushButton('Skip Selected'); self.reset_selected_button=QPushButton('Reset Selected'); self.clear_completed_button=QPushButton('Clear Completed'); self.open_output_button=QPushButton('Open Output'); self.retry_menu_button=self.queue_menu_button('Retry',action_icon('generation.retry'),[('Retry failed',self.retry_failed),('Retry selected',self.retry_selected)]); self.skip_menu_button=self.queue_menu_button('Skip',action_icon('generation.skip'),[('Skip selected',self.skip_selected)]); self.reset_menu_button=self.queue_menu_button('Reset',action_icon('generation.reset'),[('Reset selected',self.reset_selected)]); self.output_menu_button=self.queue_menu_button('Output',action_icon('project.output_folder'),[('Reveal output',self.open_selected_output),('Open containing folder',self.open_output_folder),('Copy path',self.copy_selected_output_path)])
-        qbar.addWidget(QLabel('Status')); qbar.addWidget(self.queue_filter); qbar.addWidget(QLabel('Source')); qbar.addWidget(self.source_filter); qbar.addWidget(QLabel('Scope')); qbar.addWidget(self.scope_selector); qbar.addWidget(QLabel('Order')); qbar.addWidget(self.order_selector); qbar.addWidget(self.use_sort_button)
+        qbar=QHBoxLayout(); self.queue_search=QLineEdit(); self.queue_search.setObjectName('queueSearch'); self.queue_search.setPlaceholderText('Search filename, source, text…'); self.queue_search.setClearButtonEnabled(True); self.queue_search.setMaximumWidth(280); self.queue_search.textChanged.connect(self.queue_search_changed); self.queue_filter=QComboBox(); self.queue_filter.addItems(['All','Pending','Running','Completed','Failed','Skipped']); self.source_filter=QComboBox(); self.source_filter.addItem('All sources',None); self.source_filter.currentIndexChanged.connect(self.apply_source_filter); self.scope_selector=QComboBox(); self.scope_selector.addItem('Entire queue','entire_queue'); self.scope_selector.addItem('Current source','current_source'); self.scope_selector.addItem('Current filtered list','filtered'); self.scope_selector.addItem('Selected rows','selected'); self.scope_selector.addItem('Original row range','row_range'); self.scope_selector.addItem('Displayed range','display_range'); self.scope_selector.addItem('Automatic quota batch','quota_batch'); self.scope_selector.setCurrentIndex(4); self.scope_selector.currentIndexChanged.connect(self.apply_generation_scope); self.order_selector=QComboBox(); self.order_selector.addItem('CSV order','csv'); self.order_selector.addItem('Filename A-Z','filename_asc'); self.order_selector.addItem('Filename Z-A','filename_desc'); self.order_selector.addItem('Shortest first','character_shortest'); self.order_selector.addItem('Longest first','character_longest'); self.order_selector.addItem('Status order','status'); self.order_selector.addItem('Custom order','custom'); self.order_selector.currentIndexChanged.connect(self.apply_execution_order); self.use_sort_button=QPushButton('Use table order'); self.use_selection_scope_button=QPushButton('Use selection as scope'); self.use_selection_scope_button.clicked.connect(self.use_selection_as_scope); self.use_sort_button.clicked.connect(self.use_current_sort_as_generation_order); self.dry_run_button=QPushButton('Dry run'); self.dry_run_button.setIcon(action_icon('generation.dry_run')); self.retry_failed_button=QPushButton('Retry Failed'); self.retry_selected_button=QPushButton('Retry Selected'); self.skip_selected_button=QPushButton('Skip Selected'); self.reset_selected_button=QPushButton('Reset Selected'); self.clear_completed_button=QPushButton('Clear Completed'); self.open_output_button=QPushButton('Open Output'); self.retry_menu_button=self.queue_menu_button('Retry',action_icon('generation.retry'),[('Retry failed',self.retry_failed),('Retry selected',self.retry_selected)]); self.skip_menu_button=self.queue_menu_button('Skip',action_icon('generation.skip'),[('Skip selected',self.skip_selected)]); self.reset_menu_button=self.queue_menu_button('Reset',action_icon('generation.reset'),[('Reset selected',self.reset_selected)]); self.output_menu_button=self.queue_menu_button('Output',action_icon('project.output_folder'),[('Reveal output',self.open_selected_output),('Open containing folder',self.open_output_folder),('Copy path',self.copy_selected_output_path)])
+        qbar.addWidget(self.queue_search,1); qbar.addWidget(QLabel('Status')); qbar.addWidget(self.queue_filter); qbar.addWidget(QLabel('Source')); qbar.addWidget(self.source_filter); qbar.addWidget(QLabel('Scope')); qbar.addWidget(self.scope_selector); qbar.addWidget(QLabel('Order')); qbar.addWidget(self.order_selector); qbar.addWidget(self.use_sort_button)
         for b in [self.use_selection_scope_button,self.dry_run_button,self.retry_menu_button,self.skip_menu_button,self.reset_menu_button,self.clear_completed_button,self.output_menu_button]: qbar.addWidget(b)
         qbar.addStretch(); ml.addLayout(qbar)
-        self.empty_state=QFrame(); self.empty_state.setObjectName('emptyState'); self.empty_state.setMaximumWidth(440); ev=QVBoxLayout(self.empty_state); ev.setContentsMargins(24,24,24,24); ev.setSpacing(10); logo=QLabel(); logo.setPixmap(AboutDialog.app_icon(self.context.container.runtime).pixmap(42,42)); logo.setAlignment(Qt.AlignCenter); title=QLabel('No sources added'); title.setObjectName('emptyTitle'); title.setAlignment(Qt.AlignCenter); helper=QLabel('Add CSV or Excel files to start generating audio.'); helper.setObjectName('emptyHelper'); helper.setAlignment(Qt.AlignCenter); self.empty_add_source_button=QPushButton('Add source files'); self.empty_add_source_button.setIcon(icon('add')); self.empty_open_project_button=QPushButton('Open project'); self.empty_open_project_button.setIcon(icon('open')); self.empty_recent_projects_button=QPushButton('Recent projects'); self.empty_recent_projects_button.setIcon(icon('project')); self.empty_add_source_button.clicked.connect(self.add_source_files); self.empty_open_project_button.clicked.connect(self.open_project); self.empty_recent_projects_button.clicked.connect(self.recent_projects); erow=QHBoxLayout(); erow.addStretch(); erow.addWidget(self.empty_add_source_button); erow.addWidget(self.empty_open_project_button); erow.addWidget(self.empty_recent_projects_button); erow.addStretch(); ev.addWidget(logo); ev.addWidget(title); ev.addWidget(helper); ev.addLayout(erow); empty_wrap=QHBoxLayout(); empty_wrap.addStretch(); empty_wrap.addWidget(self.empty_state); empty_wrap.addStretch(); ml.addLayout(empty_wrap)
-        self.table=QTableWidget(0,12); self.table.setHorizontalHeaderLabels(['Source row','Filename','Source','Worksheet','Characters','Status','Provider','Voice','Model','Duration','Retry','Output']); self.table.setSelectionBehavior(QTableWidget.SelectRows); self.table.setSelectionMode(QAbstractItemView.ExtendedSelection); self.table.setContextMenuPolicy(Qt.CustomContextMenu); self.table.horizontalHeader().setSectionsClickable(True); self.table.horizontalHeader().setSortIndicatorShown(True); self.table.horizontalHeader().setSectionResizeMode(1,QHeaderView.Stretch); self.table.horizontalHeader().sectionClicked.connect(self.queue_header_clicked); self.table.itemSelectionChanged.connect(self.preview); self.table.itemSelectionChanged.connect(self.update_queue_actions); self.table.itemSelectionChanged.connect(self.update_selection_scope_summary); self.table.customContextMenuRequested.connect(self.queue_context_menu); self.table.cellDoubleClicked.connect(lambda *_: self.play_selected_output()); ml.addWidget(self.table); split.addWidget(mid)
+        self.queue_scope_summary=QueueScopeSummary(); ml.addWidget(self.queue_scope_summary)
+        self.empty_state=QFrame(); self.empty_state.setObjectName('emptyState'); self.empty_state.setMaximumWidth(440); ev=QVBoxLayout(self.empty_state); ev.setContentsMargins(24,24,24,24); ev.setSpacing(10); logo=QLabel(); logo.setPixmap(AboutDialog.app_icon(self.context.container.runtime).pixmap(42,42)); logo.setAlignment(Qt.AlignCenter); title=QLabel('No sources added'); title.setObjectName('emptyTitle'); title.setAlignment(Qt.AlignCenter); helper=QLabel('Add CSV, Excel or text documents, or enter text manually to start generating audio.'); helper.setObjectName('emptyHelper'); helper.setAlignment(Qt.AlignCenter); self.empty_add_source_button=QPushButton('Add source files'); self.empty_add_source_button.setIcon(icon('add')); self.empty_add_text_button=QPushButton('Enter text'); self.empty_add_text_button.setIcon(action_icon('project.add_text_source')); self.empty_open_project_button=QPushButton('Open project'); self.empty_open_project_button.setIcon(icon('open')); self.empty_recent_projects_button=QPushButton('Recent projects'); self.empty_recent_projects_button.setIcon(icon('project')); self.empty_add_source_button.clicked.connect(self.add_source_files); self.empty_add_text_button.clicked.connect(self.add_text_source); self.empty_open_project_button.clicked.connect(self.open_project); self.empty_recent_projects_button.clicked.connect(self.recent_projects); erow=QHBoxLayout(); erow.addStretch(); erow.addWidget(self.empty_add_source_button); erow.addWidget(self.empty_add_text_button); erow.addWidget(self.empty_open_project_button); erow.addWidget(self.empty_recent_projects_button); erow.addStretch(); ev.addWidget(logo); ev.addWidget(title); ev.addWidget(helper); ev.addLayout(erow); empty_wrap=QHBoxLayout(); empty_wrap.addStretch(); empty_wrap.addWidget(self.empty_state); empty_wrap.addStretch(); ml.addLayout(empty_wrap)
+        self.table=QTableWidget(0,12); self.table.setHorizontalHeaderLabels(['Source row','Filename','Source','Worksheet','Characters','Status','Provider','Voice','Model','Duration','Retry','Output']); configure_queue_table(self.table); self.table.setContextMenuPolicy(Qt.CustomContextMenu); self.table.horizontalHeader().sectionClicked.connect(self.queue_header_clicked); self.table.itemSelectionChanged.connect(self.preview); self.table.itemSelectionChanged.connect(self.update_queue_actions); self.table.itemSelectionChanged.connect(self.update_selection_scope_summary); self.table.customContextMenuRequested.connect(self.queue_context_menu); self.table.cellDoubleClicked.connect(lambda *_: self.play_selected_output()); ml.addWidget(self.table); split.addWidget(mid)
         pb=DockPanelGroupBox('Selected row'); self.selected_row_panel=pb; pv=QVBoxLayout(pb); self.pname=QLabel('No row selected'); self.pname.setObjectName('previewTitle'); self.pstatus=QLabel(''); self.pstatus.setObjectName('statusBadge'); self.pmeta=QLabel(''); self.presolved=QLabel('Resolved request: —'); self.presolved.setWordWrap(True); self.poutput=QLabel(''); self.poutput.setTextInteractionFlags(Qt.TextSelectableByMouse); self.ptext=QPlainTextEdit(); self.ptext.setReadOnly(True); prow=QHBoxLayout(); self.play_output_button=QPushButton('Play'); self.play_output_button.setIcon(icon('play')); self.open_selected_button=QPushButton('Open'); self.open_selected_button.setIcon(icon('folder')); self.stop_playback_button=QPushButton('Stop'); self.stop_playback_button.setIcon(icon('stop')); self.copy_output_button=QPushButton('Copy'); self.copy_output_button.setIcon(icon('copy')); self.play_output_button.clicked.connect(self.play_selected_output); self.open_selected_button.clicked.connect(self.open_selected_output); self.stop_playback_button.clicked.connect(self.audio_player_service.stop); self.copy_output_button.clicked.connect(self.copy_selected_output_path)
         for button in [self.play_output_button,self.open_selected_button,self.copy_output_button,self.stop_playback_button]:
             button.setMinimumWidth(0); button.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Fixed); prow.addWidget(button)
         pv.addWidget(self.pname); pv.addWidget(self.pstatus); pv.addWidget(self.pmeta); pv.addWidget(self.presolved); pv.addWidget(self.poutput); pv.addWidget(self.ptext); pv.addLayout(prow); self.right_tabs=DockTabWidget(); self.right_tabs.setObjectName('rightInspectorTabs'); self.right_tabs.setMinimumWidth(0); self.right_tabs.addTab(pb,icon('queue'),'Selected Row'); self.right_dock=MonitorDockWidget('Generation Monitor',self); self.right_dock.setObjectName('workspaceRightDock'); self.right_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea); self.right_dock.setWidget(self.right_tabs); self.right_dock.setMinimumWidth(MONITOR_MIN_WIDTH); self.right_dock.setMaximumWidth(self.safe_monitor_width()); pb.set_visibility_proxy(self.right_dock); self.addDockWidget(Qt.RightDockWidgetArea,self.right_dock); split.setSizes([980])
-        self.activity_tabs=QTabWidget(); self.activity_tabs.setObjectName('activityTabs'); self.activity_tabs.setMaximumHeight(34); self.activity_tabs.setMinimumHeight(30); self.activity_expanded_height=150; self.log=QPlainTextEdit(); self.log.setReadOnly(True); self.output_log=QPlainTextEdit(); self.output_log.setReadOnly(True); self.error_log=QPlainTextEdit(); self.error_log.setReadOnly(True); self.activity_tabs.addTab(self.log,icon('report'),'Activity'); self.activity_tabs.addTab(self.output_log,icon('folder'),'Output'); self.activity_tabs.addTab(self.error_log,icon('warning'),'Errors'); root.addWidget(self.activity_tabs)
-        self.generation_action_bar=QFrame(); self.generation_action_bar.setObjectName('generationActionBar'); self.generation_action_bar.setMaximumHeight(44); ctr=QHBoxLayout(self.generation_action_bar); ctr.setContentsMargins(0,4,0,0); self.startb=QPushButton('Start'); self.startb.setIcon(icon('start')); self.preflight_status=QPushButton('Preflight: Not checked'); self.preflight_status.clicked.connect(self.show_latest_preflight); self.pauseb=QPushButton('Pause'); self.pauseb.setIcon(icon('pause')); self.stopb=QPushButton('Stop'); self.stopb.setIcon(icon('stop')); self.pauseb.setEnabled(False); self.stopb.setEnabled(False); self.bar=QProgressBar(); self.bar.setMaximumWidth(280); self.startb.clicked.connect(self.start); self.pauseb.clicked.connect(self.pause); self.stopb.clicked.connect(self.stop); ctr.addWidget(self.startb); ctr.addWidget(self.preflight_status); ctr.addWidget(self.pauseb); ctr.addWidget(self.stopb); ctr.addStretch(); ctr.addWidget(self.bar); root.addWidget(self.generation_action_bar)
+        self.activity_center=ActivityCenter(); self.activity_tabs=self.activity_center; self.activity_expanded_height=self.activity_center.expanded_height
+        self.log=self.activity_center.activity_log; self.output_log=self.activity_center.output_log; self.error_log=self.activity_center.error_log
+        self.generation_status_strip=GenerationStatusStrip(start=self.start,pause=self.pause,stop=self.stop,show_preflight=self.show_latest_preflight)
+        self.generation_action_bar=self.generation_status_strip
+        self.startb=self.generation_status_strip.start_button; self.preflight_status=self.generation_status_strip.preflight_button
+        self.pauseb=self.generation_status_strip.pause_button; self.stopb=self.generation_status_strip.stop_button; self.bar=self.generation_status_strip.progress_bar
+        self.application_shell.add_footer(self.activity_center,self.generation_status_strip)
         self.generation_controller.progress.connect(self.progress); self.generation_controller.log.connect(self.log.appendPlainText); self.generation_controller.finished.connect(self.finished); self.generation_controller.failed.connect(self.failed)
         self.monitor_service.updated.connect(self.render_monitor); self.monitor_service.event.connect(self.monitor_event)
         self.queue_filter.currentTextChanged.connect(self.apply_queue_filter); self.dry_run_button.clicked.connect(self.dry_run); self.retry_failed_button.clicked.connect(self.retry_failed); self.retry_selected_button.clicked.connect(self.retry_selected); self.skip_selected_button.clicked.connect(self.skip_selected); self.reset_selected_button.clicked.connect(self.reset_selected); self.clear_completed_button.clicked.connect(self.clear_completed); self.open_output_button.clicked.connect(self.open_selected_output)
@@ -216,6 +218,7 @@ class MainWindow(QMainWindow):
         self.project_menu.addAction(icon('history'),'Recent Projects',self.recent_projects); self.actions_by_name['Recent Projects']=self.project_menu.actions()[-1]
         self.project_menu.addSeparator()
         self.actions_by_name['Add source files']=self.project_menu.addAction(action_icon('project.add_sources'),'Add source files'); self.actions_by_name['Add source files'].triggered.connect(self.add_source_files)
+        self.actions_by_name['Add text source']=self.project_menu.addAction(action_icon('project.add_text_source'),'Add text source…'); self.actions_by_name['Add text source'].triggered.connect(self.add_text_source)
         import_menu=self.project_menu.addMenu(icon('open'),'Import'); import_action=import_menu.addAction('Import sources'); import_action.triggered.connect(self.add_source_files)
         export_menu=self.project_menu.addMenu(icon('report'),'Export'); export_action=export_menu.addAction('Export diagnostics'); export_action.triggered.connect(self.export_diagnostics)
         self.project_menu.addSeparator()
@@ -223,7 +226,7 @@ class MainWindow(QMainWindow):
         self.project_menu.addSeparator()
         for tx,fn,ic in [('Close Project',self.close_project,'stop'),('Exit',self.close,'stop')]: a=self.project_menu.addAction(icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
         self.actions_by_name['Save Project']=self.actions_by_name['Save']; self.actions_by_name['Save Project As']=self.actions_by_name['Save As']
-        for name,shortcut in [('New Project','Ctrl+N'),('Open Project','Ctrl+O'),('Add source files','Ctrl+Shift+O'),('Save','Ctrl+S')]:
+        for name,shortcut in [('New Project','Ctrl+N'),('Open Project','Ctrl+O'),('Add source files','Ctrl+Shift+O'),('Add text source','Ctrl+Shift+T'),('Save','Ctrl+S')]:
             self.actions_by_name[name].setShortcut(QKeySequence(shortcut))
     def build_main_toolbar(self):
         self.main_toolbar=QToolBar('Main Toolbar',self); self.main_toolbar.setObjectName('mainToolbar'); self.main_toolbar.setMovable(False); self.main_toolbar.setFloatable(False); self.main_toolbar.setIconSize(QSize(20,20)); self.main_toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon); self.main_toolbar.setMaximumHeight(42); self.main_toolbar.setMinimumHeight(38); self.addToolBar(Qt.TopToolBarArea,self.main_toolbar)
@@ -272,8 +275,9 @@ class MainWindow(QMainWindow):
         if hasattr(self,'density_actions'):
             for key,action in self.density_actions.items(): action.setChecked(key==name)
     def set_activity_expanded(self,expanded):
-        if not hasattr(self,'activity_tabs'): return
-        self.activity_tabs.setMaximumHeight(self.activity_expanded_height if expanded else 34); self.activity_tabs.setMinimumHeight(96 if expanded else 30)
+        if not hasattr(self,'activity_center'): return
+        self.activity_center.expanded_height=self.activity_expanded_height
+        self.activity_center.set_expanded(expanded)
         if hasattr(self,'view_activity_action'): self.view_activity_action.setChecked(expanded)
     def apply_workspace_preset(self,name,save=False):
         if not hasattr(self,'main_splitter'): return
@@ -320,13 +324,14 @@ class MainWindow(QMainWindow):
         if dialog.exec()==QDialog.Accepted:
             settings=dialog.selected_settings(); self.provider.setCurrentText(settings.provider); self.set_model_value(settings.model_id); self.voice.setText(settings.voice_id); self.set_language_value(settings.language_code); self.save_global_preferences(settings); self.settings_changed()
     def show_shortcut_reference(self):
-        self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nF6 Cycle major panels')
+        self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Shift+T Add text source\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nF6 Cycle major panels')
     def open_about_dialog(self):
         dialog=AboutDialog(self.context.container.runtime,open_diagnostics=self.export_diagnostics,parent=self); dialog.exec()
     def build_project_sources_panel(self):
         panel=QWidget(); panel.setObjectName('sourcesWorkspacePanel'); layout=QVBoxLayout(panel); actions=QHBoxLayout()
-        for text,handler in [('Add',self.add_source_files),('Remove',self.remove_selected_source),('Replace',self.replace_selected_source),('Refresh',self.refresh_project_sources),('Up',lambda:self.move_selected_source(-1)),('Down',lambda:self.move_selected_source(1)),('Folder',self.open_selected_source_folder),('Report',self.view_selected_source_report)]:
+        for text,handler in [('Add',self.add_source_files),('Text',self.add_text_source),('Remove',self.remove_selected_source),('Replace',self.replace_selected_source),('Refresh',self.refresh_project_sources),('Up',lambda:self.move_selected_source(-1)),('Down',lambda:self.move_selected_source(1)),('Folder',self.open_selected_source_folder),('Report',self.view_selected_source_report)]:
             button=QPushButton(text); button.setMinimumWidth(0); button.clicked.connect(handler); actions.addWidget(button)
+            if text=='Text': button.setIcon(action_icon('project.add_text_source')); button.setToolTip('Enter text manually or import text documents')
             if text=='Up': self.source_move_up_button=button; button.setIcon(icon('up')); button.setShortcut(QKeySequence('Alt+Up'))
             if text=='Down': self.source_move_down_button=button; button.setIcon(icon('down')); button.setShortcut(QKeySequence('Alt+Down'))
         layout.addLayout(actions)
@@ -359,9 +364,22 @@ class MainWindow(QMainWindow):
         paths,_=QFileDialog.getOpenFileNames(self,'Add source files',str(self.project_controller.last_csv_dir),'Sources (*.csv *.tsv *.xlsx *.xlsm *.xls)')
         if not paths: return
         self.import_source_paths([Path(path) for path in paths])
-    def import_source_paths(self,paths):
+    def add_text_source(self):
+        service=TextSourceService()
+        dialog=TextSourceDialog(service,self)
+        if dialog.exec()!=QDialog.Accepted:
+            self.statusBar().showMessage('Text source creation cancelled.',4000); return
+        destination=self.context.container.runtime.data_dir/'text-sources'
+        try:
+            path=service.write_normalized_csv(dialog.entries,destination,label=dialog.source_label())
+        except (OSError,ValueError) as exc:
+            self.notifications.error('Text source',str(exc)); return
+        self.import_source_paths([path],display_name=dialog.source_label())
+
+    def import_source_paths(self,paths,display_name=None):
         project=self.project_controller.current_project; project_id=project.project_id if project else None
         sources=self.context.source_import_service.create_sources(paths,project_id=project_id,starting_order=len(self.project_sources))
+        if display_name and len(sources)==1: sources[0].display_name=display_name
         result=self.context.source_import_service.import_sources([*self.project_sources,*sources])
         dialog=SourceImportReviewDialog(result,self)
         if dialog.exec()!=QDialog.Accepted:
@@ -1086,11 +1104,16 @@ class MainWindow(QMainWindow):
         rows=self.selected_row_numbers()
         if not rows: return
         self.generation_controller.set_generation_selection([rows[0]]); self.dashboard(); self.run_preflight(write_report=False); self.start()
+    def queue_search_changed(self,_text):
+        self.render_queue(); self.dashboard(); self.update_status_bar()
     def apply_queue_filter(self,text):
         self.generation_controller.set_filter(text); self.render_queue(); self.dashboard(); self.update_status_bar()
     def displayed_queue_jobs(self):
         jobs=self.generation_controller.source_jobs(self.generation_controller.range_jobs())
         jobs=self.generation_controller.queue_service.visible_jobs(jobs,self.generation_controller.status_filter)
+        query=self.queue_search.text().strip().casefold() if hasattr(self,'queue_search') else ''
+        if query:
+            jobs=[job for job in jobs if query in job.filename.casefold() or query in job.text.casefold() or query in (job.source_display_name or '').casefold() or query in (job.source_sheet or '').casefold()]
         return self.generation_controller.scope_service.order_jobs(jobs,self.generation_controller.scope_service._order(getattr(self.generation_controller,'display_order','csv')))
     def render_queue(self):
         selected_ids={job.row_number for job in self.selected_queue_jobs()} if hasattr(self,'table') and self.table.selectionModel() else set()
@@ -1102,7 +1125,11 @@ class MainWindow(QMainWindow):
             output_path=self.generation_controller.output_path_for(j,Path(self.out.text() or self.project_controller.default_output_path),self.settings())
             values=[j.source_row or j.row_number,j.filename,j.source_display_name or (Path(self.csv.text()).name if hasattr(self,'csv') and self.csv.text().strip() else '—'),j.source_sheet or '—',f'{j.character_count:,}',j.status.value,j.provider_override or self.provider.currentText(),j.voice_override or self.voice.text() or '—',j.model_override or self.current_model_id() or '—',f'{j.duration_seconds:.2f}s' if j.duration_seconds else '—',j.retry_count,output_path.name]
             for c,v in enumerate(values):
-                item=QTableWidgetItem(str(v)); item.setData(Qt.UserRole,j.row_number); item.setToolTip(str(v)); self.table.setItem(r,c,item)
+                item=QTableWidgetItem(str(v)); item.setData(Qt.UserRole,j.row_number); item.setToolTip(str(v))
+                if c in {0,4,9,10}: item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                if c==4: item.setData(Qt.UserRole+1,j.character_count)
+                if c==5: item.setTextAlignment(Qt.AlignCenter); item.setData(Qt.AccessibleTextRole,f'Status: {j.status.value}')
+                self.table.setItem(r,c,item)
             self.paint(r,j.status.value)
         if selected_ids and self.table.selectionModel():
             self.table.blockSignals(True)
@@ -1112,10 +1139,18 @@ class MainWindow(QMainWindow):
                     self.table.selectionModel().select(self.table.model().index(row,0),QItemSelectionModel.Select|QItemSelectionModel.Rows)
             self.table.blockSignals(False)
         self.update_queue_summary_strip()
+        self.update_queue_scope_summary(jobs)
         self.update_selection_scope_summary()
         self.update_queue_actions()
+    def update_queue_scope_summary(self,visible_jobs=None):
+        if not hasattr(self,'queue_scope_summary'): return
+        visible=list(visible_jobs if visible_jobs is not None else self.displayed_queue_jobs())
+        selected=self.selected_queue_jobs() if hasattr(self,'table') and self.table.selectionModel() else []
+        scope_names={'entire_queue':'Entire queue','current_source':'Current source','filtered':'Filtered list','selected':'Selected rows','row_range':'Original row range','display_range':'Displayed range','quota_batch':'Quota-sized batch'}
+        self.queue_scope_summary.update_stats(QueueSelectionStats(visible_jobs=len(visible),visible_characters=sum(job.character_count for job in visible),selected_jobs=len(selected),selected_characters=sum(job.character_count for job in selected),scope_label=scope_names.get(self.current_scope_mode(),self.current_scope_mode())))
     def update_selection_scope_summary(self):
         if not hasattr(self,'range_summary_label'): return
+        self.update_queue_scope_summary()
         if self.current_scope_mode()!='selected': return
         jobs=self.selected_queue_jobs()
         chars=sum(job.character_count for job in jobs)
@@ -1357,6 +1392,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Project: New Project',act('New Project')),
             PaletteCommand('Project: Open Project',act('Open Project')),
             PaletteCommand('Project: Add Source Files',act('Add source files')),
+            PaletteCommand('Project: Add Text Source',act('Add text source')),
             PaletteCommand('Project: Save Project',act('Save Project'),lambda: self.project_controller.current_project is not None),
             PaletteCommand('Project: Save Project As',act('Save Project As'),lambda: self.project_controller.current_project is not None),
             PaletteCommand('Project: Close Project',act('Close Project'),lambda: self.project_controller.current_project is not None),
@@ -1408,4 +1444,3 @@ class MainWindow(QMainWindow):
 def main():
     app=QApplication(sys.argv); win=MainWindow(create_application_context()); win.show(); sys.exit(app.exec())
 if __name__=='__main__':main()
-

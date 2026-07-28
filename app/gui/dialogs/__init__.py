@@ -8,6 +8,7 @@ from app.gui.dialogs.pronunciation_dictionary_dialog import PronunciationDiction
 from app.gui.dialogs.recent_projects_dialog import RecentProjectsDialog
 from app.gui.dialogs.report_dialog import ReportDialog
 from app.gui.dialogs.source_import_review_dialog import SourceImportReviewDialog
+from app.gui.dialogs.text_source_dialog import TextSourceDialog
 
 __all__ = [
     "CsvImportReviewDialog",
@@ -21,4 +22,5 @@ __all__ = [
     "RecentProjectsDialog",
     "ReportDialog",
     "SourceImportReviewDialog",
+    "TextSourceDialog",
 ]

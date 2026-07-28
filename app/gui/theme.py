@@ -389,3 +389,56 @@ QGroupBox#voiceAudioSettings {
     font-weight: 700;
 }
 """
+
+_QUEUE_WORKSPACE_STYLE = r"""
+QLineEdit#queueSearch {
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 7px;
+}
+QFrame#queueScopeSummary {
+    background: palette(base);
+    border: 1px solid palette(midlight);
+    border-radius: 8px;
+}
+QLabel#queueVisibleSummary,QLabel#queueSelectedSummary,QLabel#queueActiveScope {
+    padding: 0 2px;
+    font-size: 12px;
+}
+QLabel#queueSelectedSummary[active="true"] {
+    font-weight: 700;
+}
+QFrame#queueSummarySeparator {
+    color: palette(midlight);
+    max-width: 1px;
+}
+QTableWidget#queueTable {
+    border: 1px solid palette(midlight);
+    border-radius: 8px;
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+    alternate-background-color: palette(alternate-base);
+    outline: 0;
+}
+QTableWidget#queueTable::item {
+    padding: 5px 8px;
+    border: 0;
+}
+QTableWidget#queueTable::item:selected {
+    font-weight: 600;
+}
+QHeaderView#queueHeader::section {
+    min-height: 32px;
+    padding: 5px 8px;
+    border: 0;
+    border-right: 1px solid palette(midlight);
+    border-bottom: 1px solid palette(midlight);
+    background: palette(button);
+    font-weight: 700;
+}
+QHeaderView#queueHeader::section:hover {
+    background: palette(midlight);
+}
+"""
+DARK_STYLE += _QUEUE_WORKSPACE_STYLE
+LIGHT_STYLE += _QUEUE_WORKSPACE_STYLE
