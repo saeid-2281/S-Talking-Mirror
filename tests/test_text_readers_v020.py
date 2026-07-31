@@ -32,7 +32,7 @@ def test_text_reader_factory_registers_independent_readers() -> None:
 
 def test_factory_rejects_unknown_format() -> None:
     with pytest.raises(ValueError, match="Unsupported text document"):
-        TextReaderFactory().reader_for(Path("book.epub"))
+        TextReaderFactory().reader_for(Path("book.xyz"))
 
 
 def test_rtf_reader_normalizes_paragraph_spacing_tabs_hex_and_unicode(tmp_path: Path) -> None:

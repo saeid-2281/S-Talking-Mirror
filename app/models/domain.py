@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.models.retry_policy import FailureCategory, RetryHistoryEntry
+
 
 class JobStatus(StrEnum):
     PENDING = "pending"
@@ -73,6 +75,13 @@ class TTSJob(BaseModel):
     status: JobStatus = JobStatus.PENDING
     error: str | None = None
     retry_count: int = 0
+    failure_category: FailureCategory | None = None
+    error_code: str | None = None
+    error_fingerprint: str | None = None
+    retryable: bool | None = None
+    retry_exhausted: bool = False
+    next_retry_at: str | None = None
+    retry_history: list[RetryHistoryEntry] = Field(default_factory=list)
     duration_seconds: float = 0.0
     generated_output_path: str | None = None
     pronunciation_override: str | None = None

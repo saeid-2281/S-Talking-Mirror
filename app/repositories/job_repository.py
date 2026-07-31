@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 from app.database.connection import Database
 from app.models.domain import JobStatus, TTSJob
+from app.models.retry_policy import FailureCategory, RetryHistoryEntry
 from app.models.persistence import JobRecord
 
 
@@ -32,6 +34,13 @@ class JobRepository:
                 job.status.value,
                 job.retry_count,
                 job.error,
+                job.failure_category.value if job.failure_category else None,
+                job.error_code,
+                job.error_fingerprint,
+                None if job.retryable is None else int(job.retryable),
+                int(job.retry_exhausted),
+                job.next_retry_at,
+                json.dumps([entry.model_dump(mode="json") for entry in job.retry_history], ensure_ascii=False),
                 job.duration_seconds,
                 str(job.output_path(output_dir, extension)) if output_dir else job.generated_output_path,
                 job.source_id,
@@ -55,11 +64,12 @@ class JobRepository:
                 """
                 INSERT INTO jobs(
                     project_id, row_number, filename, text, text_hash, status,
-                    retry_count, error, duration_seconds, output_path, source_id, source_display_name,
+                    retry_count, error, failure_category, error_code, error_fingerprint, retryable,
+                    retry_exhausted, next_retry_at, retry_history_json, duration_seconds, output_path, source_id, source_display_name,
                     source_sheet, source_row, provider_override, account_profile_override, voice_override,
                     model_override, language_override, output_subfolder, created_at, completed_at, updated_at
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(project_id, row_number) DO UPDATE SET
                     filename = excluded.filename,
                     text = excluded.text,
@@ -87,6 +97,13 @@ class JobRepository:
                         WHEN jobs.text_hash != excluded.text_hash THEN NULL
                         ELSE jobs.error
                     END,
+                    failure_category = CASE WHEN jobs.text_hash != excluded.text_hash THEN NULL ELSE jobs.failure_category END,
+                    error_code = CASE WHEN jobs.text_hash != excluded.text_hash THEN NULL ELSE jobs.error_code END,
+                    error_fingerprint = CASE WHEN jobs.text_hash != excluded.text_hash THEN NULL ELSE jobs.error_fingerprint END,
+                    retryable = CASE WHEN jobs.text_hash != excluded.text_hash THEN NULL ELSE jobs.retryable END,
+                    retry_exhausted = CASE WHEN jobs.text_hash != excluded.text_hash THEN 0 ELSE jobs.retry_exhausted END,
+                    next_retry_at = CASE WHEN jobs.text_hash != excluded.text_hash THEN NULL ELSE jobs.next_retry_at END,
+                    retry_history_json = CASE WHEN jobs.text_hash != excluded.text_hash THEN '[]' ELSE jobs.retry_history_json END,
                     updated_at = excluded.updated_at
                 """,
                 rows,
@@ -157,10 +174,17 @@ class JobRepository:
                 SET status = 'running',
                     retry_count = retry_count + 1,
                     error = NULL,
+                    next_retry_at = NULL,
+                    retry_history_json = ?,
                     updated_at = ?
                 WHERE project_id = ? AND row_number = ?
                 """,
-                (self._now(), project_id, job.row_number),
+                (
+                    json.dumps([entry.model_dump(mode="json") for entry in job.retry_history], ensure_ascii=False),
+                    self._now(),
+                    project_id,
+                    job.row_number,
+                ),
             )
 
     def mark_result(
@@ -181,6 +205,13 @@ class JobRepository:
                 SET status = ?,
                     duration_seconds = ?,
                     error = ?,
+                    failure_category = ?,
+                    error_code = ?,
+                    error_fingerprint = ?,
+                    retryable = ?,
+                    retry_exhausted = ?,
+                    next_retry_at = ?,
+                    retry_history_json = ?,
                     output_path = COALESCE(?, output_path),
                     completed_at = ?,
                     updated_at = ?
@@ -190,6 +221,13 @@ class JobRepository:
                     status.value,
                     duration_seconds,
                     error,
+                    job.failure_category.value if job.failure_category else None,
+                    job.error_code,
+                    job.error_fingerprint,
+                    None if job.retryable is None else int(job.retryable),
+                    int(job.retry_exhausted),
+                    job.next_retry_at,
+                    json.dumps([entry.model_dump(mode="json") for entry in job.retry_history], ensure_ascii=False),
                     str(output_path) if output_path else None,
                     completed_at,
                     self._now(),
@@ -209,6 +247,13 @@ class JobRepository:
                 SET status = 'pending',
                     retry_count = 0,
                     error = NULL,
+                    failure_category = NULL,
+                    error_code = NULL,
+                    error_fingerprint = NULL,
+                    retryable = NULL,
+                    retry_exhausted = 0,
+                    next_retry_at = NULL,
+                    retry_history_json = '[]',
                     duration_seconds = 0,
                     output_path = NULL,
                     completed_at = NULL,
@@ -216,6 +261,44 @@ class JobRepository:
                 WHERE project_id = ? AND row_number IN ({placeholders})
                 """,
                 (self._now(), project_id, *row_numbers),
+            )
+
+    def update_retry_state(self, project_id: int, jobs: list[TTSJob]) -> None:
+        if not jobs:
+            return
+        with self.database.transaction() as connection:
+            connection.executemany(
+                """
+                UPDATE jobs
+                SET status = ?,
+                    error = ?,
+                    failure_category = ?,
+                    error_code = ?,
+                    error_fingerprint = ?,
+                    retryable = ?,
+                    retry_exhausted = ?,
+                    next_retry_at = ?,
+                    retry_history_json = ?,
+                    updated_at = ?
+                WHERE project_id = ? AND row_number = ?
+                """,
+                [
+                    (
+                        job.status.value,
+                        job.error,
+                        job.failure_category.value if job.failure_category else None,
+                        job.error_code,
+                        job.error_fingerprint,
+                        None if job.retryable is None else int(job.retryable),
+                        int(job.retry_exhausted),
+                        job.next_retry_at,
+                        json.dumps([entry.model_dump(mode="json") for entry in job.retry_history], ensure_ascii=False),
+                        self._now(),
+                        project_id,
+                        job.row_number,
+                    )
+                    for job in jobs
+                ],
             )
 
     def skip_rows(self, project_id: int, row_numbers: list[int]) -> None:
@@ -282,6 +365,13 @@ class JobRepository:
             status=JobStatus(record.status),
             error=record.error,
             retry_count=record.retry_count,
+            failure_category=self._failure_category(record.failure_category),
+            error_code=record.error_code,
+            error_fingerprint=record.error_fingerprint,
+            retryable=None if record.retryable is None else bool(record.retryable),
+            retry_exhausted=bool(record.retry_exhausted),
+            next_retry_at=record.next_retry_at,
+            retry_history=self._retry_history(record.retry_history_json),
             duration_seconds=record.duration_seconds or 0.0,
             generated_output_path=record.output_path,
             source_id=getattr(record, "source_id", None),
@@ -295,6 +385,31 @@ class JobRepository:
             language_override=getattr(record, "language_override", None),
             output_subfolder=getattr(record, "output_subfolder", None),
         )
+
+    @staticmethod
+    def _failure_category(value: str | None) -> FailureCategory | None:
+        if not value:
+            return None
+        try:
+            return FailureCategory(value)
+        except ValueError:
+            return FailureCategory.UNKNOWN
+
+    @staticmethod
+    def _retry_history(value: str | None) -> list[RetryHistoryEntry]:
+        try:
+            raw = json.loads(value or "[]")
+        except (TypeError, json.JSONDecodeError):
+            return []
+        if not isinstance(raw, list):
+            return []
+        history: list[RetryHistoryEntry] = []
+        for item in raw:
+            try:
+                history.append(RetryHistoryEntry.model_validate(item))
+            except (TypeError, ValueError):
+                continue
+        return history
 
     @staticmethod
     def _text_hash(text: str) -> str:

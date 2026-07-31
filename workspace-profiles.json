@@ -1,0 +1,89 @@
+{
+  "last_profile": "Standard",
+  "profiles": [
+    {
+      "name": "Compact",
+      "left_dock_visible": false,
+      "right_dock_visible": false,
+      "activity_visible": false,
+      "activity_height": 96,
+      "left_dock_width": 0,
+      "right_dock_width": 0,
+      "right_tab": 0,
+      "toolbar_visible": true,
+      "description": "Queue-first compact workspace."
+    },
+    {
+      "name": "Standard",
+      "left_dock_visible": true,
+      "right_dock_visible": true,
+      "activity_visible": false,
+      "activity_height": 144,
+      "left_dock_width": 290,
+      "right_dock_width": 330,
+      "right_tab": 0,
+      "toolbar_visible": true,
+      "description": "Balanced everyday workspace."
+    },
+    {
+      "name": "Generation",
+      "left_dock_visible": true,
+      "right_dock_visible": true,
+      "activity_visible": true,
+      "activity_height": 176,
+      "left_dock_width": 300,
+      "right_dock_width": 340,
+      "right_tab": 1,
+      "toolbar_visible": true,
+      "description": "Monitor-focused generation workspace."
+    },
+    {
+      "name": "Wide",
+      "left_dock_visible": true,
+      "right_dock_visible": true,
+      "activity_visible": true,
+      "activity_height": 176,
+      "left_dock_width": 320,
+      "right_dock_width": 340,
+      "right_tab": 1,
+      "toolbar_visible": true,
+      "description": "Expanded three-panel workspace."
+    },
+    {
+      "name": "Review",
+      "left_dock_visible": false,
+      "right_dock_visible": true,
+      "activity_visible": true,
+      "activity_height": 176,
+      "left_dock_width": 0,
+      "right_dock_width": 360,
+      "right_tab": 0,
+      "toolbar_visible": true,
+      "description": "Queue and selected-row review workspace."
+    },
+    {
+      "name": "Debug",
+      "left_dock_visible": true,
+      "right_dock_visible": true,
+      "activity_visible": true,
+      "activity_height": 220,
+      "left_dock_width": 320,
+      "right_dock_width": 360,
+      "right_tab": 1,
+      "toolbar_visible": true,
+      "description": "Expanded diagnostics and activity workspace."
+    },
+    {
+      "name": "Focus Mode",
+      "left_dock_visible": false,
+      "right_dock_visible": false,
+      "activity_visible": false,
+      "activity_height": 96,
+      "left_dock_width": 0,
+      "right_dock_width": 0,
+      "right_tab": 0,
+      "toolbar_visible": true,
+      "description": "Queue and generation controls only."
+    }
+  ]
+}

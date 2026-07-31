@@ -8,6 +8,63 @@ from app.models.elevenlabs import ProviderCapability, ProviderConnectionResult, 
 from app.models.generation_report import GenerationReport, ReportJob
 from app.models.generation_monitor_state import GenerationMonitorState
 from app.models.generation_scope import ExecutionOrderMode, GenerationPlan, GenerationScopeMode
+from app.models.generation_session import GenerationSession
+from app.models.generation_cost_capacity import (
+    GenerationCapacityForecast,
+    GenerationCostBudgetPolicy,
+    GenerationCostCapacityDashboard,
+    GenerationCostCapacitySnapshot,
+    GenerationPricingRate,
+    GenerationProviderCostEfficiency,
+    GenerationSessionCost,
+)
+from app.models.generation_automation import (
+    GenerationAutomatedRemediation,
+    GenerationAutomationAction,
+    GenerationAutomationActionResult,
+    GenerationAutomationPolicy,
+)
+from app.models.generation_history import GenerationHistorySummary, GenerationSessionComparison
+from app.models.generation_maintenance import (
+    GenerationBackupArtifact,
+    GenerationDatabaseHealth,
+    GenerationHardeningDashboard,
+    GenerationMaintenancePolicy,
+    GenerationMaintenanceRun,
+    GenerationRetentionPreview,
+)
+from app.models.generation_incident import (
+    GenerationIncident,
+    GenerationIncidentActionItem,
+    GenerationIncidentRemediation,
+    GenerationIncidentRunbook,
+    GenerationIncidentReview,
+    GenerationIncidentSlaPolicy,
+    GenerationIncidentSummary,
+    GenerationIncidentUpdate,
+    GenerationRemediationStep,
+)
+from app.models.generation_problem import (
+    GenerationKnownProblem,
+    GenerationProblemMatch,
+    GenerationProblemSummary,
+)
+from app.models.generation_performance import (
+    GenerationAlertDecision,
+    GenerationPerformanceAnalysis,
+    GenerationPerformanceBaseline,
+    GenerationPerformanceBudget,
+    GenerationPerformanceThresholds,
+    GenerationPerformanceTrend,
+)
+from app.models.generation_reliability import (
+    GenerationProviderReliability,
+    GenerationReliabilityDashboard,
+    GenerationReliabilitySnapshot,
+    GenerationSloPolicy,
+)
+from app.models.generation_recovery import GenerationRecoverySnapshot
+from app.models.retry_policy import FailureAnalysis, FailureCategory, RetryBatchResult, RetryDecision, RetryHistoryEntry
 from app.models.health_state import HealthCheckState, HealthState
 from app.models.provider_identity import ProviderIdentity, ProviderReadiness
 from app.models.persistence import (
@@ -35,8 +92,45 @@ from app.models.product_events import ActivityEvent, BatchSessionRecord, Notific
 from app.models.release_state import ProviderStatusState, ReleaseReadinessState
 from app.models.startup_state import SessionRestoreState, StartupRecoveryState
 from app.models.ui_state import GenerationContext, GenerationUiState, SettingsViewData
+from app.models.workspace_profile import WorkspaceProfile
+
+from app.models.provider_health import ProviderAccountHealth, ProviderHealthState, evaluate_provider_health
+
+from app.models.generation_orchestration import (
+    GenerationAdaptiveRoutingPolicy,
+    GenerationExecutionPlan,
+    GenerationFailoverEvent,
+    GenerationOrchestrationPolicy,
+    GenerationRoutingDecision,
+    GenerationSchedulerEvent,
+    GenerationSchedulingPolicy,
+    ProviderCircuitSnapshot,
+    ProviderCircuitStatus,
+    ProviderExecutionCandidate,
+    ProviderRoutingMetric,
+    ProviderThrottleSnapshot,
+    RoutingMode,
+    SchedulingMode,
+)
 
 __all__ = [
+    "SchedulingMode",
+    "ProviderThrottleSnapshot",
+    "GenerationSchedulerEvent",
+    "GenerationSchedulingPolicy",
+    "RoutingMode",
+    "ProviderRoutingMetric",
+    "GenerationRoutingDecision",
+    "GenerationAdaptiveRoutingPolicy",
+    "ProviderExecutionCandidate",
+    "ProviderCircuitStatus",
+    "ProviderCircuitSnapshot",
+    "GenerationOrchestrationPolicy",
+    "GenerationFailoverEvent",
+    "GenerationExecutionPlan",
+    "evaluate_provider_health",
+    "ProviderHealthState",
+    "ProviderAccountHealth",
     "AppSettings",
     "ApiProfile",
     "ApiProfileFailoverMode",
@@ -54,6 +148,54 @@ __all__ = [
     "GenerationMonitorState",
     "GenerationPlan",
     "GenerationScopeMode",
+    "GenerationSession",
+    "GenerationHistorySummary",
+    "GenerationBackupArtifact",
+    "GenerationDatabaseHealth",
+    "GenerationHardeningDashboard",
+    "GenerationMaintenancePolicy",
+    "GenerationMaintenanceRun",
+    "GenerationRetentionPreview",
+    "GenerationCapacityForecast",
+    "GenerationCostBudgetPolicy",
+    "GenerationCostCapacityDashboard",
+    "GenerationCostCapacitySnapshot",
+    "GenerationPricingRate",
+    "GenerationProviderCostEfficiency",
+    "GenerationSessionCost",
+    "GenerationAutomatedRemediation",
+    "GenerationAutomationAction",
+    "GenerationAutomationActionResult",
+    "GenerationAutomationPolicy",
+    "GenerationIncident",
+    "GenerationIncidentActionItem",
+    "GenerationIncidentRemediation",
+    "GenerationIncidentRunbook",
+    "GenerationIncidentReview",
+    "GenerationIncidentSummary",
+    "GenerationIncidentSlaPolicy",
+    "GenerationIncidentUpdate",
+    "GenerationKnownProblem",
+    "GenerationProblemMatch",
+    "GenerationProblemSummary",
+    "GenerationRemediationStep",
+    "GenerationSessionComparison",
+    "GenerationAlertDecision",
+    "GenerationPerformanceAnalysis",
+    "GenerationPerformanceBaseline",
+    "GenerationPerformanceBudget",
+    "GenerationPerformanceThresholds",
+    "GenerationPerformanceTrend",
+    "GenerationProviderReliability",
+    "GenerationReliabilityDashboard",
+    "GenerationReliabilitySnapshot",
+    "GenerationSloPolicy",
+    "GenerationRecoverySnapshot",
+    "FailureAnalysis",
+    "FailureCategory",
+    "RetryBatchResult",
+    "RetryDecision",
+    "RetryHistoryEntry",
     "HealthCheckState",
     "HealthState",
     "HistoryRecord",
@@ -94,4 +236,5 @@ __all__ = [
     "StartupRecoveryState",
     "TTSJob",
     "VoiceRecord",
+    "WorkspaceProfile",
 ]

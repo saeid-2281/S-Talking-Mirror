@@ -5,6 +5,8 @@ from pathlib import Path
 
 from app.models.domain import AppSettings, JobStatus, TTSJob
 from app.repositories.job_repository import JobRepository
+from app.models.retry_policy import FailureCategory, RetryBatchResult
+from app.services.failure_analysis_service import FailureAnalysisService, RetryPolicyService
 
 QUEUE_FILTERS = ("all", "pending", "running", "completed", "failed", "skipped")
 
@@ -27,6 +29,9 @@ class QueueService:
     def __init__(self, repository: JobRepository | None = None, fallback_seconds_per_job: float = 3.0) -> None:
         self.repository = repository
         self.fallback_seconds_per_job = fallback_seconds_per_job
+        self.failure_analysis = FailureAnalysisService()
+        self.retry_policy = RetryPolicyService()
+        self.last_retry_result = RetryBatchResult()
 
     def sync_project_jobs(
         self,
@@ -67,11 +72,52 @@ class QueueService:
         return [job for job in jobs if job.status == JobStatus.PENDING]
 
     def retry_failed(self, project_id: int | None, jobs: list[TTSJob]) -> int:
+        """Compatibility reset: clear failed state without applying Phase 4 policy."""
         return self.reset_jobs(project_id, jobs, [job for job in jobs if job.status == JobStatus.FAILED])
 
     def retry_selected(self, project_id: int | None, jobs: list[TTSJob], selected_jobs: list[TTSJob]) -> int:
         retryable = [job for job in selected_jobs if job.status == JobStatus.FAILED]
         return self.reset_jobs(project_id, jobs, retryable)
+
+    def retry_jobs(
+        self,
+        project_id: int | None,
+        jobs: list[TTSJob],
+        selected_jobs: list[TTSJob],
+        *,
+        max_retries: int,
+        transient_only: bool = False,
+        category: FailureCategory | str | None = None,
+        manual_override: bool = False,
+    ) -> RetryBatchResult:
+        selected_rows = {job.row_number for job in selected_jobs}
+        actual = [job for job in jobs if job.row_number in selected_rows]
+        for job in actual:
+            if job.status == JobStatus.FAILED and (
+                job.failure_category is None
+                or job.retryable is None
+                or not job.error_fingerprint
+            ):
+                analysis = self.failure_analysis.analyze(job.error)
+                job.failure_category = analysis.category
+                job.error_code = analysis.error_code
+                job.error_fingerprint = analysis.fingerprint
+                job.retryable = analysis.retryable
+        result = self.retry_policy.prepare(
+            actual,
+            max_retries=max_retries,
+            transient_only=transient_only,
+            category=category,
+            manual_override=manual_override,
+        )
+        scheduled = [job for job in actual if job.row_number in result.row_numbers]
+        if project_id is not None and self.repository is not None:
+            self.repository.update_retry_state(project_id, scheduled)
+        self.last_retry_result = result
+        return result
+
+    def failure_summary(self, jobs: list[TTSJob]) -> dict[str, object]:
+        return self.failure_analysis.summary(jobs)
 
     def reset_jobs(self, project_id: int | None, jobs: list[TTSJob], selected_jobs: list[TTSJob]) -> int:
         row_numbers = [job.row_number for job in selected_jobs if job.status != JobStatus.RUNNING]
@@ -81,6 +127,13 @@ class QueueService:
                 job.error = None
                 job.duration_seconds = 0.0
                 job.retry_count = 0
+                job.failure_category = None
+                job.error_code = None
+                job.error_fingerprint = None
+                job.retryable = None
+                job.retry_exhausted = False
+                job.next_retry_at = None
+                job.retry_history = []
                 job.generated_output_path = None
         if project_id is not None and self.repository is not None:
             self.repository.reset_rows(project_id, row_numbers)

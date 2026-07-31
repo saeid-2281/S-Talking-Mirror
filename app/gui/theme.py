@@ -442,3 +442,96 @@ QHeaderView#queueHeader::section:hover {
 """
 DARK_STYLE += _QUEUE_WORKSPACE_STYLE
 LIGHT_STYLE += _QUEUE_WORKSPACE_STYLE
+
+_QUEUE_PRO_STYLE = r"""
+QFrame#queueWorkspace {
+    background: transparent;
+}
+QFrame#queueWorkspaceHeading,QFrame#queueRangeBar,QFrame#queueCommandBar {
+    background: palette(window);
+    border: 1px solid palette(midlight);
+    border-radius: 8px;
+}
+QLabel#queueWorkspaceTitle {
+    font-size: 15px;
+    font-weight: 800;
+}
+QLabel#queueWorkspaceSubtitle {
+    color: palette(mid);
+    font-size: 11px;
+}
+QToolButton#queueColumnsButton {
+    min-height: 30px;
+    padding: 0 10px;
+    border: 1px solid palette(midlight);
+    border-radius: 7px;
+}
+QToolButton#queueColumnsButton:hover {
+    background: palette(midlight);
+}
+QLabel#queueWorkspaceFooter {
+    padding: 3px 9px;
+    color: palette(mid);
+    border-top: 1px solid palette(midlight);
+    font-size: 11px;
+}
+"""
+DARK_STYLE += _QUEUE_PRO_STYLE
+LIGHT_STYLE += _QUEUE_PRO_STYLE
+
+# Provider Accounts 2.0 catalog state styles are injected by apply_theme.
+CATALOG_STATE_QSS = r"""
+QLabel#catalogStateBadge {
+    min-width: 68px;
+    padding: 3px 8px;
+    border-radius: 9px;
+    font-weight: 600;
+}
+QLabel#catalogStateBadge[state="fresh"] {
+    background: rgba(16, 185, 129, 0.16);
+    color: #34D399;
+}
+QLabel#catalogStateBadge[state="stale"] {
+    background: rgba(245, 158, 11, 0.18);
+    color: #FBBF24;
+}
+QLabel#catalogStateBadge[state="missing"] {
+    background: rgba(100, 116, 139, 0.16);
+    color: #94A3B8;
+}
+"""
+
+DARK_STYLE += CATALOG_STATE_QSS
+LIGHT_STYLE += CATALOG_STATE_QSS
+
+_VOICE_BROWSER_PRO_STYLE = r"""
+QLabel#voiceResultsCount {
+    color: palette(mid);
+    font-weight: 700;
+    padding: 0 6px;
+}
+QTableView#voiceCatalogTable {
+    border: 1px solid palette(midlight);
+    border-radius: 8px;
+    background: palette(base);
+    alternate-background-color: palette(alternate-base);
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+}
+QTableView#voiceCatalogTable::item {
+    border: none;
+    padding: 5px 7px;
+}
+QTableView#voiceCatalogTable::item:hover:!selected {
+    background: palette(midlight);
+}
+QTableView#voiceCatalogTable QHeaderView::section {
+    min-height: 30px;
+    padding: 5px 7px;
+    border: none;
+    border-bottom: 1px solid palette(midlight);
+    font-weight: 700;
+}
+"""
+DARK_STYLE += _VOICE_BROWSER_PRO_STYLE
+LIGHT_STYLE += _VOICE_BROWSER_PRO_STYLE

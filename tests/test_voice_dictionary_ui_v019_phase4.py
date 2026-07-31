@@ -23,6 +23,7 @@ def test_voice_browser_has_professional_context_filters_and_recent_tab(qt_app, t
         "All voices",
         "Favorites",
         "Recent",
+        "Collections",
     ]
     assert dialog.refresh_button.objectName() == "primaryQuietButton"
     assert dialog.favorite_button.objectName() == "favoriteButton"

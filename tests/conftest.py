@@ -22,18 +22,19 @@ def qt_app():
 
 
 @pytest.fixture(autouse=True)
-def isolate_qsettings_between_tests():
-    """Prevent persistent desktop preferences from leaking between tests.
+def isolate_qsettings_between_tests(tmp_path):
+    """Use per-test INI settings instead of the Windows registry.
 
-    QSettings is process/global-user scoped rather than tied to RuntimeConfig's
-    temporary root. Without isolation, a test that stores an ElevenLabs provider
-    can make a later, unrelated CSV-repair test run Preflight with stale cloud
-    credentials and report false blocking errors.
+    This prevents desktop preferences from leaking between tests and avoids
+    registry cleanup failures when Qt still has a settings handle open.
     """
+    settings_root = tmp_path / "qsettings"
+    settings_root.mkdir(parents=True, exist_ok=True)
+    QSettings.setDefaultFormat(QSettings.IniFormat)
+    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(settings_root))
     settings = QSettings("S Talking", "S Talking")
     settings.clear()
     settings.sync()
     yield
-    settings = QSettings("S Talking", "S Talking")
     settings.clear()
     settings.sync()

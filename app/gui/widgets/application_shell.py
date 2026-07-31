@@ -207,10 +207,25 @@ class ActivityCenter(QTabWidget):
         self.error_log = QPlainTextEdit()
         self.error_log.setReadOnly(True)
 
-        self.addTab(self.activity_log, icon("report"), "Activity")
+        self.activity_workspace = QTabWidget()
+        self.activity_workspace.setObjectName("activityWorkspace")
+        self.activity_workspace.addTab(self.activity_log, icon("report"), "Log")
+
+        self.addTab(self.activity_workspace, icon("report"), "Activity")
         self.addTab(self.output_log, icon("folder"), "Output")
         self.addTab(self.error_log, icon("warning"), "Errors")
         self.set_expanded(False)
+
+    def install_timeline(self, timeline: QWidget) -> None:
+        """Expose the timeline inside the legacy Activity tab.
+
+        Keeping the three public top-level tabs stable preserves established
+        workspace contracts while the richer timeline remains an independent
+        widget with its own service and tests.
+        """
+        if self.activity_workspace.indexOf(timeline) < 0:
+            self.activity_workspace.insertTab(0, timeline, icon("activity"), "Timeline")
+        self.activity_workspace.setCurrentWidget(timeline)
 
     def set_expanded(self, expanded: bool) -> None:
         self.setMaximumHeight(self.expanded_height if expanded else self.COLLAPSED_MAX_HEIGHT)

@@ -48,6 +48,13 @@ class JobRecord:
     model_override: str | None = None
     language_override: str | None = None
     output_subfolder: str | None = None
+    failure_category: str | None = None
+    error_code: str | None = None
+    error_fingerprint: str | None = None
+    retryable: int | None = None
+    retry_exhausted: int = 0
+    next_retry_at: str | None = None
+    retry_history_json: str = "[]"
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "JobRecord":

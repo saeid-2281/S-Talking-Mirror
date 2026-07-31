@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.models.api_profile import ApiProfile, ApiProfileFailoverMode, ApiProfileStatus, FailoverSettings, ProfileSwitchDecision
+from app.models.provider_health import evaluate_provider_health
 from app.services.secure_credentials import SecureCredentialStore
 
 
@@ -229,22 +230,59 @@ class ApiProfileService:
         current_profile_id: str | None,
         mode: str,
         error_code: str | None,
+        generation_active: bool = False,
     ) -> ProfileSwitchDecision:
         normalized = self._failover_mode(mode)
         if normalized == ApiProfileFailoverMode.NEVER:
             return ProfileSwitchDecision(False, reason="failover disabled")
+        if generation_active:
+            return ProfileSwitchDecision(False, reason="generation is active; account switch deferred")
         if not self._eligible_error(error_code):
             return ProfileSwitchDecision(False, reason="error not eligible for account failover")
-        for profile in self.list_profiles(provider):
+
+        for profile in self.ordered_failover_profiles(provider):
             if profile.profile_id == current_profile_id:
                 continue
-            if profile.is_usable:
-                return ProfileSwitchDecision(
-                    normalized == ApiProfileFailoverMode.AUTO,
-                    profile.profile_id,
-                    f"eligible profile available after {error_code or 'provider error'}",
-                )
-        return ProfileSwitchDecision(False, reason="no usable backup profile")
+            health = evaluate_provider_health(profile)
+            if not profile.is_usable or not health.eligible_for_failover:
+                continue
+            return ProfileSwitchDecision(
+                normalized == ApiProfileFailoverMode.AUTO,
+                profile.profile_id,
+                f"{health.label.lower()} profile available after {error_code or 'provider error'}",
+            )
+        return ProfileSwitchDecision(False, reason="no healthy backup profile")
+
+    def ordered_failover_profiles(self, provider: str) -> list[ApiProfile]:
+        profiles = self.list_profiles(provider)
+        settings = self.failover_settings(provider)
+        if settings.sequence_mode != "manual" or not settings.manual_sequence:
+            return profiles
+        by_id = {profile.profile_id: profile for profile in profiles}
+        ordered = [by_id[profile_id] for profile_id in settings.manual_sequence if profile_id in by_id]
+        ordered_ids = {profile.profile_id for profile in ordered}
+        ordered.extend(profile for profile in profiles if profile.profile_id not in ordered_ids)
+        return ordered
+
+    def activate_failover_target(
+        self,
+        *,
+        provider: str,
+        current_profile_id: str | None,
+        mode: str,
+        error_code: str | None,
+        generation_active: bool = False,
+    ) -> ProfileSwitchDecision:
+        decision = self.choose_failover(
+            provider=provider,
+            current_profile_id=current_profile_id,
+            mode=mode,
+            error_code=error_code,
+            generation_active=generation_active,
+        )
+        if decision.should_switch and decision.target_profile_id:
+            self.set_active(decision.target_profile_id)
+        return decision
 
     def _read(self) -> dict[str, Any]:
         if not self.metadata_path.exists():

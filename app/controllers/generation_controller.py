@@ -7,8 +7,11 @@ from PySide6.QtCore import QObject, QThread, Signal
 from app.gui.worker import GenerationWorker
 from app.models.domain import AppSettings, JobStatus, TTSJob
 from app.models.generation_scope import GenerationPlan
+from app.models.retry_policy import FailureCategory, RetryBatchResult
 from app.models.ui_state import GenerationUiState
 from app.services.generation_scope_service import GenerationScopeService
+from app.services.api_profile_service import ApiProfileService
+from app.services.generation_orchestration_service import GenerationOrchestrationService
 from app.repositories.job_repository import JobRepository
 from app.services.queue_service import QueueMetrics, QueueService
 
@@ -20,11 +23,21 @@ class GenerationController(QObject):
     log = Signal(str)
     finished = Signal(dict)
     failed = Signal(str)
+    failover = Signal(dict)
+    scheduler = Signal(dict)
 
-    def __init__(self, database_path: Path, job_repository: JobRepository | None = None) -> None:
+    def __init__(
+        self,
+        database_path: Path,
+        job_repository: JobRepository | None = None,
+        orchestration_service: GenerationOrchestrationService | None = None,
+        api_profile_service: ApiProfileService | None = None,
+    ) -> None:
         super().__init__()
         self.database_path = database_path
         self.queue_service = QueueService(job_repository)
+        self.orchestration_service = orchestration_service
+        self.api_profile_service = api_profile_service
         self.worker: GenerationWorker | None = None
         self.thread: QThread | None = None
         self._state = GenerationUiState(jobs=[])
@@ -177,10 +190,79 @@ class GenerationController(QObject):
         return [visible[row] for row in visible_rows if 0 <= row < len(visible)]
 
     def retry_failed(self) -> int:
+        if self.is_active:
+            return 0
         return self.queue_service.retry_failed(self.current_project_id, self._state.jobs)
 
     def retry_selected(self, jobs: list[TTSJob]) -> int:
+        if self.is_active:
+            return 0
         return self.queue_service.retry_selected(self.current_project_id, self._state.jobs, jobs)
+
+    def retry_all_failed(self, *, max_retries: int) -> RetryBatchResult:
+        return self._retry_advanced(
+            [job for job in self._state.jobs if job.status == JobStatus.FAILED],
+            max_retries=max_retries,
+        )
+
+    def retry_transient_failed(self, *, max_retries: int) -> RetryBatchResult:
+        return self._retry_advanced(
+            [job for job in self._state.jobs if job.status == JobStatus.FAILED],
+            max_retries=max_retries,
+            transient_only=True,
+        )
+
+    def retry_failed_category(
+        self,
+        category: FailureCategory | str,
+        *,
+        max_retries: int,
+    ) -> RetryBatchResult:
+        return self._retry_advanced(
+            [job for job in self._state.jobs if job.status == JobStatus.FAILED],
+            max_retries=max_retries,
+            category=category,
+        )
+
+    def retry_selected_advanced(
+        self,
+        jobs: list[TTSJob],
+        *,
+        max_retries: int,
+        manual_override: bool = False,
+    ) -> RetryBatchResult:
+        return self._retry_advanced(
+            jobs,
+            max_retries=max_retries,
+            manual_override=manual_override,
+        )
+
+    def _retry_advanced(
+        self,
+        jobs: list[TTSJob],
+        *,
+        max_retries: int,
+        transient_only: bool = False,
+        category: FailureCategory | str | None = None,
+        manual_override: bool = False,
+    ) -> RetryBatchResult:
+        if self.is_active:
+            return RetryBatchResult(requested=len(jobs), blocked=len(jobs), blocked_reasons={"generation_active": len(jobs)})
+        return self.queue_service.retry_jobs(
+            self.current_project_id,
+            self._state.jobs,
+            jobs,
+            max_retries=max_retries,
+            transient_only=transient_only,
+            category=category,
+            manual_override=manual_override,
+        )
+
+    def failure_summary(self) -> dict[str, object]:
+        return self.queue_service.failure_summary(self._state.jobs)
+
+    def export_failure_report(self, directory: Path, *, project_name: str = "project") -> tuple[Path, Path]:
+        return self.queue_service.failure_analysis.export_report(self._state.jobs, directory, project_name=project_name)
 
     def skip_selected(self, jobs: list[TTSJob]) -> int:
         return self.queue_service.skip_selected(self.current_project_id, self._state.jobs, jobs)
@@ -230,17 +312,30 @@ class GenerationController(QObject):
         self.thread = QThread(parent)
         self.current_project_key = project_key_value
         self._active_jobs = pending_jobs
+        orchestration_plan = None
+        if self.orchestration_service is not None:
+            orchestration_plan = self.orchestration_service.build_plan(
+                project_id=self.current_project_id,
+                settings=settings,
+                jobs=pending_jobs,
+            )
+            if orchestration_plan.blocked_reason:
+                self.log.emit(orchestration_plan.blocked_reason)
+                return False
         self.worker = GenerationWorker(
             pending_jobs,
             settings,
             output_path,
             self.database_path,
             project_key_value,
+            orchestration_plan=orchestration_plan,
         )
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.progress.connect(self._progress)
         self.worker.log.connect(self.log)
+        self.worker.failover.connect(self._failover)
+        self.worker.scheduler.connect(self._scheduler)
         self.worker.finished.connect(self._finished)
         self.worker.failed.connect(self._failed)
         self.worker.finished.connect(self.thread.quit)
@@ -270,6 +365,17 @@ class GenerationController(QObject):
         self._state.status = "stopping"
         self.worker.stop()
         return True
+
+    def _failover(self, payload: dict) -> None:
+        if self.orchestration_service is not None:
+            self.orchestration_service.record_worker_event(payload)
+        if str(payload.get("outcome") or "") != "routed":
+            self.failover.emit(payload)
+
+    def _scheduler(self, payload: dict) -> None:
+        if self.orchestration_service is not None:
+            self.orchestration_service.record_scheduler_event(payload)
+        self.scheduler.emit(payload)
 
     def _finished(self, summary: dict) -> None:
         self.finished.emit(summary)

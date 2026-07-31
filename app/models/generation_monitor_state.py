@@ -33,6 +33,17 @@ class GenerationMonitorState:
     provider_request_seconds: float = 0.0
     total_job_seconds: float = 0.0
     inter_file_delay_seconds: float = 0.0
+    retry_countdown_seconds: float = 0.0
     stopped_by_user: bool = False
     peak_concurrent_jobs: int = 1
     resource_usage: str = "Not available"
+    retries: int = 0
+    jobs_per_minute: float = 0.0
+    characters_per_second: float = 0.0
+    processed_characters: int = 0
+    total_characters: int = 0
+    remaining_characters: int = 0
+    progress_percent: float = 0.0
+    last_progress_age_seconds: float = 0.0
+    stalled: bool = False
+    worker_state: str = "Idle"

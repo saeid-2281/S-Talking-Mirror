@@ -6,6 +6,10 @@ from app.repositories.cache_repository import (
     normalize_text,
 )
 from app.repositories.history_repository import HistoryRepository
+from app.repositories.generation_maintenance_repository import (
+    GenerationMaintenanceRepository,
+)
+from app.repositories.generation_orchestration_repository import GenerationOrchestrationRepository
 from app.repositories.job_repository import JobRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.product_event_repository import ProductEventRepository
@@ -14,6 +18,8 @@ from app.repositories.voice_repository import VoiceRepository
 
 __all__ = [
     "CacheRepository",
+    "GenerationMaintenanceRepository",
+    "GenerationOrchestrationRepository",
     "HistoryRepository",
     "JobRepository",
     "ProjectRepository",

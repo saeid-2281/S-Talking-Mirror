@@ -3,20 +3,27 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from time import perf_counter
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.exceptions import ConfigurationError, ProviderError
 from app.models.domain import AppSettings
 from app.models.elevenlabs import ProviderCapability, ProviderConnectionResult
 from app.models.persistence import VoiceRecord
+from app.models.voice_preview import VoicePreviewResult
+from app.models.provider_catalog_sync import CatalogDiagnostics
 from app.provider_factory import create_provider
 from app.repositories.voice_repository import VoiceRepository
 from app.services.pronunciation_service import PronunciationService
 from app.services.preview_service import PreviewService
+from app.services.voice_library_store import VoiceLibraryStore
+
+if TYPE_CHECKING:
+    from app.services.provider_account_catalog_store import ProviderAccountCatalogStore
 
 
 @dataclass(frozen=True)
@@ -112,11 +119,19 @@ class VoiceCatalog:
 class VoiceService:
     """Loads, caches, filters, favorites, and previews provider voices."""
 
-    def __init__(self, repository: VoiceRepository, preview_directory: Path, preview_service: PreviewService | None = None) -> None:
+    def __init__(
+        self,
+        repository: VoiceRepository,
+        preview_directory: Path,
+        preview_service: PreviewService | None = None,
+        catalog_store: ProviderAccountCatalogStore | None = None,
+    ) -> None:
         self.repository = repository
         self.preview_directory = preview_directory
         self.preview_directory.mkdir(parents=True, exist_ok=True)
         self.preview_service = preview_service or PreviewService(preview_directory / "index.json")
+        self.catalog_store = catalog_store
+        self.library_store = VoiceLibraryStore(preview_directory / "voice-library.json")
         self._catalog_cache: dict[tuple[str, str], tuple[float, VoiceCatalog]] = {}
         self.cache_ttl_seconds = 300.0
 
@@ -131,6 +146,11 @@ class VoiceService:
         cached = self._catalog_cache.get(key)
         if not force and cached and time.monotonic() - cached[0] < self.cache_ttl_seconds:
             return cached[1]
+        if not force and self.catalog_store is not None:
+            persisted = self.catalog_store.load(settings)
+            if persisted is not None:
+                self._catalog_cache[key] = (time.monotonic(), persisted)
+                return persisted
         provider = create_provider(settings)
         try:
             raw_voices = provider.list_voices()
@@ -181,19 +201,72 @@ class VoiceService:
             refreshed_at=datetime.now(timezone.utc).isoformat(),
         )
         self._catalog_cache[key] = (time.monotonic(), catalog)
+        if self.catalog_store is not None:
+            self.catalog_store.save(settings, catalog)
         return catalog
 
     def invalidate_provider_cache(self, settings: AppSettings | None = None) -> None:
         if settings is None:
             self._catalog_cache.clear()
+            if self.catalog_store is not None:
+                self.catalog_store.invalidate()
             return
         self._catalog_cache.pop(self._cache_key(settings), None)
+        if self.catalog_store is not None:
+            self.catalog_store.invalidate(settings)
 
     def cached_catalog(self, settings: AppSettings) -> VoiceCatalog | None:
         cached = self._catalog_cache.get(self._cache_key(settings))
         if cached and time.monotonic() - cached[0] < self.cache_ttl_seconds:
             return cached[1]
         return None
+
+    def catalog_diagnostics(
+        self,
+        settings: AppSettings,
+        *,
+        catalog: VoiceCatalog | None = None,
+        latency_ms: int | None = None,
+        last_error: str | None = None,
+    ) -> CatalogDiagnostics:
+        profile_id = str(settings.active_api_profile_id or "temporary")
+        snapshot = self.catalog_store.inspect(settings) if self.catalog_store is not None else None
+        current = catalog or self.cached_catalog(settings)
+        if current is not None:
+            account = current.account
+            return CatalogDiagnostics(
+                provider=settings.provider,
+                profile_id=profile_id,
+                state="Live" if last_error is None else "Error",
+                stale=False,
+                voice_count=len(current.voices),
+                model_count=sum(1 for item in current.models if item.can_do_text_to_speech),
+                remaining_characters=account.remaining_characters if account else None,
+                character_limit=account.character_limit if account else None,
+                refreshed_at=current.refreshed_at,
+                saved_at=snapshot.saved_at if snapshot else None,
+                latency_ms=latency_ms,
+                last_error=last_error,
+            )
+        if snapshot is None or not snapshot.exists:
+            missing = CatalogDiagnostics.missing(settings.provider, profile_id)
+            if last_error is None:
+                return missing
+            return CatalogDiagnostics(**{**missing.__dict__, "state": "Error", "last_error": last_error})
+        return CatalogDiagnostics(
+            provider=settings.provider,
+            profile_id=profile_id,
+            state=snapshot.state_label if last_error is None else "Error",
+            stale=snapshot.stale,
+            voice_count=snapshot.voice_count,
+            model_count=snapshot.model_count,
+            remaining_characters=snapshot.remaining_characters,
+            character_limit=snapshot.character_limit,
+            refreshed_at=snapshot.refreshed_at,
+            saved_at=snapshot.saved_at,
+            latency_ms=latency_ms,
+            last_error=last_error,
+        )
 
     def test_connection(self, settings: AppSettings, *, force_refresh: bool = False) -> ProviderConnectionResult:
         """Validate the selected ElevenLabs account and summarize its catalog.
@@ -253,18 +326,47 @@ class VoiceService:
         accent: str | None = None,
         gender: str | None = None,
         age: str | None = None,
+        profile_id: str | None = None,
+        allowed_voice_ids: set[str] | None = None,
+        collection: str | None = None,
+        collection_only: bool = False,
+        recent_only: bool = False,
+        pinned_only: bool = False,
+        source_items: tuple[VoiceItem, ...] | list[VoiceItem] | None = None,
     ) -> list[VoiceItem]:
-        items = [
-            VoiceItem.from_record(record)
-            for record in self.repository.list(
-                provider=provider,
-                language=language or None,
-                favorites_only=favorites_only,
-            )
-        ]
+        if source_items is None:
+            items = [
+                VoiceItem.from_record(record)
+                for record in self.repository.list(
+                    provider=provider,
+                    language=language or None,
+                    favorites_only=favorites_only,
+                )
+            ]
+        else:
+            # A freshly delivered provider catalog is the source of truth for
+            # the active account. It may not have been persisted to the shared
+            # repository yet (notably in direct compatibility calls/tests), so
+            # filter the catalog itself instead of falling back to stale or
+            # unrelated repository entries.
+            items = list(source_items)
         needle = query.strip().casefold()
+        collection_ids = (
+            self.library_store.voice_ids_in_collection(provider, profile_id, collection)
+            if collection_only
+            else set()
+        )
+        recent_ids = self.library_store.recent_voice_ids(provider, profile_id) if recent_only else set()
         result: list[VoiceItem] = []
         for item in items:
+            if item.provider != provider:
+                continue
+            if allowed_voice_ids is not None and item.voice_id not in allowed_voice_ids:
+                continue
+            if favorites_only and not item.is_favorite:
+                continue
+            if language and item.language != language:
+                continue
             if needle and needle not in self._search_text(item):
                 continue
             if category and item.category != category:
@@ -275,8 +377,14 @@ class VoiceService:
                 continue
             if age and item.age != age:
                 continue
+            if collection_only and item.voice_id not in collection_ids:
+                continue
+            if recent_only and item.voice_id not in recent_ids:
+                continue
+            if pinned_only and not self.library_store.is_pinned(provider, profile_id, item.voice_id):
+                continue
             result.append(item)
-        return self._sort_items(result, sort_mode)
+        return self._sort_items(result, sort_mode, provider=provider, profile_id=profile_id)
 
     def available_filters(self, provider: str) -> dict[str, list[str]]:
         items = self.list(provider=provider)
@@ -291,21 +399,75 @@ class VoiceService:
     def set_favorite(self, item: VoiceItem, favorite: bool) -> None:
         self.repository.set_favorite(item.provider, item.voice_id, favorite)
 
+    def set_pinned(self, item: VoiceItem, profile_id: str | None, pinned: bool) -> None:
+        self.library_store.set_pinned(item.provider, profile_id, item.voice_id, pinned)
+
+    def is_pinned(self, item: VoiceItem, profile_id: str | None) -> bool:
+        return self.library_store.is_pinned(item.provider, profile_id, item.voice_id)
+
+    def mark_used(self, item: VoiceItem, profile_id: str | None) -> None:
+        self.library_store.mark_used(item.provider, profile_id, item.voice_id)
+
+    def use_count(self, item: VoiceItem, profile_id: str | None) -> int:
+        return self.library_store.use_count(item.provider, profile_id, item.voice_id)
+
+    def last_used_at(self, item: VoiceItem, profile_id: str | None) -> str:
+        return self.library_store.last_used_at(item.provider, profile_id, item.voice_id)
+
+    def list_collections(self, provider: str, profile_id: str | None) -> list[str]:
+        return self.library_store.list_collections(provider, profile_id)
+
+    def collections_for_voice(self, item: VoiceItem, profile_id: str | None) -> tuple[str, ...]:
+        return self.library_store.collections_for_voice(item.provider, profile_id, item.voice_id)
+
+    def add_to_collection(self, item: VoiceItem, profile_id: str | None, collection: str) -> None:
+        self.library_store.add_to_collection(item.provider, profile_id, item.voice_id, collection)
+
+    def remove_from_collection(self, item: VoiceItem, profile_id: str | None, collection: str) -> None:
+        self.library_store.remove_from_collection(item.provider, profile_id, item.voice_id, collection)
+
+    def delete_collection(self, provider: str, profile_id: str | None, collection: str) -> None:
+        self.library_store.delete_collection(provider, profile_id, collection)
+
     def preview(self, item: VoiceItem, text: str, settings: AppSettings) -> Path:
+        return self.preview_result(item, text, settings).path
+
+    def preview_result(
+        self,
+        item: VoiceItem,
+        text: str,
+        settings: AppSettings,
+    ) -> VoicePreviewResult:
+        started = perf_counter()
         normalized_text = text.strip()
         if not normalized_text:
             raise ValueError("Preview text cannot be empty.")
         preview_settings = settings.model_copy(update={"voice_id": item.voice_id})
         self.validate_selection(item, preview_settings)
-        cached = self.preview_service.find_cached(item.provider, item.voice_id, preview_settings.model_id, normalized_text, preview_settings)
+        cached = self.preview_service.find_cached(
+            item.provider,
+            item.voice_id,
+            preview_settings.model_id,
+            normalized_text,
+            preview_settings,
+        )
         if cached is not None:
-            return cached.file_path
+            return VoicePreviewResult(
+                path=cached.file_path,
+                cache_hit=True,
+                latency_ms=max(0, int((perf_counter() - started) * 1000)),
+            )
+
         extension = ".mp3" if item.provider == "elevenlabs" else ".wav"
         cache_key = self._preview_cache_key(item, normalized_text, preview_settings)
         safe_name = re.sub(r"[^\w.-]+", "_", item.name, flags=re.UNICODE).strip("._") or "voice"
         target = self.preview_directory / f"{item.provider}-{safe_name}-{cache_key[:16]}{extension}"
         if target.exists() and target.stat().st_size > 0:
-            return target
+            return VoicePreviewResult(
+                path=target,
+                cache_hit=True,
+                latency_ms=max(0, int((perf_counter() - started) * 1000)),
+            )
 
         provider = create_provider(preview_settings)
         try:
@@ -318,7 +480,11 @@ class VoiceService:
         tmp = target.with_suffix(target.suffix + ".tmp")
         try:
             if not audio:
-                raise ProviderError("Provider returned an empty preview.", retryable=True, provider_code="empty_audio")
+                raise ProviderError(
+                    "Provider returned an empty preview.",
+                    retryable=True,
+                    provider_code="empty_audio",
+                )
             tmp.write_bytes(audio)
             tmp.replace(target)
         finally:
@@ -333,7 +499,11 @@ class VoiceService:
             file_path=target,
             duration_seconds=None,
         )
-        return target
+        return VoicePreviewResult(
+            path=target,
+            cache_hit=False,
+            latency_ms=max(0, int((perf_counter() - started) * 1000)),
+        )
 
     def saved_previews(self, item: VoiceItem):
         return self.preview_service.list_for_voice(item.provider, item.voice_id)
@@ -375,14 +545,45 @@ class VoiceService:
         target = self.preview_directory / f"{item.provider}-{safe_name}-{cache_key[:16]}{extension}"
         return target if target.exists() and target.stat().st_size > 0 else None
 
-    @staticmethod
-    def _sort_items(items: list[VoiceItem], sort_mode: str) -> list[VoiceItem]:
+    def _sort_items(
+        self,
+        items: list[VoiceItem],
+        sort_mode: str,
+        *,
+        provider: str,
+        profile_id: str | None,
+    ) -> list[VoiceItem]:
         if sort_mode == "name":
             return sorted(items, key=lambda item: item.name.casefold())
         if sort_mode == "language":
             return sorted(items, key=lambda item: ((item.language or "").casefold(), item.name.casefold()))
         if sort_mode == "recent":
-            return sorted(items, key=lambda item: item.voice_id, reverse=True)
+            return sorted(
+                items,
+                key=lambda item: (
+                    self.library_store.last_used_at(provider, profile_id, item.voice_id),
+                    item.name.casefold(),
+                ),
+                reverse=True,
+            )
+        if sort_mode == "most_used":
+            return sorted(
+                items,
+                key=lambda item: (
+                    self.library_store.use_count(provider, profile_id, item.voice_id),
+                    item.name.casefold(),
+                ),
+                reverse=True,
+            )
+        if sort_mode == "pinned":
+            return sorted(
+                items,
+                key=lambda item: (
+                    self.library_store.is_pinned(provider, profile_id, item.voice_id),
+                    item.name.casefold(),
+                ),
+                reverse=True,
+            )
         return items
 
     @staticmethod

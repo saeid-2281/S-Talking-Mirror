@@ -30,8 +30,10 @@ from PySide6.QtWidgets import (
 )
 
 from app.gui.icons import action_icon
+from app.gui.provider_account_sync import ProviderAccountSyncController, ProviderAccountSyncResult
 from app.models.api_profile import ApiProfile, ApiProfileFailoverMode, ApiProfileStatus, FailoverSettings
 from app.models.domain import AppSettings
+from app.models.provider_health import evaluate_provider_health
 from app.services.api_profile_service import ApiProfileService
 from app.services.provider_verification_service import ProviderVerificationService
 from app.services.voice_service import VoiceService
@@ -56,6 +58,12 @@ class ProviderAccountsDialog(QDialog):
         self.settings_provider = settings_provider
         self.generation_active = generation_active or (lambda: False)
         self.verification_service = verification_service
+        self.sync_controller = ProviderAccountSyncController(voice_service, parent=self)
+        self.sync_controller.started.connect(self._sync_started)
+        self.sync_controller.completed.connect(self._sync_completed)
+        self.sync_controller.failed.connect(self._sync_failed)
+        self.sync_controller.cancelled.connect(self._sync_cancelled)
+        self.sync_controller.busy_changed.connect(self._sync_busy_changed)
         self.setWindowTitle("Provider Accounts")
         self.resize(1120, 720)
         self.setMinimumSize(900, 600)
@@ -221,11 +229,11 @@ class ProviderAccountsDialog(QDialog):
         empty_layout.addLayout(empty_actions)
         empty_layout.addStretch()
 
-        self.table = QTableWidget(0, 10)
+        self.table = QTableWidget(0, 14)
         self.table.setObjectName("providerProfilesTable")
         self.table.setHorizontalHeaderLabels([
             "Active", "Profile name", "Provider", "Masked key", "Enabled",
-            "Priority", "Connection", "Tier", "Remaining quota", "Last checked",
+            "Priority", "Health", "Connection", "Tier", "Remaining quota", "Catalog", "Voices", "Models", "Last checked",
         ])
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
@@ -280,6 +288,17 @@ class ProviderAccountsDialog(QDialog):
         self.details_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.details_status.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         identity_layout.addWidget(self.details_status)
+        self.sync_status = QLabel("Sync idle")
+        self.sync_status.setObjectName("accountSyncStatus")
+        self.sync_status.setWordWrap(True)
+        self.sync_progress = QProgressBar()
+        self.sync_progress.setObjectName("accountSyncProgress")
+        self.sync_progress.setRange(0, 0)
+        self.sync_progress.setTextVisible(False)
+        self.sync_progress.setFixedHeight(6)
+        self.sync_progress.hide()
+        identity_layout.addWidget(self.sync_status)
+        identity_layout.addWidget(self.sync_progress)
         details.addWidget(identity)
 
         quota_card = QFrame()
@@ -314,8 +333,9 @@ class ProviderAccountsDialog(QDialog):
         catalog_header = QHBoxLayout()
         catalog_title = QLabel("Account catalog")
         catalog_title.setObjectName("cardTitle")
-        self.details_catalog_state = QLabel("Not refreshed")
-        self.details_catalog_state.setObjectName("summaryMuted")
+        self.details_catalog_state = QLabel("Not cached")
+        self.details_catalog_state.setObjectName("catalogStateBadge")
+        self.details_catalog_state.setAlignment(Qt.AlignCenter)
         catalog_header.addWidget(catalog_title)
         catalog_header.addStretch()
         catalog_header.addWidget(self.details_catalog_state)
@@ -342,15 +362,19 @@ class ProviderAccountsDialog(QDialog):
         self.details_form.setHorizontalSpacing(12)
         self.details_form.setVerticalSpacing(8)
         self.details_tier = QLabel("—")
+        self.details_health = QLabel("—")
         self.details_provider = QLabel("—")
         self.details_last_checked = QLabel("—")
+        self.details_catalog_saved = QLabel("—")
         self.details_key = QLabel("—")
-        for label in [self.details_tier, self.details_provider, self.details_last_checked, self.details_key]:
+        for label in [self.details_tier, self.details_health, self.details_provider, self.details_last_checked, self.details_catalog_saved, self.details_key]:
             label.setTextInteractionFlags(Qt.TextSelectableByMouse)
             label.setWordWrap(True)
         self.details_form.addRow("Provider", self.details_provider)
         self.details_form.addRow("Tier", self.details_tier)
+        self.details_form.addRow("Health", self.details_health)
         self.details_form.addRow("Last checked", self.details_last_checked)
+        self.details_form.addRow("Catalog saved", self.details_catalog_saved)
         self.details_form.addRow("Credential", self.details_key)
         account_layout.addLayout(self.details_form)
         details.addWidget(account_card)
@@ -365,8 +389,13 @@ class ProviderAccountsDialog(QDialog):
         self.details_activate = QPushButton("Set active")
         self.details_activate.setIcon(action_icon("provider.set_active_profile"))
         self.details_activate.clicked.connect(self.set_active)
+        self.details_cancel_sync = QPushButton("Cancel sync")
+        self.details_cancel_sync.setIcon(action_icon("generation.stop"))
+        self.details_cancel_sync.setEnabled(False)
+        self.details_cancel_sync.clicked.connect(self.cancel_selected_sync)
         detail_actions.addWidget(self.details_test)
         detail_actions.addWidget(self.details_refresh)
+        detail_actions.addWidget(self.details_cancel_sync)
         detail_actions.addWidget(self.details_activate)
         details.addLayout(detail_actions)
         self.account_splitter.addWidget(self.details_panel)
@@ -461,6 +490,8 @@ class ProviderAccountsDialog(QDialog):
         self.temporary_save.setEnabled(bool(temporary_key))
         self.table.setRowCount(len(profiles))
         for row, profile in enumerate(profiles):
+            snapshot = self._catalog_snapshot(profile)
+            health = evaluate_provider_health(profile, snapshot)
             values = [
                 "Yes" if profile.active else "",
                 profile.display_name,
@@ -468,9 +499,15 @@ class ProviderAccountsDialog(QDialog):
                 profile.masked_key,
                 "Yes" if profile.enabled else "No",
                 profile.priority,
+                health.label,
                 self._status_label(profile),
-                profile.account_tier or "—",
-                f"{profile.remaining_characters:,}" if profile.remaining_characters is not None else "—",
+                profile.account_tier or snapshot.account_tier or "—",
+                f"{profile.remaining_characters:,}" if profile.remaining_characters is not None else (
+                    f"{snapshot.remaining_characters:,}" if snapshot.remaining_characters is not None else "—"
+                ),
+                snapshot.state_label,
+                snapshot.voice_count if snapshot.exists else "—",
+                snapshot.model_count if snapshot.exists else "—",
                 profile.last_checked_at or "—",
             ]
             for column, value in enumerate(values):
@@ -490,6 +527,24 @@ class ProviderAccountsDialog(QDialog):
         self._set_combo(self.sequence_mode, settings.sequence_mode)
         self.allow_unknown_quota.setChecked(settings.allow_unknown_quota_override)
         self._selection_changed()
+
+    def _settings_for_profile(self, profile: ApiProfile) -> AppSettings:
+        key = self.service.api_key_for(profile.profile_id) or ""
+        return self.settings_provider().model_copy(
+            update={
+                "provider": profile.provider,
+                "api_key": key,
+                "active_api_profile_id": profile.profile_id,
+            }
+        )
+
+    def _catalog_snapshot(self, profile: ApiProfile):
+        store = getattr(self.voice_service, "catalog_store", None)
+        if store is None or not profile.has_saved_key:
+            from app.services.provider_account_catalog_store import ProviderCatalogSnapshotInfo
+
+            return ProviderCatalogSnapshotInfo(False, False)
+        return store.inspect(self._settings_for_profile(profile))
 
     def selected_profile(self) -> ApiProfile | None:
         row = self.table.currentRow()
@@ -561,6 +616,9 @@ class ProviderAccountsDialog(QDialog):
             return
         key, ok = QInputDialog.getText(self, "Replace key", "New API key", QLineEdit.Password)
         if ok:
+            store = getattr(self.voice_service, "catalog_store", None)
+            if store is not None:
+                store.remove_profile(profile.provider, profile.profile_id)
             self.service.replace_key(profile.profile_id, key)
             self._changed()
 
@@ -569,6 +627,9 @@ class ProviderAccountsDialog(QDialog):
         if not profile or not self.ensure_editable():
             return
         if QMessageBox.question(self, "Delete profile", f"Delete '{profile.display_name}' and remove its stored credential?") == QMessageBox.Yes:
+            store = getattr(self.voice_service, "catalog_store", None)
+            if store is not None:
+                store.remove_profile(profile.provider, profile.profile_id)
             self.service.remove_profile(profile.profile_id)
             self._changed()
 
@@ -586,24 +647,35 @@ class ProviderAccountsDialog(QDialog):
 
     def set_active(self) -> None:
         profile = self.selected_profile()
-        if profile and self.ensure_editable():
-            self.service.set_active(profile.profile_id)
-            self._changed()
+        if profile is None or not self.ensure_editable():
+            return
+        if self.generation_active():
+            QMessageBox.warning(
+                self,
+                "Provider accounts",
+                "The active account cannot be changed while generation is running.",
+            )
+            return
+        self.service.set_active(profile.profile_id)
+        self._changed()
 
     def refresh_selected_account(self) -> None:
-        """Force-refresh the selected account instead of reusing another profile's catalog."""
+        """Force-refresh only the selected account in the background."""
         profile = self.selected_profile()
         if profile is None:
             self.refresh()
             return
         self._test_profile(profile, force=True)
-        self._changed(invalidate_catalog=False)
 
     def test_selected(self) -> None:
         profile = self.selected_profile()
         if profile:
             self._test_profile(profile, force=False)
-            self._changed(invalidate_catalog=False)
+
+    def cancel_selected_sync(self) -> None:
+        profile = self.selected_profile()
+        if profile:
+            self.sync_controller.cancel(profile.profile_id)
 
     def run_live_verification(self) -> None:
         profile = self.selected_profile()
@@ -655,9 +727,16 @@ class ProviderAccountsDialog(QDialog):
         QMessageBox.information(self, "Provider verification", f"Verification report written to:\n{report.report_dir}")
 
     def test_all(self) -> None:
+        started = 0
         for profile in self.service.list_profiles(self.provider.currentData()):
-            self._test_profile(profile, force=False)
-        self._changed(invalidate_catalog=False)
+            if self._start_profile_sync(profile, force=False, quiet=True):
+                started += 1
+        if started == 0:
+            QMessageBox.information(
+                self,
+                "Provider accounts",
+                "No eligible account sync was started. Accounts may already be syncing.",
+            )
 
     def clear_exhausted(self) -> None:
         profile = self.selected_profile()
@@ -705,52 +784,128 @@ class ProviderAccountsDialog(QDialog):
             f"Excluded: {excluded}"
         )
 
-    def _test_profile(self, profile: ApiProfile, *, force: bool = False) -> None:
+    def _start_profile_sync(
+        self,
+        profile: ApiProfile,
+        *,
+        force: bool,
+        quiet: bool = False,
+    ) -> bool:
         if not profile.enabled:
             profile.status = ApiProfileStatus.DISABLED
             self.service.update_profile(profile)
-            return
+            self.refresh()
+            return False
         key = self.service.api_key_for(profile.profile_id)
         if not key:
             profile.status = ApiProfileStatus.INVALID
             profile.last_error = "Missing saved key"
             self.service.update_profile(profile)
-            return
-        settings = self.settings_provider().model_copy(
-            update={
-                "provider": profile.provider,
-                "api_key": key,
-                "active_api_profile_id": profile.profile_id,
-            }
-        )
+            self.refresh()
+            return False
+        settings = self._settings_for_profile(profile)
         if force:
             self.voice_service.invalidate_provider_cache(settings)
+        started = self.sync_controller.start(
+            profile.profile_id,
+            settings,
+            force_refresh=force,
+        )
+        if not started and not quiet:
+            QMessageBox.information(
+                self,
+                "Provider accounts",
+                f"'{profile.display_name}' is already syncing.",
+            )
+        return started
+
+    def _sync_started(self, profile_id: str, request_id: int, force: bool) -> None:
+        try:
+            profile = self.service.get_profile(profile_id)
+        except ValueError:
+            return
         profile.status = ApiProfileStatus.TESTING
         profile.last_error = None
+        profile.metadata["sync_request_id"] = str(request_id)
+        profile.metadata["sync_mode"] = "refresh" if force else "test"
         self.service.update_profile(profile)
-        self._update_details(profile)
-        QApplication.processEvents()
-        result = self.voice_service.test_connection(settings, force_refresh=force)
-        cap = result.capability
-        if cap is not None:
-            profile.metadata["voice_count"] = str(cap.voice_count)
-            profile.metadata["tts_model_count"] = str(cap.tts_model_count)
-        catalog = self.voice_service.cached_catalog(settings)
-        if catalog is not None:
-            profile.metadata["catalog_refreshed_at"] = str(catalog.refreshed_at or "")
+        self.refresh()
+
+    def _sync_completed(self, result: ProviderAccountSyncResult) -> None:
+        try:
+            profile = self.service.get_profile(result.profile_id)
+        except ValueError:
+            return
+        connection = result.connection
+        capability = connection.capability
+        if capability is not None:
+            profile.metadata["voice_count"] = str(capability.voice_count)
+            profile.metadata["tts_model_count"] = str(capability.tts_model_count)
+        if result.catalog is not None:
+            profile.metadata["catalog_refreshed_at"] = str(result.catalog.refreshed_at or "")
             profile.metadata["catalog_profile_id"] = profile.profile_id
+        profile.metadata["last_sync_latency_ms"] = str(result.latency_ms)
+        profile.metadata["last_sync_result"] = connection.status
         profile.mark_checked(
-            success=result.status == "connected",
-            account_tier=cap.account_tier if cap else None,
-            remaining_characters=cap.remaining_characters if cap else None,
-            character_limit=cap.character_limit if cap else None,
-            error=None if result.status == "connected" else result.message,
+            success=connection.status == "connected",
+            account_tier=capability.account_tier if capability else None,
+            remaining_characters=capability.remaining_characters if capability else None,
+            character_limit=capability.character_limit if capability else None,
+            error=None if connection.status == "connected" else connection.message,
         )
-        if result.status == "invalid_key":
+        if connection.status == "invalid_key":
             profile.status = ApiProfileStatus.INVALID
-        elif result.status == "network_error":
+        elif connection.status == "network_error":
             profile.status = ApiProfileStatus.UNAVAILABLE
         self.service.update_profile(profile)
+        self._changed(invalidate_catalog=False)
+
+    def _sync_failed(self, profile_id: str, request_id: int, message: str) -> None:
+        try:
+            profile = self.service.get_profile(profile_id)
+        except ValueError:
+            return
+        profile.status = ApiProfileStatus.UNAVAILABLE
+        profile.last_error = message
+        profile.metadata["sync_request_id"] = str(request_id)
+        profile.metadata["last_sync_result"] = "error"
+        self.service.update_profile(profile)
+        self.refresh()
+        self.profiles_changed.emit()
+
+    def _sync_cancelled(self, profile_id: str, request_id: int) -> None:
+        try:
+            profile = self.service.get_profile(profile_id)
+        except ValueError:
+            return
+        if profile.status == ApiProfileStatus.TESTING:
+            profile.status = ApiProfileStatus.UNCHECKED
+        profile.last_error = "Sync cancelled"
+        profile.metadata["sync_request_id"] = str(request_id)
+        profile.metadata["last_sync_result"] = "cancelled"
+        self.service.update_profile(profile)
+        self.refresh()
+
+    def _sync_busy_changed(self, profile_id: str, busy: bool) -> None:
+        profile = self.selected_profile()
+        if profile and profile.profile_id == profile_id:
+            self.sync_progress.setVisible(busy)
+            self.details_cancel_sync.setEnabled(busy)
+            self.details_test.setEnabled(not busy)
+            self.details_refresh.setEnabled(not busy)
+            self.sync_status.setText("Syncing account catalog…" if busy else "Sync idle")
+
+    def _test_profile(self, profile: ApiProfile, *, force: bool = False) -> None:
+        """Compatibility entry point for testing or refreshing one profile.
+
+        The historical method name is retained for callers and source-contract
+        tests, but work is delegated to the non-blocking sync controller. The
+        controller emits ``started`` synchronously, so processing pending UI
+        events here ensures the visible TESTING state is painted before the
+        background provider request continues.
+        """
+        if self._start_profile_sync(profile, force=force):
+            QApplication.processEvents()
 
     def _changed(self, *, invalidate_catalog: bool = True) -> None:
         if invalidate_catalog:
@@ -770,8 +925,12 @@ class ProviderAccountsDialog(QDialog):
 
     def _update_details(self, profile: ApiProfile | None) -> None:
         enabled = profile is not None
-        self.details_test.setEnabled(enabled)
-        self.details_refresh.setEnabled(enabled)
+        busy = bool(profile and self.sync_controller.is_busy(profile.profile_id))
+        self.details_test.setEnabled(enabled and not busy)
+        self.details_refresh.setEnabled(enabled and not busy)
+        self.details_cancel_sync.setEnabled(busy)
+        self.sync_progress.setVisible(busy)
+        self.sync_status.setText("Syncing account catalog…" if busy else "Sync idle")
         self.details_activate.setEnabled(enabled and not bool(profile.active) if profile else False)
         if profile is None:
             self.details_name.setText("No profile selected")
@@ -780,11 +939,14 @@ class ProviderAccountsDialog(QDialog):
             self.details_status.setText("Select an account to see its connection status.")
             self.details_provider.setText("—")
             self.details_tier.setText("—")
+            self.details_health.setText("—")
             self.details_quota.setText("Unavailable")
             self.quota_progress.setValue(0)
             self.details_voices.setText("—")
             self.details_models.setText("—")
-            self.details_catalog_state.setText("Not refreshed")
+            self.details_catalog_state.setText("Not cached")
+            self.details_catalog_state.setProperty("state", "missing")
+            self.details_catalog_saved.setText("—")
             self.details_last_checked.setText("—")
             self.details_key.setText("—")
             self.details_badge.style().unpolish(self.details_badge)
@@ -813,13 +975,35 @@ class ProviderAccountsDialog(QDialog):
         else:
             self.details_quota.setText(f"{profile.remaining_characters:,} remaining")
             self.quota_progress.setValue(0)
-        self.details_voices.setText(str(profile.metadata.get("voice_count", "Unknown")))
-        self.details_models.setText(str(profile.metadata.get("tts_model_count", "Unknown")))
-        refreshed = str(profile.metadata.get("catalog_refreshed_at") or "").strip()
-        self.details_catalog_state.setText(refreshed or "Not refreshed")
-        self.details_catalog_state.setToolTip(refreshed or "Catalog has not been refreshed for this account.")
+        snapshot = self._catalog_snapshot(profile)
+        health = evaluate_provider_health(profile, snapshot)
+        health_text = health.label
+        if health.quota_percent is not None:
+            health_text += f" · {health.quota_percent}% quota"
+        if health.latency_ms is not None:
+            health_text += f" · {health.latency_ms} ms"
+        self.details_health.setText(health_text)
+        self.details_health.setToolTip(health.reason)
+        self.details_voices.setText(str(snapshot.voice_count) if snapshot.exists else str(profile.metadata.get("voice_count", "Unknown")))
+        self.details_models.setText(str(snapshot.model_count) if snapshot.exists else str(profile.metadata.get("tts_model_count", "Unknown")))
+        self.details_catalog_state.setText(snapshot.state_label)
+        self.details_catalog_state.setProperty(
+            "state", "stale" if snapshot.stale else ("fresh" if snapshot.exists else "missing")
+        )
+        self.details_catalog_state.style().unpolish(self.details_catalog_state)
+        self.details_catalog_state.style().polish(self.details_catalog_state)
+        catalog_tip = snapshot.refreshed_at or snapshot.saved_at or "Catalog has not been refreshed for this account."
+        latency = profile.metadata.get("last_sync_latency_ms")
+        if latency:
+            catalog_tip = f"{catalog_tip}\nLast sync latency: {latency} ms"
+        self.details_catalog_state.setToolTip(catalog_tip)
+        self.details_catalog_saved.setText(snapshot.saved_at or "Not cached")
         self.details_last_checked.setText(profile.last_checked_at or "Not checked")
         self.details_key.setText(profile.masked_key if profile.has_saved_key else "No saved credential")
+
+    def closeEvent(self, event) -> None:  # noqa: ANN001, N802
+        self.sync_controller.cancel_all()
+        super().closeEvent(event)
 
     @staticmethod
     def _status_property(profile: ApiProfile) -> str:

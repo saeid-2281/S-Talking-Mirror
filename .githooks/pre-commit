@@ -1,0 +1,5 @@
+#!/usr/bin/env pwsh
+$ErrorActionPreference = "Stop"
+$root = git rev-parse --show-toplevel
+& "$root\scripts\quality-gate.ps1"
+exit $LASTEXITCODE

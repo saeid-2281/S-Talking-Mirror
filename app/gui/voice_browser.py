@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Callable
 
 from PySide6.QtCore import QObject, QSettings, QThread, Qt, Signal
@@ -18,6 +19,8 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QInputDialog,
+    QMenu,
     QPushButton,
     QPlainTextEdit,
     QProgressBar,
@@ -36,34 +39,67 @@ from PySide6.QtWidgets import (
 from app.gui.icons import icon
 from app.models.domain import AppSettings
 from app.models.preview import PreviewRecord
+from app.models.voice_preview import VoicePreviewResult
+from app.models.provider_catalog_sync import CatalogDiagnostics, CatalogSyncResult
 from app.gui.widgets.audio_player import AudioPlayerWidget
+from app.gui.widgets.voice_table_view import VoiceTableView
+from app.gui.widgets.preview_waveform import PreviewWaveformWidget
 from app.services.audio_player_service import AudioPlayerService
 from app.services.voice_service import AccountUsage, VoiceCatalog, VoiceItem, VoiceModelItem, VoiceService
 
 
 class _CatalogWorker(QObject):
-    finished = Signal(object)
-    failed = Signal(str)
+    stage = Signal(int, str)
+    finished = Signal(int, object)
+    failed = Signal(int, str, int)
 
-    def __init__(self, service: VoiceService, settings: AppSettings, *, force: bool = True) -> None:
+    def __init__(
+        self,
+        request_id: int,
+        service: VoiceService,
+        settings: AppSettings,
+        *,
+        force: bool = True,
+    ) -> None:
         super().__init__()
+        self.request_id = request_id
         self.service = service
         self.settings = settings
         self.force = force
 
     def run(self) -> None:
+        started = perf_counter()
+        self.stage.emit(self.request_id, "Connecting to provider…")
         try:
-            self.finished.emit(self.service.refresh_catalog(self.settings, force=self.force))
+            catalog = self.service.refresh_catalog(self.settings, force=self.force)
+            latency_ms = max(0, int((perf_counter() - started) * 1000))
+            self.finished.emit(
+                self.request_id,
+                CatalogSyncResult(
+                    catalog=catalog,
+                    latency_ms=latency_ms,
+                    completed_at=CatalogDiagnostics.now_iso(),
+                ),
+            )
         except Exception as exc:
-            self.failed.emit(str(exc))
+            latency_ms = max(0, int((perf_counter() - started) * 1000))
+            self.failed.emit(self.request_id, str(exc), latency_ms)
 
 
 class _PreviewWorker(QObject):
-    finished = Signal(object)
-    failed = Signal(str)
+    finished = Signal(int, object)
+    failed = Signal(int, str)
 
-    def __init__(self, service: VoiceService, item: VoiceItem, text: str, settings: AppSettings) -> None:
+    def __init__(
+        self,
+        request_id: int,
+        service: VoiceService,
+        item: VoiceItem,
+        text: str,
+        settings: AppSettings,
+    ) -> None:
         super().__init__()
+        self.request_id = request_id
         self.service = service
         self.item = item
         self.text = text
@@ -71,9 +107,12 @@ class _PreviewWorker(QObject):
 
     def run(self) -> None:
         try:
-            self.finished.emit(self.service.preview(self.item, self.text, self.settings))
+            self.finished.emit(
+                self.request_id,
+                self.service.preview_result(self.item, self.text, self.settings),
+            )
         except Exception as exc:
-            self.failed.emit(str(exc))
+            self.failed.emit(self.request_id, str(exc))
 
 
 @dataclass(frozen=True)
@@ -122,6 +161,12 @@ class VoiceBrowserDialog(QDialog):
         self.saved_previews: list[PreviewRecord] = []
         self._threads: list[QThread] = []
         self._preview_thread: QThread | None = None
+        self._preview_request_id = 0
+        self._catalog_request_id = 0
+        self._cancelled_catalog_requests: set[int] = set()
+        self._catalog_thread: QThread | None = None
+        self._catalog_diagnostics: CatalogDiagnostics | None = None
+        self._cancelled_preview_requests: set[int] = set()
         self.setWindowTitle("Voice Browser")
         self.setModal(False)
         self._build()
@@ -159,6 +204,15 @@ class VoiceBrowserDialog(QDialog):
         self.refresh_button = QPushButton("Refresh catalog")
         self.refresh_button.setObjectName("primaryQuietButton")
         self.refresh_button.clicked.connect(self.refresh_catalog)
+        self.cancel_catalog_button = QPushButton("Cancel sync")
+        self.cancel_catalog_button.setObjectName("secondaryQuietButton")
+        self.cancel_catalog_button.setEnabled(False)
+        self.cancel_catalog_button.clicked.connect(self.cancel_catalog_refresh)
+        self.catalog_diagnostics_button = QPushButton("Diagnostics")
+        self.catalog_diagnostics_button.setObjectName("secondaryQuietButton")
+        self.catalog_diagnostics_button.clicked.connect(self.show_catalog_diagnostics)
+        self.catalog_state_label = QLabel("Catalog: not checked")
+        self.catalog_state_label.setObjectName("catalogSyncState")
         top.addWidget(self.provider_label)
         top.addSpacing(18)
         top.addWidget(self.profile_label)
@@ -168,6 +222,9 @@ class VoiceBrowserDialog(QDialog):
         top.addWidget(self.accounts_button)
         top.addWidget(self.dictionaries_button)
         top.addWidget(self.account_label, 1)
+        top.addWidget(self.catalog_state_label)
+        top.addWidget(self.catalog_diagnostics_button)
+        top.addWidget(self.cancel_catalog_button)
         top.addWidget(self.refresh_button)
         root.addWidget(context_card)
 
@@ -186,6 +243,8 @@ class VoiceBrowserDialog(QDialog):
         self.sort.addItem("Name A-Z", "name")
         self.sort.addItem("Language", "language")
         self.sort.addItem("Recently used", "recent")
+        self.sort.addItem("Most used", "most_used")
+        self.sort.addItem("Pinned first", "pinned")
         self.language = QComboBox()
         self.category = QComboBox()
         self.accent = QComboBox()
@@ -193,6 +252,13 @@ class VoiceBrowserDialog(QDialog):
         self.age = QComboBox()
         self.model = QComboBox()
         self.model.setToolTip("The selected model will be applied together with the voice.")
+        self.collection = QComboBox()
+        self.collection.setToolTip("Filter voices by a collection in the active provider profile.")
+        self.collection.addItem("All collections", None)
+        self.collection_button = QToolButton()
+        self.collection_button.setText("+")
+        self.collection_button.setToolTip("Create a collection and add the selected voice")
+        self.collection_button.clicked.connect(self.add_selected_to_collection)
 
         filter_row = QWidget()
         filter_layout = QHBoxLayout(filter_row)
@@ -209,6 +275,13 @@ class VoiceBrowserDialog(QDialog):
             column.addWidget(combo)
             filter_layout.addLayout(column)
         filter_layout.addWidget(self.favorites)
+        filter_layout.addStretch(1)
+        self.results_label = QLabel("0 voices")
+        self.results_label.setObjectName("voiceResultsCount")
+        filter_layout.addWidget(self.results_label)
+        filter_layout.addWidget(QLabel("Collection"))
+        filter_layout.addWidget(self.collection)
+        filter_layout.addWidget(self.collection_button)
         filter_layout.addWidget(QLabel("Sort"))
         filter_layout.addWidget(self.sort)
 
@@ -221,21 +294,16 @@ class VoiceBrowserDialog(QDialog):
         self.tabs.addTab(QWidget(), "All voices")
         self.tabs.addTab(QWidget(), "Favorites")
         self.tabs.addTab(QWidget(), "Recent")
+        self.tabs.addTab(QWidget(), "Collections")
         root.addWidget(self.tabs)
 
         splitter = QSplitter(Qt.Horizontal)
         self.splitter = splitter
-        self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(
-            ["Favorite", "Voice Name", "Language", "Accent", "Gender", "Age", "Category"]
-        )
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.itemSelectionChanged.connect(self._selection_changed)
-        self.table.cellDoubleClicked.connect(lambda *_: self.apply_selection())
+        self.table = VoiceTableView()
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.open_voice_context_menu)
+        self.table.voice_selection_changed.connect(self._selection_changed)
+        self.table.voice_double_clicked.connect(lambda *_: self.apply_selection())
         splitter.addWidget(self.table)
 
         scroll = QScrollArea()
@@ -265,6 +333,13 @@ class VoiceBrowserDialog(QDialog):
         self.favorite_button.setToolTip("Add to favorites")
         self.favorite_button.setMinimumWidth(36)
         self.favorite_button.clicked.connect(self.toggle_favorite)
+        self.pin_button = QPushButton("Pin")
+        self.pin_button.setObjectName("pinVoiceButton")
+        self.pin_button.setToolTip("Pin this voice in the active provider profile")
+        self.pin_button.clicked.connect(self.toggle_pin)
+        self.collection_summary = QLabel("Collections: none")
+        self.collection_summary.setObjectName("voiceCollectionSummary")
+        self.collection_summary.setWordWrap(True)
         self.preview_text = QPlainTextEdit()
         self.preview_text.setPlaceholderText("Enter a short preview sentence…")
         self.default_preview_text = "Hej! Dette er en kort prøve af den valgte danske stemme."
@@ -294,13 +369,28 @@ class VoiceBrowserDialog(QDialog):
         self.stop_audio_button.setMinimumWidth(96)
         self.preview_status = QLabel("")
         self.preview_status.setWordWrap(True)
+        self.preview_cache_state = QLabel("Cache: not checked")
+        self.preview_cache_state.setObjectName("previewCacheState")
+        self.preview_latency = QLabel("Latency: —")
+        self.preview_latency.setObjectName("previewLatency")
+        self.preview_waveform = PreviewWaveformWidget()
+        self.replay_preview_button = QPushButton("Replay")
+        self.replay_preview_button.setIcon(icon("play"))
+        self.replay_preview_button.setEnabled(False)
+        self.replay_preview_button.clicked.connect(self.replay_last_preview)
         self.audio_player = AudioPlayerWidget(self.audio_player_service, open_folder=self._open_folder)
         self.audio_settings = self._build_audio_settings()
         self.audio_settings.setObjectName("voiceAudioSettings")
         preview_actions = QWidget()
         preview_actions_layout = QGridLayout(preview_actions)
         preview_actions_layout.setContentsMargins(0, 0, 0, 0)
-        for index, button in enumerate((self.preview_button, self.cached_preview_button, self.stop_preview_button, self.stop_audio_button)):
+        for index, button in enumerate((
+            self.preview_button,
+            self.cached_preview_button,
+            self.replay_preview_button,
+            self.stop_preview_button,
+            self.stop_audio_button,
+        )):
             preview_actions_layout.addWidget(button, index // 2, index % 2)
         self.saved_preview_table = QTableWidget(0, 6)
         self.saved_preview_table.setHorizontalHeaderLabels(["Text", "Generated", "Model", "Duration", "Size", "Chars"])
@@ -338,8 +428,10 @@ class VoiceBrowserDialog(QDialog):
         voice_actions.addWidget(self.copy_name_button)
         voice_actions.addWidget(self.copy_id_button)
         voice_actions.addWidget(self.favorite_button)
+        voice_actions.addWidget(self.pin_button)
         voice_actions.addStretch()
         details_layout.addLayout(voice_actions)
+        details_layout.addWidget(self.collection_summary)
         details_layout.addWidget(self.description)
         details_layout.addWidget(self.compatibility)
         details_layout.addSpacing(8)
@@ -350,6 +442,12 @@ class VoiceBrowserDialog(QDialog):
         details_layout.addWidget(self.audio_settings)
         details_layout.addWidget(preview_actions)
         details_layout.addWidget(self.preview_status)
+        preview_meta = QHBoxLayout()
+        preview_meta.addWidget(self.preview_cache_state)
+        preview_meta.addStretch(1)
+        preview_meta.addWidget(self.preview_latency)
+        details_layout.addLayout(preview_meta)
+        details_layout.addWidget(self.preview_waveform)
         details_layout.addWidget(self.audio_player)
         details_layout.addWidget(QLabel("Saved previews"))
         details_layout.addWidget(self.saved_preview_table)
@@ -382,6 +480,7 @@ class VoiceBrowserDialog(QDialog):
         self.tabs.currentChanged.connect(self._tab_changed)
         self.favorites.toggled.connect(self.apply_filters)
         self.sort.currentTextChanged.connect(self.apply_filters)
+        self.collection.currentIndexChanged.connect(self.apply_filters)
         for combo in (self.language, self.category, self.accent, self.gender, self.age):
             combo.currentTextChanged.connect(self.apply_filters)
 
@@ -472,6 +571,20 @@ class VoiceBrowserDialog(QDialog):
             }
         )
 
+    def _profile_id(self) -> str:
+        return str(self.settings_provider().active_api_profile_id or "temporary")
+
+    def _rebuild_collections(self) -> None:
+        current = self.collection.currentData() if hasattr(self, "collection") else None
+        self.collection.blockSignals(True)
+        self.collection.clear()
+        self.collection.addItem("All collections", None)
+        for name in self.service.list_collections(self.settings_provider().provider, self._profile_id()):
+            self.collection.addItem(name, name)
+        index = self.collection.findData(current)
+        self.collection.setCurrentIndex(index if index >= 0 else 0)
+        self.collection.blockSignals(False)
+
     def _tab_changed(self) -> None:
         index = self.tabs.currentIndex()
         self.favorites.blockSignals(True)
@@ -483,6 +596,8 @@ class VoiceBrowserDialog(QDialog):
                 self.sort.blockSignals(True)
                 self.sort.setCurrentIndex(recent_index)
                 self.sort.blockSignals(False)
+        if index == 3:
+            self._rebuild_collections()
         QSettings("S Talking", "S Talking").setValue("voice_browser/tab", index)
         self.apply_filters()
 
@@ -551,6 +666,7 @@ class VoiceBrowserDialog(QDialog):
             self.models = []
         self._rebuild_filters()
         self.apply_filters()
+        self._update_catalog_diagnostics(self.service.catalog_diagnostics(settings, catalog=cached))
 
     def refresh_catalog(self) -> None:
         settings = self.settings_provider()
@@ -563,38 +679,148 @@ class VoiceBrowserDialog(QDialog):
         )
         self.profile_label.setText(f"Profile: {profile_name}")
         self.profile_label.setToolTip(profile_id or "Temporary, unsaved credential")
-        # Clear the visible account-specific data immediately so a slow network
-        # refresh never leaves the previous account's models looking current.
-        self.catalog = None
-        self.items = []
-        self.models = []
-        self.apply_filters()
-        self._rebuild_models()
-        self._set_account(None)
-        self._busy(True, "Refreshing account-specific voice catalog…")
+        self._catalog_request_id += 1
+        request_id = self._catalog_request_id
+        self._catalog_busy(True, "Refreshing account-specific voice catalog in the background…")
         thread = QThread(self)
-        worker = _CatalogWorker(self.service, settings, force=True)
+        worker = _CatalogWorker(request_id, self.service, settings, force=True)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
+        worker.stage.connect(self._catalog_stage)
         worker.finished.connect(self._catalog_loaded)
-        worker.failed.connect(self._operation_failed)
+        worker.failed.connect(self._catalog_failed)
         worker.finished.connect(thread.quit)
         worker.failed.connect(thread.quit)
         thread.finished.connect(lambda: self._cleanup_thread(thread))
         thread.start()
         self._threads.append(thread)
+        self._catalog_thread = thread
         self._catalog_worker = worker
 
-    def _catalog_loaded(self, catalog: VoiceCatalog) -> None:
+    def _catalog_stage(self, request_id: int, message: str) -> None:
+        if request_id != self._catalog_request_id or request_id in self._cancelled_catalog_requests:
+            return
+        self.catalog_state_label.setText(f"Catalog: {message}")
+
+    def _catalog_loaded(
+        self,
+        request_id: int | VoiceCatalog,
+        result: CatalogSyncResult | None = None,
+    ) -> None:
+        # Preserve direct legacy calls used by older tests.
+        if result is None and isinstance(request_id, VoiceCatalog):
+            normalized_request_id = self._catalog_request_id
+            normalized_result = CatalogSyncResult(
+                catalog=request_id,
+                latency_ms=0,
+                completed_at=CatalogDiagnostics.now_iso(),
+            )
+        else:
+            normalized_request_id = int(request_id)
+            normalized_result = result
+        if normalized_result is None:
+            return
+        if normalized_request_id in self._cancelled_catalog_requests:
+            return
+
+        # Compatibility callers and focused tests may deliver a completed
+        # request directly without starting the background worker first.
+        # Adopt a newer identity only while no catalog worker is active.
+        catalog_thread_active = (
+            self._catalog_thread is not None and self._catalog_thread.isRunning()
+        )
+        if normalized_request_id > self._catalog_request_id and not catalog_thread_active:
+            self._catalog_request_id = normalized_request_id
+
+        if normalized_request_id != self._catalog_request_id:
+            return
+        self._cancelled_catalog_requests.discard(normalized_request_id)
+        catalog = normalized_result.catalog
         self.catalog = catalog
         self.items = list(catalog.voices)
         self.models = list(catalog.models)
         self._rebuild_filters()
         self._rebuild_models()
+        self._rebuild_collections()
         self._set_account(catalog)
         self.apply_filters()
+        diagnostics = self.service.catalog_diagnostics(
+            self.settings_provider(),
+            catalog=catalog,
+            latency_ms=normalized_result.latency_ms,
+        )
+        # First leave the busy state, then render the durable diagnostics.
+        # `_catalog_busy(False, ...)` updates the same label, so the previous
+        # order immediately erased the latency/state text.
+        self._catalog_busy(False, f"Loaded {len(self.items)} voice(s).")
+        self._update_catalog_diagnostics(diagnostics)
         self.catalog_refreshed.emit(catalog)
-        self._busy(False, f"Loaded {len(self.items)} voice(s).")
+
+    def _catalog_failed(self, request_id: int, message: str, latency_ms: int) -> None:
+        if request_id != self._catalog_request_id or request_id in self._cancelled_catalog_requests:
+            return
+        diagnostics = self.service.catalog_diagnostics(
+            self.settings_provider(),
+            catalog=self.catalog,
+            latency_ms=latency_ms,
+            last_error=message,
+        )
+        self._update_catalog_diagnostics(diagnostics)
+        self._catalog_busy(False, "Catalog refresh failed.")
+        self.preview_status.setText(message)
+
+    def cancel_catalog_refresh(self) -> None:
+        request_id = self._catalog_request_id
+        self._cancelled_catalog_requests.add(request_id)
+        self._catalog_request_id += 1
+        if self._catalog_thread is not None and self._catalog_thread.isRunning():
+            self._catalog_thread.requestInterruption()
+        self._catalog_busy(False, "Catalog refresh cancelled. A late provider response will be ignored.")
+
+    def _catalog_busy(self, busy: bool, message: str) -> None:
+        self.refresh_button.setEnabled(not busy)
+        self.cancel_catalog_button.setEnabled(busy)
+        self.catalog_state_label.setText(f"Catalog: {message}")
+        self.progress.setVisible(busy or self._preview_thread is not None and self._preview_thread.isRunning())
+        if busy:
+            self.progress.setRange(0, 0)
+
+    def _update_catalog_diagnostics(self, diagnostics: CatalogDiagnostics) -> None:
+        self._catalog_diagnostics = diagnostics
+        state = diagnostics.state
+        if diagnostics.stale and state != "Error":
+            state = "Stale"
+        latency = f" · {diagnostics.latency_ms:,} ms" if diagnostics.latency_ms is not None else ""
+        self.catalog_state_label.setText(f"Catalog: {state}{latency}")
+        self.catalog_state_label.setProperty("state", state.casefold().replace(" ", "_"))
+        self.catalog_state_label.style().unpolish(self.catalog_state_label)
+        self.catalog_state_label.style().polish(self.catalog_state_label)
+        self.catalog_state_label.setToolTip(self._catalog_diagnostics_text(diagnostics))
+
+    def show_catalog_diagnostics(self) -> None:
+        diagnostics = self._catalog_diagnostics or self.service.catalog_diagnostics(self.settings_provider())
+        QMessageBox.information(
+            self,
+            "Provider catalog diagnostics",
+            self._catalog_diagnostics_text(diagnostics),
+        )
+
+    @staticmethod
+    def _catalog_diagnostics_text(diagnostics: CatalogDiagnostics) -> str:
+        lines = [
+            f"Provider: {diagnostics.provider}",
+            f"Profile: {diagnostics.profile_id}",
+            f"State: {diagnostics.state}",
+            f"Voices: {diagnostics.voice_count:,}",
+            f"TTS models: {diagnostics.model_count:,}",
+            f"Quota: {diagnostics.quota_text}",
+            f"Refreshed: {diagnostics.refreshed_at or 'Unavailable'}",
+            f"Snapshot saved: {diagnostics.saved_at or 'Unavailable'}",
+            f"Latency: {diagnostics.latency_ms:,} ms" if diagnostics.latency_ms is not None else "Latency: Unavailable",
+        ]
+        if diagnostics.last_error:
+            lines.append(f"Last error: {diagnostics.last_error}")
+        return "\n".join(lines)
 
     def _set_account(self, catalog: VoiceCatalog | AccountUsage | None) -> None:
         account = catalog.account if isinstance(catalog, VoiceCatalog) else catalog
@@ -670,6 +896,8 @@ class VoiceBrowserDialog(QDialog):
             sort_mode=self.sort.currentData() or "provider_order",
         )
         selected_id = self.selected_item().voice_id if self.selected_item() else None
+        active_tab = self.tabs.currentIndex()
+        allowed_voice_ids = {item.voice_id for item in self.catalog.voices} if self.catalog is not None else None
         self.items = self.service.list(
             provider=settings.provider,
             query=state.query,
@@ -680,6 +908,12 @@ class VoiceBrowserDialog(QDialog):
             accent=state.accent,
             gender=state.gender,
             age=state.age,
+            profile_id=self._profile_id(),
+            allowed_voice_ids=allowed_voice_ids,
+            source_items=self.catalog.voices if self.catalog is not None else None,
+            collection=self.collection.currentData(),
+            collection_only=active_tab == 3,
+            recent_only=active_tab == 2,
         )
         model_id = self.model.currentData()
         if model_id:
@@ -696,33 +930,17 @@ class VoiceBrowserDialog(QDialog):
         self._render_table(selected_id=selected_id)
 
     def _render_table(self, selected_id: str | None = None) -> None:
-        self.table.setRowCount(len(self.items))
-        for row, item in enumerate(self.items):
-            values = [
-                "★" if item.is_favorite else "☆",
-                item.name,
-                item.language or "—",
-                item.accent or "—",
-                item.gender or "—",
-                item.age or "—",
-                item.category or "—",
-            ]
-            for column, value in enumerate(values):
-                cell = QTableWidgetItem(value)
-                cell.setData(Qt.UserRole, item.voice_id)
-                cell.setToolTip(str(value))
-                self.table.setItem(row, column, cell)
-        if self.items:
-            row = next((index for index, item in enumerate(self.items) if item.voice_id == selected_id), 0)
-            self.table.selectRow(row)
-        else:
+        self.table.set_items(self.items, selected_id=selected_id)
+        favorite_count = sum(1 for item in self.items if item.is_favorite)
+        pinned_count = sum(1 for item in self.items if self.service.is_pinned(item, self._profile_id()))
+        self.results_label.setText(
+            f"{len(self.items):,} voices · {favorite_count:,} favorite · {pinned_count:,} pinned"
+        )
+        if not self.items:
             self._show_item(None)
 
     def selected_item(self) -> VoiceItem | None:
-        row = self.table.currentRow()
-        if row < 0 or row >= len(self.items):
-            return None
-        return self.items[row]
+        return self.table.selected_item()
 
     def _selection_changed(self) -> None:
         self.audio_player_service.stop()
@@ -734,12 +952,19 @@ class VoiceBrowserDialog(QDialog):
         self.apply_button.setEnabled(enabled)
         self.preview_button.setEnabled(enabled)
         self.favorite_button.setEnabled(enabled)
+        self.pin_button.setEnabled(enabled)
+        self.collection_button.setEnabled(enabled)
         if item is None:
             self.title.setText("No voice selected")
             self.meta.clear()
             self.provider_id.clear()
             self.description.setText("Adjust the search or refresh the catalog.")
             self.compatibility.clear()
+            self.collection_summary.setText("Collections: none")
+            self.preview_waveform.clear()
+            self.preview_cache_state.setText("Cache: not checked")
+            self.preview_latency.setText("Latency: —")
+            self.pin_button.setText("Pin")
             self.render_saved_previews([])
             self.update_cached_preview_button()
             return
@@ -755,6 +980,12 @@ class VoiceBrowserDialog(QDialog):
         self.compatibility.setText(f"Compatible models: {models}\nAvailable tiers: {tiers}")
         self.favorite_button.setText("★" if item.is_favorite else "☆")
         self.favorite_button.setToolTip("Remove from favorites" if item.is_favorite else "Add to favorites")
+        pinned = self.service.is_pinned(item, self._profile_id())
+        self.pin_button.setText("Unpin" if pinned else "Pin")
+        collections = self.service.collections_for_voice(item, self._profile_id())
+        self.collection_summary.setText(
+            "Collections: " + (", ".join(collections) if collections else "none")
+        )
         self.render_saved_previews(self.service.saved_previews(item))
         self.update_cached_preview_button()
 
@@ -765,15 +996,92 @@ class VoiceBrowserDialog(QDialog):
         self.service.set_favorite(item, not item.is_favorite)
         selected_id = item.voice_id
         self.apply_filters()
-        for row, candidate in enumerate(self.items):
-            if candidate.voice_id == selected_id:
-                self.table.selectRow(row)
-                break
+        self.table.select_voice_id(selected_id)
+
+    def toggle_pin(self) -> None:
+        item = self.selected_item()
+        if item is None:
+            return
+        pinned = self.service.is_pinned(item, self._profile_id())
+        self.service.set_pinned(item, self._profile_id(), not pinned)
+        selected_id = item.voice_id
+        self.apply_filters()
+        self.table.select_voice_id(selected_id)
+
+    def add_selected_to_collection(self) -> None:
+        item = self.selected_item()
+        if item is None:
+            return
+        existing = self.service.list_collections(item.provider, self._profile_id())
+        suggestion = existing[0] if existing else ""
+        name, accepted = QInputDialog.getText(
+            self,
+            "Voice collection",
+            "Collection name:",
+            text=suggestion,
+        )
+        if not accepted or not name.strip():
+            return
+        self.service.add_to_collection(item, self._profile_id(), name)
+        self._rebuild_collections()
+        self._show_item(item)
+        self.preview_status.setText(f"Added {item.name} to '{name.strip()}'.")
+
+    def remove_selected_from_collection(self) -> None:
+        item = self.selected_item()
+        collection = self.collection.currentData()
+        if item is None or not collection:
+            return
+        self.service.remove_from_collection(item, self._profile_id(), str(collection))
+        self.apply_filters()
+        self.preview_status.setText(f"Removed {item.name} from '{collection}'.")
+
+    def open_voice_context_menu(self, position) -> None:  # noqa: ANN001
+        item = self.selected_item()
+        if item is None:
+            return
+        menu = QMenu(self)
+        use_action = menu.addAction("Use selected voice")
+        favorite_action = menu.addAction("Remove favorite" if item.is_favorite else "Add favorite")
+        pinned = self.service.is_pinned(item, self._profile_id())
+        pin_action = menu.addAction("Unpin voice" if pinned else "Pin voice")
+        collection_menu = menu.addMenu("Add to collection")
+        collections = self.service.list_collections(item.provider, self._profile_id())
+        for name in collections:
+            action = collection_menu.addAction(name)
+            action.triggered.connect(
+                lambda _checked=False, collection=name, selected=item: self._add_item_to_collection(
+                    selected, collection
+                )
+            )
+        collection_menu.addSeparator()
+        new_collection = collection_menu.addAction("New collection…")
+        remove_action = None
+        if self.tabs.currentIndex() == 3 and self.collection.currentData():
+            remove_action = menu.addAction(f"Remove from '{self.collection.currentData()}'")
+        chosen = menu.exec(self.table.viewport().mapToGlobal(position))
+        if chosen is use_action:
+            self.apply_selection()
+        elif chosen is favorite_action:
+            self.toggle_favorite()
+        elif chosen is pin_action:
+            self.toggle_pin()
+        elif chosen is new_collection:
+            self.add_selected_to_collection()
+        elif remove_action is not None and chosen is remove_action:
+            self.remove_selected_from_collection()
+
+    def _add_item_to_collection(self, item: VoiceItem, collection: str) -> None:
+        self.service.add_to_collection(item, self._profile_id(), collection)
+        self._rebuild_collections()
+        self._show_item(item)
+        self.preview_status.setText(f"Added {item.name} to '{collection}'.")
 
     def apply_selection(self) -> None:
         item = self.selected_item()
         if item is None:
             return
+        self.service.mark_used(item, self._profile_id())
         self.voice_selected.emit(item.voice_id, item.name)
         model_id = self.model.currentData()
         if model_id:
@@ -809,8 +1117,10 @@ class VoiceBrowserDialog(QDialog):
             return
         settings = self.preview_settings()
         self._busy(True, "Generating preview…")
+        self._preview_request_id += 1
+        request_id = self._preview_request_id
         thread = QThread(self)
-        worker = _PreviewWorker(self.service, item, text, settings)
+        worker = _PreviewWorker(request_id, self.service, item, text, settings)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(self._preview_ready)
@@ -823,20 +1133,54 @@ class VoiceBrowserDialog(QDialog):
         self._preview_thread = thread
         self._preview_worker = worker
 
-    def _preview_ready(self, path: Path) -> None:
-        self._busy(False, f"Preview ready: {path.name}")
-        self._last_preview_path = path
-        self.preview_status.setText(f"Preview file: {path}")
-        self.audio_player.load(path)
+    def _preview_ready(
+        self,
+        request_id: int | Path | VoicePreviewResult,
+        result: VoicePreviewResult | None = None,
+    ) -> None:
+        if result is None:
+            normalized_result = (
+                request_id
+                if isinstance(request_id, VoicePreviewResult)
+                else VoicePreviewResult(path=Path(request_id), cache_hit=True, latency_ms=0)
+            )
+            normalized_request_id = self._preview_request_id
+        else:
+            normalized_request_id = int(request_id)
+            normalized_result = result
+        if (
+            normalized_request_id != self._preview_request_id
+            or normalized_request_id in self._cancelled_preview_requests
+        ):
+            return
+        self._cancelled_preview_requests.discard(normalized_request_id)
+        result = normalized_result
+        self._busy(False, f"Preview ready: {result.path.name}")
+        self._last_preview_path = result.path
+        self.preview_status.setText(f"Preview file: {result.path}")
+        self.preview_cache_state.setText("Cache: hit" if result.cache_hit else "Cache: generated")
+        self.preview_cache_state.setProperty("state", "cached" if result.cache_hit else "generated")
+        self.preview_latency.setText(f"Latency: {result.latency_ms:,} ms")
+        self.preview_waveform.set_path(result.path)
+        self.replay_preview_button.setEnabled(True)
+        self.audio_player.load(result.path)
         self.audio_player_service.play()
         item = self.selected_item()
         if item:
+            self.service.mark_used(item, self._profile_id())
             self.render_saved_previews(self.service.saved_previews(item))
         self.update_cached_preview_button()
+
+    def _preview_failed(self, request_id: int, message: str) -> None:
+        if request_id != self._preview_request_id or request_id in self._cancelled_preview_requests:
+            return
+        self._cancelled_preview_requests.discard(request_id)
+        self._operation_failed(message)
 
     def _operation_failed(self, message: str) -> None:
         self._busy(False, "Operation failed.")
         self.preview_status.setText(message)
+        self.preview_cache_state.setText("Cache: error")
         QMessageBox.critical(self, "Voice Browser", message)
 
     def _busy(self, busy: bool, message: str) -> None:
@@ -845,6 +1189,9 @@ class VoiceBrowserDialog(QDialog):
         self.cached_preview_button.setEnabled(not busy and self._cached_preview_path() is not None)
         self.stop_preview_button.setEnabled(busy)
         self.apply_button.setEnabled(not busy and self.selected_item() is not None)
+        self.replay_preview_button.setEnabled(
+            not busy and getattr(self, "_last_preview_path", None) is not None
+        )
         self.progress.setVisible(busy)
         self.progress.setRange(0, 0 if busy else 1)
         if not busy:
@@ -852,18 +1199,36 @@ class VoiceBrowserDialog(QDialog):
         self.preview_status.setText(message)
 
     def stop_preview_generation(self) -> None:
+        request_id = self._preview_request_id
+        self._cancelled_preview_requests.add(request_id)
+        self._preview_request_id += 1
         if self._preview_thread is not None and self._preview_thread.isRunning():
             self._preview_thread.requestInterruption()
-            self._preview_thread.quit()
-        self._busy(False, "Preview generation stopped.")
+        self._busy(False, "Preview request cancelled. A provider response will be ignored if it arrives.")
+
+    def replay_last_preview(self) -> None:
+        path = getattr(self, "_last_preview_path", None)
+        if path is None or not Path(path).exists():
+            self.preview_status.setText("No generated preview is available to replay.")
+            self.replay_preview_button.setEnabled(False)
+            return
+        self.audio_player.load(path)
+        self.audio_player_service.play()
+        self.preview_waveform.set_path(path)
+        self.preview_status.setText(f"Replaying preview: {Path(path).name}")
 
     def play_cached_preview(self) -> None:
         path = self._cached_preview_path() or getattr(self, "_last_preview_path", None)
         if path is None:
             self.preview_status.setText("No cached preview exists for this voice and text.")
             return
+        self._last_preview_path = path
         self.audio_player.load(path)
         self.audio_player_service.play()
+        self.preview_waveform.set_path(path)
+        self.preview_cache_state.setText("Cache: hit")
+        self.preview_latency.setText("Latency: local")
+        self.replay_preview_button.setEnabled(True)
         self.preview_status.setText(f"Playing cached preview: {path.name}")
 
     def render_saved_previews(self, records: list[PreviewRecord]) -> None:
@@ -969,6 +1334,7 @@ class VoiceBrowserDialog(QDialog):
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self.save_splitter_state()
         self.save_geometry()
+        self._cancelled_catalog_requests.add(self._catalog_request_id)
         for thread in list(self._threads):
             thread.quit()
             thread.wait(1000)

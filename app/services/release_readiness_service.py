@@ -196,9 +196,15 @@ class ReleaseReadinessService:
     def _database_status(self) -> tuple[str, str]:
         try:
             self.database.initialize()
-            with self.database.connect() as connection:
-                rows = connection.execute("SELECT COUNT(*) AS count FROM schema_migrations").fetchone()
-            return "passed", "passed" if rows and rows["count"] else "unknown"
+            applied = self.database.applied_schema_versions()
+            expected = self.database.expected_schema_version
+            migration_ok = applied == tuple(range(1, expected + 1))
+            integrity_ok = self.database.quick_check() == "ok"
+            foreign_keys_ok = not self.database.foreign_key_violations()
+            return (
+                "passed" if integrity_ok and foreign_keys_ok else "failed",
+                "passed" if migration_ok else "failed",
+            )
         except Exception:
             return "failed", "failed"
 

@@ -29,3 +29,14 @@
 - Run `.\scripts\build.ps1`.
 - Confirm the unsigned portable ZIP exists under `artifacts/package/`.
 - Confirm secrets, reports, output, databases, caches, logs, tests, and virtual environments are excluded.
+
+## Generation Monitor Pro v1.0 hardening
+
+- [ ] Schema migrations 1–16 are applied without gaps.
+- [ ] Database quick check passes.
+- [ ] Foreign-key check has no violations.
+- [ ] A verified backup and SHA-256 manifest are created.
+- [ ] Restore is tested against a disposable copy.
+- [ ] Retention preview contains only expected records.
+- [ ] Incident-linked sessions are preserved by retention.
+- [ ] Full Quality Gate passes after Phase 16.

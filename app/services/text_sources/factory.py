@@ -4,9 +4,11 @@ from pathlib import Path
 
 from app.services.text_sources.base import TextDocumentReader
 from app.services.text_sources.docx import DocxReader
+from app.services.text_sources.epub import EpubReader
 from app.services.text_sources.html_reader import HtmlReader
 from app.services.text_sources.markdown import MarkdownReader
 from app.services.text_sources.odt import OdtReader
+from app.services.text_sources.pdf import PdfReader
 from app.services.text_sources.plain import PlainTextReader
 from app.services.text_sources.rtf import RtfReader
 
@@ -20,6 +22,8 @@ class TextReaderFactory:
             DocxReader(),
             HtmlReader(),
             OdtReader(),
+            PdfReader(),
+            EpubReader(),
         )
         self._by_extension = {
             extension: reader

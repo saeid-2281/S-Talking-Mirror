@@ -9,7 +9,7 @@ import tempfile
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.config.runtime import RuntimeConfig
 from app.models.domain import AppSettings, JobStatus, TTSJob
@@ -19,6 +19,9 @@ from app.services.monitor_formatting import format_duration
 from app.services.voice_service import VoiceService
 from app.services.provider_catalog_service import ProviderCatalogService
 from app.services.provider_readiness_service import ProviderReadinessService
+
+if TYPE_CHECKING:
+    from app.services.generation_cost_capacity_service import GenerationCostCapacityService
 
 WINDOWS_INVALID = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 RESERVED_NAMES = {
@@ -40,12 +43,14 @@ class PreflightService:
         voice_repository: VoiceRepository | None = None,
         voice_service: VoiceService | None = None,
         provider_readiness_service: ProviderReadinessService | None = None,
+        cost_capacity_service: GenerationCostCapacityService | None = None,
         fallback_seconds_per_job: float = 3.0,
     ) -> None:
         self.runtime = runtime
         self.voice_repository = voice_repository
         self.voice_service = voice_service
         self.provider_readiness_service = provider_readiness_service or ProviderReadinessService()
+        self.cost_capacity_service = cost_capacity_service
         self.fallback_seconds_per_job = fallback_seconds_per_job
         self.latest: PreflightState | None = None
         self._cache_key: tuple[Any, ...] | None = None
@@ -62,8 +67,9 @@ class PreflightService:
         output_dir: Path,
         csv_path: Path | None = None,
         project_name: str = "No project",
+        project_id: int | None = None,
     ) -> PreflightState:
-        key = self._key(jobs, settings, output_dir, csv_path)
+        key = self._key(jobs, settings, output_dir, csv_path, project_id)
         if self.latest is not None and self._cache_key == key:
             return self.latest
         issues: list[PreflightIssue] = []
@@ -134,7 +140,17 @@ class PreflightService:
         quota_snapshot = self._validate_quota(settings, pending_characters, issues)
         warnings = sum(1 for issue in issues if issue.severity == "warning")
         blocking = sum(1 for issue in issues if issue.severity in {"hard_error", "overridable_error", "error"} and not (issue.overridable and issue.overridden))
-        revision = hashlib.sha256(json.dumps(self._key(jobs, settings, output_dir, csv_path), default=str, sort_keys=True).encode("utf-8")).hexdigest()
+        revision = hashlib.sha256(json.dumps(self._key(jobs, settings, output_dir, csv_path, project_id), default=str, sort_keys=True).encode("utf-8")).hexdigest()
+        estimated_cost = None
+        if self.cost_capacity_service is not None:
+            estimated_cost, _rate, _currency, _source = (
+                self.cost_capacity_service.estimate_cost(
+                    project_id=project_id,
+                    provider=settings.provider,
+                    model=settings.model_id,
+                    characters=pending_characters,
+                )
+            )
         state = PreflightState(
             total_jobs=len(jobs),
             valid_jobs=max(0, len(jobs) - len({issue.row for issue in issues if issue.severity in {"hard_error", "error"} and issue.row})),
@@ -150,7 +166,7 @@ class PreflightService:
             estimated_files=len(pending),
             estimated_duration_seconds=len(pending) * self.fallback_seconds_per_job,
             estimated_provider_requests=len(pending),
-            estimated_cost=None,
+            estimated_cost=estimated_cost,
             provider_ready=provider_ready,
             output_directory_ready=output_ready,
             can_start=blocking == 0 and bool(pending) and output_ready and provider_ready and extension_ready,
@@ -265,7 +281,11 @@ class PreflightService:
             f"- Characters: {state.estimated_characters:,}",
             f"- Requests: {state.estimated_provider_requests:,}",
             f"- Estimated time: {format_duration(state.estimated_duration_seconds)}",
-            "- Estimated cost: Cost unavailable",
+            (
+                f"- Estimated cost: {state.estimated_cost:.4f}"
+                if state.estimated_cost is not None
+                else "- Estimated cost: Cost unavailable"
+            ),
             f"- Existing outputs: {len(state.existing_outputs):,}",
             "",
             "## Issues",
@@ -294,10 +314,27 @@ class PreflightService:
 <style>body{{font-family:Segoe UI,Arial,sans-serif;margin:2rem}}table{{border-collapse:collapse;width:100%}}td,th{{border-bottom:1px solid #ccc;padding:.45rem;text-align:left}}</style>
 <h1>S Talking Preflight Report</h1>
 <p>Status: <strong>{html.escape(state.status)}</strong></p>
-<p>Files: {state.estimated_files:,} · Characters: {state.estimated_characters:,} · ETA: {format_duration(state.estimated_duration_seconds)} · Cost unavailable</p>
+{self._cost_html(state)}
 <table><thead><tr><th>Severity</th><th>Row</th><th>Filename</th><th>Problem</th><th>Suggested fix</th></tr></thead><tbody>{rows}</tbody></table>
 </html>
 """
+        )
+
+
+    @staticmethod
+    def _cost_html(state: PreflightState) -> str:
+        if state.estimated_cost is None:
+            return (
+                f"<p>Files: {state.estimated_files:,} · "
+                f"Characters: {state.estimated_characters:,} · "
+                f"ETA: {format_duration(state.estimated_duration_seconds)} · "
+                "Cost unavailable</p>"
+            )
+        return (
+            f"<p>Files: {state.estimated_files:,} · "
+            f"Characters: {state.estimated_characters:,} · "
+            f"ETA: {format_duration(state.estimated_duration_seconds)} · "
+            f"Estimated cost: {state.estimated_cost:.4f}</p>"
         )
 
     def _state_json(self, state: PreflightState) -> dict[str, Any]:
@@ -536,6 +573,7 @@ class PreflightService:
         settings: AppSettings,
         output_dir: Path,
         csv_path: Path | None,
+        project_id: int | None = None,
     ) -> tuple[Any, ...]:
         return (
             tuple((job.row_number, job.filename, job.text, job.status.value) for job in jobs),
@@ -543,6 +581,7 @@ class PreflightService:
             hashlib.sha256((settings.api_key or "").encode("utf-8")).hexdigest(),
             str(output_dir),
             str(csv_path or ""),
+            project_id,
         )
 
     def _issue(

@@ -1,23 +1,61 @@
+from app.services.activity_timeline_service import ActivityTimelineService
+from app.services.notification_center_service import NotificationCenterService
+from app.services.workspace_profile_service import WorkspaceProfileService
 from app.services.api_profile_service import ApiProfileService
 from app.services.audio_player_service import AudioPlayerService
 from app.services.generation_confirmation_service import GenerationConfirmationCoordinator
+from app.services.generation_cost_capacity_service import GenerationCostCapacityService
 from app.services.generation_scope_service import GenerationScopeService
+from app.services.failure_analysis_service import FailureAnalysisService, RetryPolicyService
+from app.services.generation_maintenance_service import GenerationMaintenanceService
 from app.services.generation_monitor_service import GenerationMonitorService
+from app.services.generation_orchestration_service import GenerationOrchestrationService
+from app.services.generation_history_service import GenerationHistoryService
+from app.services.generation_incident_service import GenerationIncidentService
+from app.services.generation_problem_service import GenerationProblemService
+from app.services.generation_remediation_automation_service import (
+    GenerationRemediationAutomationService,
+)
+from app.services.generation_performance_policy_service import (
+    GenerationPerformancePolicyService,
+)
+from app.services.generation_performance_service import GenerationPerformanceService
 from app.services.preflight_service import PreflightService
+from app.services.provider_account_catalog_store import ProviderAccountCatalogStore, ProviderCatalogSnapshotInfo
 from app.services.preview_service import PreviewService
 from app.services.pronunciation_dictionary_service import PronunciationDictionaryService
 from app.services.project_manager import ProjectManager
 from app.services.queue_service import QueueService
 from app.services.release_readiness_service import ReleaseReadinessService
 from app.services.startup_recovery_service import SessionRestoreService, StartupRecoveryService
+from app.services.voice_library_store import VoiceLibraryStore
 
+from app.services.generation_reliability_service import GenerationReliabilityService
+from app.services.generation_recovery_service import GenerationRecoveryService
 __all__ = [
+    "ActivityTimelineService",
     "ApiProfileService",
+    "NotificationCenterService",
     "AudioPlayerService",
     "GenerationScopeService",
     "GenerationConfirmationCoordinator",
+    "GenerationCostCapacityService",
+    "FailureAnalysisService",
+    "RetryPolicyService",
+    "GenerationMaintenanceService",
     "GenerationMonitorService",
+    "GenerationOrchestrationService",
+    "GenerationHistoryService",
+    "GenerationIncidentService",
+    "GenerationProblemService",
+    "GenerationRemediationAutomationService",
+    "GenerationPerformancePolicyService",
+    "GenerationPerformanceService",
+    "GenerationReliabilityService",
+    "GenerationRecoveryService",
     "PreflightService",
+    "ProviderAccountCatalogStore",
+    "ProviderCatalogSnapshotInfo",
     "PreviewService",
     "PronunciationDictionaryService",
     "ProjectManager",
@@ -25,4 +63,6 @@ __all__ = [
     "ReleaseReadinessService",
     "SessionRestoreService",
     "StartupRecoveryService",
+    "VoiceLibraryStore",
+    "WorkspaceProfileService",
 ]

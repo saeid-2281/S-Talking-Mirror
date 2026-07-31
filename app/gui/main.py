@@ -1,10 +1,10 @@
 from __future__ import annotations
-import json,sys
+import json,os,sys
 
 import app
 from datetime import datetime, timezone
 from pathlib import Path
-from PySide6.QtCore import QItemSelectionModel,QSettings,Qt,QTimer,QUrl,QSize
+from PySide6.QtCore import QSettings,Qt,QTimer,QUrl,QSize
 from PySide6.QtGui import QAction,QColor,QDesktopServices,QDragEnterEvent,QDropEvent,QKeySequence
 from PySide6.QtWidgets import *
 from app.bootstrap import ApplicationContext, create_application_context
@@ -15,7 +15,7 @@ from app.gui.developer_tools import DeveloperTools
 from app.gui.icons import action_icon, icon
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationCostCapacityDialog,GenerationHistoryDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.widgets import ControlledSpinBox
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -25,8 +25,14 @@ from app.gui.widgets.application_shell import (
     ProjectContextBar,
 )
 from app.gui.widgets.provider_workspace import ProviderWorkspaceBuilder
-from app.gui.widgets.queue_workspace import QueueScopeSummary, QueueSelectionStats, configure_queue_table
-from app.models import AppSettings
+from app.gui.widgets.queue_workspace import QueueSelectionStats, QueueStatusDelegate, QueueWorkspace, configure_queue_table
+from app.gui.widgets.queue_table_view import QueueTableView
+from app.gui.widgets.queue_view_adapter import QueueViewAdapter
+from app.gui.widgets.queue_details_pane import QueueDetailsPane
+from app.gui.widgets.activity_timeline import ActivityTimelineWidget
+from app.gui.widgets.notification_center import NotificationCenterWidget
+from app.gui.widgets.text_studio_workspace import TextStudioWorkspace
+from app.models import AppSettings, FailureCategory
 from app.models.product_events import BatchSessionRecord
 from app.models.ui_state import SettingsViewData
 from app.services.monitor_formatting import elide_middle, format_characters_per_minute, format_duration, format_files_per_minute, status_color
@@ -124,6 +130,7 @@ class MainWindow(QMainWindow):
     def __init__(self, context: ApplicationContext):
         super().__init__(); self.setWindowTitle(f'S Talking — AI Audio Studio {app.__version__}'); self.setWindowIcon(AboutDialog.app_icon(context.container.runtime)); self.setMinimumSize(1180,700); self.set_initial_geometry()
         self.context=context; self.project_controller=context.project_controller; self.generation_controller=context.generation_controller; self.settings_controller=context.settings_controller; self.notifications=context.notification_service
+        self.workspace_profiles=context.workspace_profile_service; self.notification_center_service=context.notification_center_service; self.activity_timeline_service=context.activity_timeline_service
         self.setAcceptDrops(True)
         self.theme_manager=ThemeManager()
         self.monitor_service=context.generation_monitor_service; self.preflight_service=context.preflight_service
@@ -132,7 +139,7 @@ class MainWindow(QMainWindow):
         self.notifications.parent=self
         self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]; self.palette=None; self.actions_by_name={}; self.job_pronunciation_overrides={}; self.project_sources=[]
         self.autosave_timer=QTimer(self); self.autosave_timer.setInterval(30000); self.autosave_timer.timeout.connect(self.autosave); self.autosave_timer.start()
-        self.build(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.restore_layout_state(); self.run_startup_recovery(); self.restore_previous_session(); self.update_window_title(); self.update_status_bar()
+        self.build(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.restore_layout_state(); self.run_startup_recovery(); self.restore_previous_session(); self.update_window_title(); self.update_status_bar(); QTimer.singleShot(0,self.offer_generation_recovery)
     def set_initial_geometry(self):
         screen=QApplication.primaryScreen(); available=screen.availableGeometry() if screen else None
         if not available:
@@ -154,6 +161,29 @@ class MainWindow(QMainWindow):
             f"Language {settings.language_code or '—'} · Format {settings.file_extension.strip('.') or '—'} · "
             f"Destination {elide_middle(destination,64)} · Billable {len(job.text) if job else 0:,} chars"
         )
+    def queue_model_view_enabled(self) -> bool:
+        """Return whether the new queue Model/View implementation is enabled.
+
+        The environment variable is the authoritative rollout switch for tests,
+        portable builds and troubleshooting. A persisted setting is supported for
+        developer evaluation, while the production default remains the proven
+        legacy table until the migration is fully signed off.
+        """
+
+        explicit=os.getenv("S_TALKING_QUEUE_MODEL_VIEW")
+        if explicit is not None:
+            return explicit.strip().casefold() in {"1","true","yes","on","enabled"}
+        value=QSettings().value("features/queue-model-view",False)
+        if isinstance(value,bool): return value
+        return str(value).strip().casefold() in {"1","true","yes","on","enabled"}
+
+    def clear_queue_view(self) -> None:
+        if not hasattr(self,"queue_adapter"): return
+        if self.queue_adapter.is_model_view:
+            self.queue_adapter.refresh_jobs([])
+        else:
+            self.table.setRowCount(0)
+
     def build(self):
         self.build_project_menu(); self.build_settings_menu(); self.build_view_menu(); self.build_generation_menu(); self.build_reports_menu(); self.build_developer_tools_menu(); self.build_help_menu(); self.build_main_toolbar(); self.statusBar()
         self.report_button=QPushButton('Report: none'); self.report_button.setFlat(True); self.report_button.setVisible(False); self.report_button.clicked.connect(self.view_latest_report_dialog); self.statusBar().addPermanentWidget(self.report_button)
@@ -182,27 +212,34 @@ class MainWindow(QMainWindow):
         self.left_tabs=DockTabWidget(); self.left_tabs.setObjectName('leftWorkspaceTabs')
         self.left_tabs.addTab(provider_workspace.scroll_area,icon('settings'),'Provider')
         self.left_dock=WorkspaceDockWidget('Workspace',self); self.left_dock.setObjectName('workspaceLeftDock'); self.left_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea); self.left_dock.setWidget(self.left_tabs); self.left_dock.setMinimumWidth(270); self.left_dock.setMaximumWidth(340); self.addDockWidget(Qt.LeftDockWidgetArea,self.left_dock)
-        mid=QWidget(); ml=QVBoxLayout(mid); ml.setContentsMargins(0,0,0,0); ml.setSpacing(6); self.queue_count_labels={}
-        rangebar=QHBoxLayout(); self.range_basis=QComboBox(); self.range_basis.addItem('Original source row','row_range'); self.range_basis.addItem('Current displayed order','display_range'); self.range_from=ControlledSpinBox(); self.range_to=ControlledSpinBox(); self.range_from.setRange(0,999999); self.range_to.setRange(0,999999); self.range_from.setSpecialValueText('First'); self.range_to.setSpecialValueText('Last'); self.range_summary_label=QLabel('Range basis: Original source row · all rows'); self.quota_scope_label=QLabel('Quota unavailable'); self.quota_scope_label.setToolTip('Scoped ElevenLabs quota comparison updates after account refresh and range changes.'); self.range_basis.currentIndexChanged.connect(self.apply_row_range); self.range_from.valueChanged.connect(self.apply_row_range); self.range_to.valueChanged.connect(self.apply_row_range); rangebar.addWidget(QLabel('Range basis')); rangebar.addWidget(self.range_basis); rangebar.addWidget(QLabel('From')); rangebar.addWidget(self.range_from); rangebar.addWidget(QLabel('To')); rangebar.addWidget(self.range_to); rangebar.addWidget(self.range_summary_label,1); rangebar.addWidget(self.quota_scope_label); ml.addLayout(rangebar)
-        qbar=QHBoxLayout(); self.queue_search=QLineEdit(); self.queue_search.setObjectName('queueSearch'); self.queue_search.setPlaceholderText('Search filename, source, text…'); self.queue_search.setClearButtonEnabled(True); self.queue_search.setMaximumWidth(280); self.queue_search.textChanged.connect(self.queue_search_changed); self.queue_filter=QComboBox(); self.queue_filter.addItems(['All','Pending','Running','Completed','Failed','Skipped']); self.source_filter=QComboBox(); self.source_filter.addItem('All sources',None); self.source_filter.currentIndexChanged.connect(self.apply_source_filter); self.scope_selector=QComboBox(); self.scope_selector.addItem('Entire queue','entire_queue'); self.scope_selector.addItem('Current source','current_source'); self.scope_selector.addItem('Current filtered list','filtered'); self.scope_selector.addItem('Selected rows','selected'); self.scope_selector.addItem('Original row range','row_range'); self.scope_selector.addItem('Displayed range','display_range'); self.scope_selector.addItem('Automatic quota batch','quota_batch'); self.scope_selector.setCurrentIndex(4); self.scope_selector.currentIndexChanged.connect(self.apply_generation_scope); self.order_selector=QComboBox(); self.order_selector.addItem('CSV order','csv'); self.order_selector.addItem('Filename A-Z','filename_asc'); self.order_selector.addItem('Filename Z-A','filename_desc'); self.order_selector.addItem('Shortest first','character_shortest'); self.order_selector.addItem('Longest first','character_longest'); self.order_selector.addItem('Status order','status'); self.order_selector.addItem('Custom order','custom'); self.order_selector.currentIndexChanged.connect(self.apply_execution_order); self.use_sort_button=QPushButton('Use table order'); self.use_selection_scope_button=QPushButton('Use selection as scope'); self.use_selection_scope_button.clicked.connect(self.use_selection_as_scope); self.use_sort_button.clicked.connect(self.use_current_sort_as_generation_order); self.dry_run_button=QPushButton('Dry run'); self.dry_run_button.setIcon(action_icon('generation.dry_run')); self.retry_failed_button=QPushButton('Retry Failed'); self.retry_selected_button=QPushButton('Retry Selected'); self.skip_selected_button=QPushButton('Skip Selected'); self.reset_selected_button=QPushButton('Reset Selected'); self.clear_completed_button=QPushButton('Clear Completed'); self.open_output_button=QPushButton('Open Output'); self.retry_menu_button=self.queue_menu_button('Retry',action_icon('generation.retry'),[('Retry failed',self.retry_failed),('Retry selected',self.retry_selected)]); self.skip_menu_button=self.queue_menu_button('Skip',action_icon('generation.skip'),[('Skip selected',self.skip_selected)]); self.reset_menu_button=self.queue_menu_button('Reset',action_icon('generation.reset'),[('Reset selected',self.reset_selected)]); self.output_menu_button=self.queue_menu_button('Output',action_icon('project.output_folder'),[('Reveal output',self.open_selected_output),('Open containing folder',self.open_output_folder),('Copy path',self.copy_selected_output_path)])
+        self.queue_workspace=QueueWorkspace(); mid=self.queue_workspace; ml=self.queue_workspace.body_layout; self.queue_count_labels={}
+        rangebar=self.queue_workspace.range_layout; self.range_basis=QComboBox(); self.range_basis.addItem('Original source row','row_range'); self.range_basis.addItem('Current displayed order','display_range'); self.range_from=ControlledSpinBox(); self.range_to=ControlledSpinBox(); self.range_from.setRange(0,999999); self.range_to.setRange(0,999999); self.range_from.setSpecialValueText('First'); self.range_to.setSpecialValueText('Last'); self.range_summary_label=QLabel('Range basis: Original source row · all rows'); self.quota_scope_label=QLabel('Quota unavailable'); self.quota_scope_label.setToolTip('Scoped ElevenLabs quota comparison updates after account refresh and range changes.'); self.range_basis.currentIndexChanged.connect(self.apply_row_range); self.range_from.valueChanged.connect(self.apply_row_range); self.range_to.valueChanged.connect(self.apply_row_range); rangebar.addWidget(QLabel('Range basis')); rangebar.addWidget(self.range_basis); rangebar.addWidget(QLabel('From')); rangebar.addWidget(self.range_from); rangebar.addWidget(QLabel('To')); rangebar.addWidget(self.range_to); rangebar.addWidget(self.range_summary_label,1); rangebar.addWidget(self.quota_scope_label)
+        qbar=self.queue_workspace.command_layout; self.queue_search=QLineEdit(); self.queue_search.setObjectName('queueSearch'); self.queue_search.setPlaceholderText('Search filename, source, text…'); self.queue_search.setClearButtonEnabled(True); self.queue_search.setMaximumWidth(280); self.queue_search.textChanged.connect(self.queue_search_changed); self.queue_filter=QComboBox(); self.queue_filter.addItems(['All','Pending','Running','Completed','Failed','Skipped']); self.source_filter=QComboBox(); self.source_filter.addItem('All sources',None); self.source_filter.currentIndexChanged.connect(self.apply_source_filter); self.scope_selector=QComboBox(); self.scope_selector.addItem('Entire queue','entire_queue'); self.scope_selector.addItem('Current source','current_source'); self.scope_selector.addItem('Current filtered list','filtered'); self.scope_selector.addItem('Selected rows','selected'); self.scope_selector.addItem('Original row range','row_range'); self.scope_selector.addItem('Displayed range','display_range'); self.scope_selector.addItem('Automatic quota batch','quota_batch'); self.scope_selector.setCurrentIndex(4); self.scope_selector.currentIndexChanged.connect(self.apply_generation_scope); self.order_selector=QComboBox(); self.order_selector.addItem('CSV order','csv'); self.order_selector.addItem('Filename A-Z','filename_asc'); self.order_selector.addItem('Filename Z-A','filename_desc'); self.order_selector.addItem('Shortest first','character_shortest'); self.order_selector.addItem('Longest first','character_longest'); self.order_selector.addItem('Status order','status'); self.order_selector.addItem('Custom order','custom'); self.order_selector.currentIndexChanged.connect(self.apply_execution_order); self.use_sort_button=QPushButton('Use table order'); self.use_selection_scope_button=QPushButton('Use selection as scope'); self.use_selection_scope_button.clicked.connect(self.use_selection_as_scope); self.use_sort_button.clicked.connect(self.use_current_sort_as_generation_order); self.dry_run_button=QPushButton('Dry run'); self.dry_run_button.setIcon(action_icon('generation.dry_run')); self.retry_failed_button=QPushButton('Retry Failed'); self.retry_selected_button=QPushButton('Retry Selected'); self.skip_selected_button=QPushButton('Skip Selected'); self.reset_selected_button=QPushButton('Reset Selected'); self.clear_completed_button=QPushButton('Clear Completed'); self.open_output_button=QPushButton('Open Output'); self.retry_menu_button=self.queue_menu_button('Retry',action_icon('generation.retry'),[('Retry all eligible',self.retry_all_eligible),('Retry transient only',self.retry_transient),('Retry selected (policy)',self.retry_selected_policy),('Retry by error category',self.retry_by_category),('Manual override selected',self.manual_retry_selected),('Export failure report',self.export_failure_report)]); self.skip_menu_button=self.queue_menu_button('Skip',action_icon('generation.skip'),[('Skip selected',self.skip_selected)]); self.reset_menu_button=self.queue_menu_button('Reset',action_icon('generation.reset'),[('Reset selected',self.reset_selected)]); self.output_menu_button=self.queue_menu_button('Output',action_icon('project.output_folder'),[('Reveal output',self.open_selected_output),('Open containing folder',self.open_output_folder),('Copy path',self.copy_selected_output_path)])
         qbar.addWidget(self.queue_search,1); qbar.addWidget(QLabel('Status')); qbar.addWidget(self.queue_filter); qbar.addWidget(QLabel('Source')); qbar.addWidget(self.source_filter); qbar.addWidget(QLabel('Scope')); qbar.addWidget(self.scope_selector); qbar.addWidget(QLabel('Order')); qbar.addWidget(self.order_selector); qbar.addWidget(self.use_sort_button)
         for b in [self.use_selection_scope_button,self.dry_run_button,self.retry_menu_button,self.skip_menu_button,self.reset_menu_button,self.clear_completed_button,self.output_menu_button]: qbar.addWidget(b)
-        qbar.addStretch(); ml.addLayout(qbar)
-        self.queue_scope_summary=QueueScopeSummary(); ml.addWidget(self.queue_scope_summary)
+        qbar.addStretch()
+        self.queue_scope_summary=self.queue_workspace.summary
         self.empty_state=QFrame(); self.empty_state.setObjectName('emptyState'); self.empty_state.setMaximumWidth(440); ev=QVBoxLayout(self.empty_state); ev.setContentsMargins(24,24,24,24); ev.setSpacing(10); logo=QLabel(); logo.setPixmap(AboutDialog.app_icon(self.context.container.runtime).pixmap(42,42)); logo.setAlignment(Qt.AlignCenter); title=QLabel('No sources added'); title.setObjectName('emptyTitle'); title.setAlignment(Qt.AlignCenter); helper=QLabel('Add CSV, Excel or text documents, or enter text manually to start generating audio.'); helper.setObjectName('emptyHelper'); helper.setAlignment(Qt.AlignCenter); self.empty_add_source_button=QPushButton('Add source files'); self.empty_add_source_button.setIcon(icon('add')); self.empty_add_text_button=QPushButton('Enter text'); self.empty_add_text_button.setIcon(action_icon('project.add_text_source')); self.empty_open_project_button=QPushButton('Open project'); self.empty_open_project_button.setIcon(icon('open')); self.empty_recent_projects_button=QPushButton('Recent projects'); self.empty_recent_projects_button.setIcon(icon('project')); self.empty_add_source_button.clicked.connect(self.add_source_files); self.empty_add_text_button.clicked.connect(self.add_text_source); self.empty_open_project_button.clicked.connect(self.open_project); self.empty_recent_projects_button.clicked.connect(self.recent_projects); erow=QHBoxLayout(); erow.addStretch(); erow.addWidget(self.empty_add_source_button); erow.addWidget(self.empty_add_text_button); erow.addWidget(self.empty_open_project_button); erow.addWidget(self.empty_recent_projects_button); erow.addStretch(); ev.addWidget(logo); ev.addWidget(title); ev.addWidget(helper); ev.addLayout(erow); empty_wrap=QHBoxLayout(); empty_wrap.addStretch(); empty_wrap.addWidget(self.empty_state); empty_wrap.addStretch(); ml.addLayout(empty_wrap)
-        self.table=QTableWidget(0,12); self.table.setHorizontalHeaderLabels(['Source row','Filename','Source','Worksheet','Characters','Status','Provider','Voice','Model','Duration','Retry','Output']); configure_queue_table(self.table); self.table.setContextMenuPolicy(Qt.CustomContextMenu); self.table.horizontalHeader().sectionClicked.connect(self.queue_header_clicked); self.table.itemSelectionChanged.connect(self.preview); self.table.itemSelectionChanged.connect(self.update_queue_actions); self.table.itemSelectionChanged.connect(self.update_selection_scope_summary); self.table.customContextMenuRequested.connect(self.queue_context_menu); self.table.cellDoubleClicked.connect(lambda *_: self.play_selected_output()); ml.addWidget(self.table); split.addWidget(mid)
-        pb=DockPanelGroupBox('Selected row'); self.selected_row_panel=pb; pv=QVBoxLayout(pb); self.pname=QLabel('No row selected'); self.pname.setObjectName('previewTitle'); self.pstatus=QLabel(''); self.pstatus.setObjectName('statusBadge'); self.pmeta=QLabel(''); self.presolved=QLabel('Resolved request: —'); self.presolved.setWordWrap(True); self.poutput=QLabel(''); self.poutput.setTextInteractionFlags(Qt.TextSelectableByMouse); self.ptext=QPlainTextEdit(); self.ptext.setReadOnly(True); prow=QHBoxLayout(); self.play_output_button=QPushButton('Play'); self.play_output_button.setIcon(icon('play')); self.open_selected_button=QPushButton('Open'); self.open_selected_button.setIcon(icon('folder')); self.stop_playback_button=QPushButton('Stop'); self.stop_playback_button.setIcon(icon('stop')); self.copy_output_button=QPushButton('Copy'); self.copy_output_button.setIcon(icon('copy')); self.play_output_button.clicked.connect(self.play_selected_output); self.open_selected_button.clicked.connect(self.open_selected_output); self.stop_playback_button.clicked.connect(self.audio_player_service.stop); self.copy_output_button.clicked.connect(self.copy_selected_output_path)
-        for button in [self.play_output_button,self.open_selected_button,self.copy_output_button,self.stop_playback_button]:
-            button.setMinimumWidth(0); button.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Fixed); prow.addWidget(button)
-        pv.addWidget(self.pname); pv.addWidget(self.pstatus); pv.addWidget(self.pmeta); pv.addWidget(self.presolved); pv.addWidget(self.poutput); pv.addWidget(self.ptext); pv.addLayout(prow); self.right_tabs=DockTabWidget(); self.right_tabs.setObjectName('rightInspectorTabs'); self.right_tabs.setMinimumWidth(0); self.right_tabs.addTab(pb,icon('queue'),'Selected Row'); self.right_dock=MonitorDockWidget('Generation Monitor',self); self.right_dock.setObjectName('workspaceRightDock'); self.right_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea); self.right_dock.setWidget(self.right_tabs); self.right_dock.setMinimumWidth(MONITOR_MIN_WIDTH); self.right_dock.setMaximumWidth(self.safe_monitor_width()); pb.set_visibility_proxy(self.right_dock); self.addDockWidget(Qt.RightDockWidgetArea,self.right_dock); split.setSizes([980])
+        self.queue_model_view_active=self.queue_model_view_enabled()
+        if self.queue_model_view_active:
+            self.table=QueueTableView(); self.table.setObjectName('queueTable'); self.table.setItemDelegateForColumn(5,QueueStatusDelegate(self.table)); self.queue_adapter=QueueViewAdapter(self.table,parent=self)
+        else:
+            self.table=QTableWidget(0,12); self.table.setHorizontalHeaderLabels(['Source row','Filename','Source','Worksheet','Characters','Status','Provider','Voice','Model','Duration','Retry','Output']); configure_queue_table(self.table); self.queue_adapter=QueueViewAdapter(self.table,jobs_provider=self.displayed_queue_jobs,parent=self)
+        self.queue_workspace.bind_table(self.table,QSettings()); self.table.setContextMenuPolicy(Qt.CustomContextMenu); self.table.horizontalHeader().sectionClicked.connect(self.queue_header_clicked); self.queue_adapter.selection_changed.connect(self.preview); self.queue_adapter.selection_changed.connect(self.update_queue_actions); self.queue_adapter.selection_changed.connect(self.update_selection_scope_summary); self.queue_adapter.context_menu_requested.connect(self.queue_context_menu); self.queue_adapter.cell_double_clicked.connect(lambda *_: self.play_selected_output()); ml.addWidget(self.table); split.addWidget(mid)
+        pb=DockPanelGroupBox('Selected row'); self.selected_row_panel=pb
+        self.queue_details=QueueDetailsPane(pb,play_output=self.play_selected_output,open_output=self.open_selected_output,stop_playback=self.audio_player_service.stop,copy_output=self.copy_selected_output_path)
+        self.pname=self.queue_details.pname; self.pstatus=self.queue_details.pstatus; self.pmeta=self.queue_details.pmeta; self.presolved=self.queue_details.presolved; self.poutput=self.queue_details.poutput; self.pretry=self.queue_details.pretry; self.ptext=self.queue_details.ptext
+        self.play_output_button=self.queue_details.play_output_button; self.open_selected_button=self.queue_details.open_selected_button; self.stop_playback_button=self.queue_details.stop_playback_button; self.copy_output_button=self.queue_details.copy_output_button
+        self.right_tabs=DockTabWidget(); self.right_tabs.setObjectName('rightInspectorTabs'); self.right_tabs.setMinimumWidth(0); self.right_tabs.addTab(pb,icon('queue'),'Selected Row'); self.notification_center=NotificationCenterWidget(self.notification_center_service,self); self.right_dock=MonitorDockWidget('Generation Monitor',self); self.right_dock.setObjectName('workspaceRightDock'); self.right_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea); self.right_dock.setWidget(self.right_tabs); self.right_dock.setMinimumWidth(MONITOR_MIN_WIDTH); self.right_dock.setMaximumWidth(self.safe_monitor_width()); pb.set_visibility_proxy(self.right_dock); self.addDockWidget(Qt.RightDockWidgetArea,self.right_dock); self.notification_dock=WorkspaceDockWidget('Notifications',self); self.notification_dock.setObjectName('notificationCenterDock'); self.notification_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea|Qt.BottomDockWidgetArea); self.notification_dock.setWidget(self.notification_center); self.notification_dock.setMinimumWidth(300); self.addDockWidget(Qt.RightDockWidgetArea,self.notification_dock); self.notification_dock.visibilityChanged.connect(self.view_notifications_action.setChecked); self.notification_dock.hide(); self.text_studio=TextStudioWorkspace(TextSourceService(),session_path=self.context.container.runtime.data_dir/'text-studio-session.json',parent=self); self.text_studio.import_requested.connect(self.import_text_studio_entries); self.text_studio_dock=WorkspaceDockWidget('Text Studio',self); self.text_studio_dock.setObjectName('textStudioDock'); self.text_studio_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea|Qt.BottomDockWidgetArea); self.text_studio_dock.setWidget(self.text_studio); self.text_studio_dock.setMinimumWidth(720); self.addDockWidget(Qt.BottomDockWidgetArea,self.text_studio_dock); self.text_studio_dock.visibilityChanged.connect(self.view_text_studio_action.setChecked); self.text_studio_dock.hide(); split.setSizes([980])
         self.activity_center=ActivityCenter(); self.activity_tabs=self.activity_center; self.activity_expanded_height=self.activity_center.expanded_height
         self.log=self.activity_center.activity_log; self.output_log=self.activity_center.output_log; self.error_log=self.activity_center.error_log
+        self.activity_timeline=ActivityTimelineWidget(self.activity_timeline_service,self); self.activity_center.install_timeline(self.activity_timeline)
         self.generation_status_strip=GenerationStatusStrip(start=self.start,pause=self.pause,stop=self.stop,show_preflight=self.show_latest_preflight)
         self.generation_action_bar=self.generation_status_strip
         self.startb=self.generation_status_strip.start_button; self.preflight_status=self.generation_status_strip.preflight_button
         self.pauseb=self.generation_status_strip.pause_button; self.stopb=self.generation_status_strip.stop_button; self.bar=self.generation_status_strip.progress_bar
         self.application_shell.add_footer(self.activity_center,self.generation_status_strip)
-        self.generation_controller.progress.connect(self.progress); self.generation_controller.log.connect(self.log.appendPlainText); self.generation_controller.finished.connect(self.finished); self.generation_controller.failed.connect(self.failed)
+        self.generation_controller.progress.connect(self.progress); self.generation_controller.log.connect(self.log.appendPlainText); self.generation_controller.finished.connect(self.finished); self.generation_controller.failed.connect(self.failed); self.generation_controller.failover.connect(self.generation_failover)
         self.monitor_service.updated.connect(self.render_monitor); self.monitor_service.event.connect(self.monitor_event)
         self.queue_filter.currentTextChanged.connect(self.apply_queue_filter); self.dry_run_button.clicked.connect(self.dry_run); self.retry_failed_button.clicked.connect(self.retry_failed); self.retry_selected_button.clicked.connect(self.retry_selected); self.skip_selected_button.clicked.connect(self.skip_selected); self.reset_selected_button.clicked.connect(self.reset_selected); self.clear_completed_button.clicked.connect(self.clear_completed); self.open_output_button.clicked.connect(self.open_selected_output)
         self.provider.currentTextChanged.connect(self.provider_changed); self.failover.currentIndexChanged.connect(self.settings_changed); self.provider_changed('mock')
@@ -218,7 +255,7 @@ class MainWindow(QMainWindow):
         self.project_menu.addAction(icon('history'),'Recent Projects',self.recent_projects); self.actions_by_name['Recent Projects']=self.project_menu.actions()[-1]
         self.project_menu.addSeparator()
         self.actions_by_name['Add source files']=self.project_menu.addAction(action_icon('project.add_sources'),'Add source files'); self.actions_by_name['Add source files'].triggered.connect(self.add_source_files)
-        self.actions_by_name['Add text source']=self.project_menu.addAction(action_icon('project.add_text_source'),'Add text source…'); self.actions_by_name['Add text source'].triggered.connect(self.add_text_source)
+        self.actions_by_name['Add text source']=self.project_menu.addAction(action_icon('project.add_text_source'),'Add text source…'); self.actions_by_name['Add text source'].triggered.connect(self.add_text_source); self.actions_by_name['Open Text Studio']=self.project_menu.addAction(action_icon('project.add_text_source'),'Open Text Studio'); self.actions_by_name['Open Text Studio'].triggered.connect(self.open_text_studio)
         import_menu=self.project_menu.addMenu(icon('open'),'Import'); import_action=import_menu.addAction('Import sources'); import_action.triggered.connect(self.add_source_files)
         export_menu=self.project_menu.addMenu(icon('report'),'Export'); export_action=export_menu.addAction('Export diagnostics'); export_action.triggered.connect(self.export_diagnostics)
         self.project_menu.addSeparator()
@@ -239,7 +276,7 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Generation History','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
@@ -254,12 +291,12 @@ class MainWindow(QMainWindow):
         self.view_menu=QMenu('View',self); self.menuBar().addMenu(self.view_menu); theme_menu=self.view_menu.addMenu('Theme'); self.theme_actions={}
         for name in ['Dark','Light','System']:
             action=theme_menu.addAction(name); action.setCheckable(True); action.triggered.connect(lambda _checked,n=name:self.apply_theme(n)); self.theme_actions[name]=action
-        self.view_menu.addSeparator(); self.view_toolbar_action=self.view_menu.addAction(icon('queue'),'Toolbar'); self.view_toolbar_action.setCheckable(True); self.view_toolbar_action.setChecked(True); self.view_toolbar_action.triggered.connect(lambda checked:self.main_toolbar.setVisible(checked)); self.view_provider_dock_action=self.view_menu.addAction(icon('provider'),'Provider/Sources dock'); self.view_provider_dock_action.setCheckable(True); self.view_provider_dock_action.setChecked(True); self.view_provider_dock_action.triggered.connect(lambda checked:self.left_dock.setVisible(checked)); self.view_inspector_dock_action=self.view_menu.addAction(icon('report'),'Inspector/Monitor dock'); self.view_inspector_dock_action.setCheckable(True); self.view_inspector_dock_action.setChecked(True); self.view_inspector_dock_action.triggered.connect(lambda checked:self.right_dock.setVisible(checked)); self.view_activity_action=self.view_menu.addAction(icon('activity'),'Activity panel'); self.view_activity_action.setCheckable(True); self.view_activity_action.setChecked(False); self.view_activity_action.triggered.connect(lambda checked:self.set_activity_expanded(checked)); self.follow_active_job_action=self.view_menu.addAction(icon('success'),'Follow active job'); self.follow_active_job_action.setCheckable(True); self.follow_active_job_action.setChecked(True)
+        self.view_menu.addSeparator(); self.view_toolbar_action=self.view_menu.addAction(icon('queue'),'Toolbar'); self.view_toolbar_action.setCheckable(True); self.view_toolbar_action.setChecked(True); self.view_toolbar_action.triggered.connect(lambda checked:self.main_toolbar.setVisible(checked)); self.view_provider_dock_action=self.view_menu.addAction(icon('provider'),'Provider/Sources dock'); self.view_provider_dock_action.setCheckable(True); self.view_provider_dock_action.setChecked(True); self.view_provider_dock_action.triggered.connect(lambda checked:self.left_dock.setVisible(checked)); self.view_inspector_dock_action=self.view_menu.addAction(icon('report'),'Inspector/Monitor dock'); self.view_inspector_dock_action.setCheckable(True); self.view_inspector_dock_action.setChecked(True); self.view_inspector_dock_action.triggered.connect(lambda checked:self.right_dock.setVisible(checked)); self.view_activity_action=self.view_menu.addAction(icon('activity'),'Activity panel'); self.view_activity_action.setCheckable(True); self.view_activity_action.setChecked(False); self.view_activity_action.triggered.connect(lambda checked:self.set_activity_expanded(checked)); self.view_notifications_action=self.view_menu.addAction(icon('notification'),'Notification Center'); self.view_notifications_action.setCheckable(True); self.view_notifications_action.setChecked(False); self.view_notifications_action.triggered.connect(lambda checked:self.notification_dock.setVisible(checked)); self.view_text_studio_action=self.view_menu.addAction(action_icon('project.add_text_source'),'Text Studio'); self.view_text_studio_action.setCheckable(True); self.view_text_studio_action.setChecked(False); self.view_text_studio_action.triggered.connect(lambda checked:self.text_studio_dock.setVisible(checked)); self.follow_active_job_action=self.view_menu.addAction(icon('success'),'Follow active job'); self.follow_active_job_action.setCheckable(True); self.follow_active_job_action.setChecked(True)
         density_menu=self.view_menu.addMenu('Density'); self.density_actions={}
         for name in ['Compact','Comfortable']:
             action=density_menu.addAction(name); action.setCheckable(True); action.setChecked(name=='Compact'); action.triggered.connect(lambda _checked,n=name:self.apply_density(n)); self.density_actions[name]=action
         self.view_menu.addSeparator(); layout_menu=self.view_menu.addMenu(icon('queue'),'Workspace Layout'); self.layout_actions={}
-        for name in ['Compact','Standard','Wide','Focus Mode']:
+        for name in self.workspace_profiles.names():
             action=layout_menu.addAction(name); action.setCheckable(True); action.triggered.connect(lambda _checked,n=name:self.apply_workspace_preset(n,save=True)); self.layout_actions[name]=action
         restore=layout_menu.addAction(icon('reset'),'Restore Default Layout'); restore.triggered.connect(self.restore_default_layout); self.actions_by_name['Restore Default Layout']=restore
     def apply_theme(self,name):
@@ -281,26 +318,29 @@ class MainWindow(QMainWindow):
         if hasattr(self,'view_activity_action'): self.view_activity_action.setChecked(expanded)
     def apply_workspace_preset(self,name,save=False):
         if not hasattr(self,'main_splitter'): return
-        presets={'Compact':([1060],False,False,112,0,0,0),'Standard':([980],True,True,144,1,290,330),'Wide':([1120],True,True,176,1,320,340),'Focus Mode':([1200],False,False,96,0,0,0)}
-        sizes,left_visible,right_visible,activity_height,right_tab,left_width,right_width=presets.get(name,presets['Standard'])
-        self.main_splitter.setSizes(sizes)
-        if hasattr(self,'left_dock'): self.left_dock.setVisible(left_visible)
-        if hasattr(self,'right_dock'): self.right_dock.setVisible(right_visible)
+        profile=self.workspace_profiles.select(name) if save else self.workspace_profiles.get(name)
+        if save: QSettings('S Talking','S Talking').setValue('main_window/layout_preset',profile.name)
+        self.main_splitter.setSizes([1200])
+        if hasattr(self,'queue_workspace'):
+            self.queue_workspace.set_compact_mode(profile.name == 'Compact')
+        if hasattr(self,'left_dock'): self.left_dock.setVisible(profile.left_dock_visible)
+        if hasattr(self,'right_dock'): self.right_dock.setVisible(profile.right_dock_visible)
+        if hasattr(self,'main_toolbar'): self.main_toolbar.setVisible(profile.toolbar_visible)
         docks=[]; widths=[]
-        if left_visible and hasattr(self,'left_dock'): docks.append(self.left_dock); widths.append(left_width)
-        if right_visible and hasattr(self,'right_dock'): docks.append(self.right_dock); widths.append(self.safe_monitor_width(right_width))
+        if profile.left_dock_visible and hasattr(self,'left_dock'): docks.append(self.left_dock); widths.append(profile.left_dock_width)
+        if profile.right_dock_visible and hasattr(self,'right_dock'): docks.append(self.right_dock); widths.append(self.safe_monitor_width(profile.right_dock_width))
         if docks: self.resizeDocks(docks,widths,Qt.Horizontal)
-        if hasattr(self,'right_tabs') and self.right_tabs.count()>right_tab: self.right_tabs.setCurrentIndex(right_tab)
+        if hasattr(self,'right_tabs') and self.right_tabs.count()>profile.right_tab: self.right_tabs.setCurrentIndex(profile.right_tab)
         if hasattr(self,'activity_tabs'):
-            self.activity_expanded_height=activity_height; self.set_activity_expanded(name=='Wide')
-        if hasattr(self,'view_provider_dock_action'): self.view_provider_dock_action.setChecked(left_visible)
-        if hasattr(self,'view_inspector_dock_action'): self.view_inspector_dock_action.setChecked(right_visible)
+            self.activity_expanded_height=profile.activity_height; self.set_activity_expanded(profile.activity_visible)
+        if hasattr(self,'view_toolbar_action'): self.view_toolbar_action.setChecked(profile.toolbar_visible)
+        if hasattr(self,'view_provider_dock_action'): self.view_provider_dock_action.setChecked(profile.left_dock_visible)
+        if hasattr(self,'view_inspector_dock_action'): self.view_inspector_dock_action.setChecked(profile.right_dock_visible)
         if hasattr(self,'layout_actions'):
-            for key,action in self.layout_actions.items(): action.setChecked(key==name)
-        if save:
-            QSettings('S Talking','S Talking').setValue('main_window/layout_preset',name)
+            for key,action in self.layout_actions.items(): action.setChecked(key==profile.name)
+
     def restore_default_layout(self):
-        settings=QSettings('S Talking','S Talking'); settings.remove('main_window/state'); settings.setValue('main_window/layout_preset','Standard'); self.apply_workspace_preset('Standard',save=False); self.statusBar().showMessage('Default workspace layout restored.',5000)
+        settings=QSettings('S Talking','S Talking'); settings.remove('main_window/state'); profile=self.workspace_profiles.restore_default(); self.apply_workspace_preset(profile.name,save=False); self.statusBar().showMessage('Default workspace layout restored.',5000)
     def queue_menu_button(self,text,button_icon,actions):
         button=QToolButton(); button.setText(text); button.setIcon(button_icon); button.setPopupMode(QToolButton.InstantPopup); menu=QMenu(button)
         for label,handler in actions:
@@ -314,7 +354,7 @@ class MainWindow(QMainWindow):
             action=self.generation_menu.addAction(action_icon(ic),text); action.triggered.connect(handler); action.setShortcut(QKeySequence(shortcut)); self.actions_by_name[text]=action
     def build_reports_menu(self):
         self.reports_menu=QMenu('Reports',self); self.menuBar().addMenu(self.reports_menu)
-        for tx,fn,ic in [('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
+        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
     def build_developer_tools_menu(self):
         self.developer_menu=QMenu('Developer Tools',self); self.menuBar().addMenu(self.developer_menu); self.actions_by_name.update(self.developer_tools.populate_menu(self.developer_menu))
     def build_help_menu(self):
@@ -364,6 +404,23 @@ class MainWindow(QMainWindow):
         paths,_=QFileDialog.getOpenFileNames(self,'Add source files',str(self.project_controller.last_csv_dir),'Sources (*.csv *.tsv *.xlsx *.xlsm *.xls)')
         if not paths: return
         self.import_source_paths([Path(path) for path in paths])
+    def open_text_studio(self):
+        if not hasattr(self,'text_studio_dock'):
+            return
+        self.text_studio_dock.show()
+        self.text_studio_dock.raise_()
+        self.text_studio.setFocus(Qt.OtherFocusReason)
+        self.statusBar().showMessage('Text Studio opened.',3000)
+
+    def import_text_studio_entries(self,entries,label):
+        destination=self.context.container.runtime.data_dir/'text-sources'
+        service=self.text_studio.service if hasattr(self,'text_studio') else TextSourceService()
+        try:
+            path=service.write_normalized_csv(list(entries),destination,label=label or 'Text Studio')
+        except (OSError,ValueError) as exc:
+            self.notifications.error('Text Studio',str(exc)); return
+        self.import_source_paths([path],display_name=label or 'Text Studio')
+
     def add_text_source(self):
         service=TextSourceService()
         dialog=TextSourceDialog(service,self)
@@ -438,7 +495,7 @@ class MainWindow(QMainWindow):
         self.monitor_status=QLabel('Ready'); self.monitor_status.setObjectName('monitorStatus'); root.addWidget(self.monitor_status)
         self.monitor_progress=QProgressBar(); self.monitor_progress.setRange(0,100); self.monitor_progress.setTextVisible(False); self.monitor_percent=QLabel('0 / 0 · 0%'); root.addWidget(self.monitor_progress); root.addWidget(self.monitor_percent)
         self.monitor_detail_rows={}
-        for title,rows in [('Current job',[('current_filename','File'),('current_row_number','Row'),('current_provider','Provider'),('current_attempt','Attempt'),('current_job_elapsed_seconds','Elapsed'),('current_job_characters','Characters'),('next_filename','Next')]),('Queue',[('pending','Pending'),('running','Running'),('completed','Completed'),('failed','Failed'),('skipped','Skipped')]),('Performance',[('average_seconds_per_completed_job','Average job'),('files_per_minute','Files/min'),('characters_per_minute','Chars/min'),('resource_usage','Resources')]),('Timing',[('remaining_eta_seconds','ETA'),('generation_start_time','Started'),('total_elapsed_seconds','Total elapsed'),('paused_seconds','Paused')])]:
+        for title,rows in [('Current job',[('current_filename','File'),('current_row_number','Row'),('current_provider','Provider'),('current_attempt','Attempt'),('current_job_elapsed_seconds','Elapsed'),('current_job_characters','Characters'),('next_filename','Next')]),('Queue',[('pending','Pending'),('running','Running'),('completed','Completed'),('failed','Failed'),('skipped','Skipped')]),('Performance',[('average_seconds_per_completed_job','Average job'),('jobs_per_minute','Jobs/min'),('characters_per_second','Chars/sec'),('retries','Retries'),('worker_state','Worker'),('resource_usage','Resources')]),('Timing',[('remaining_eta_seconds','ETA'),('retry_countdown_seconds','Retry countdown'),('generation_start_time','Started'),('total_elapsed_seconds','Total elapsed'),('paused_seconds','Paused')])]:
             box=QGroupBox(title); form=QFormLayout(box); form.setLabelAlignment(Qt.AlignLeft); form.setFormAlignment(Qt.AlignTop); form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow); form.setRowWrapPolicy(QFormLayout.DontWrapRows)
             for key,label in rows:
                 value=QLabel('—'); value.setWordWrap(False); value.setMinimumWidth(0); value.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred); value.setTextInteractionFlags(Qt.TextSelectableByMouse); self.monitor_labels[key]=value; form.addRow(label,value); self.monitor_detail_rows[key]=(box,form,value)
@@ -455,7 +512,8 @@ class MainWindow(QMainWindow):
                 elif text=='Play latest': self.monitor_play_latest=button; button.clicked.connect(self.play_latest_completed_output)
                 elif text=='Stop audio': self.monitor_stop_audio=button; button.clicked.connect(self.audio_player_service.stop)
             out.addLayout(row)
-        self.monitor_error=QPlainTextEdit(); self.monitor_error.setReadOnly(True); self.monitor_error.setLineWrapMode(QPlainTextEdit.WidgetWidth); self.monitor_error.setMaximumHeight(110); self.monitor_error.hide(); out.addWidget(self.monitor_error); root.addWidget(outbox); root.addStretch()
+        self.monitor_error=QPlainTextEdit(); self.monitor_error.setReadOnly(True); self.monitor_error.setLineWrapMode(QPlainTextEdit.WidgetWidth); self.monitor_error.setMaximumHeight(110); self.monitor_error.hide(); out.addWidget(self.monitor_error); root.addWidget(outbox)
+        failure_box=QGroupBox('Failure analysis'); failure_layout=QVBoxLayout(failure_box); self.failure_summary_label=QLabel('No failed jobs.'); self.failure_summary_label.setWordWrap(True); self.failure_category_label=QLabel('Categories: —'); self.failure_category_label.setWordWrap(True); self.failure_fingerprint_label=QLabel('Top fingerprint: —'); self.failure_fingerprint_label.setWordWrap(True); failure_layout.addWidget(self.failure_summary_label); failure_layout.addWidget(self.failure_category_label); failure_layout.addWidget(self.failure_fingerprint_label); failure_actions=QHBoxLayout(); self.failure_retry_transient_button=QPushButton('Retry transient'); self.failure_export_button=QPushButton('Export'); self.failure_retry_transient_button.clicked.connect(self.retry_transient); self.failure_export_button.clicked.connect(self.export_failure_report); failure_actions.addWidget(self.failure_retry_transient_button); failure_actions.addWidget(self.failure_export_button); failure_layout.addLayout(failure_actions); self.failure_summary_box=failure_box; root.addWidget(failure_box); root.addStretch()
         scroll.setWidget(panel); self.monitor_scroll=scroll
         if hasattr(self,'right_tabs'):
             self.right_tabs.addTab(scroll,icon('report'),'Generation Monitor')
@@ -489,6 +547,8 @@ class MainWindow(QMainWindow):
             if key.endswith('_seconds') or key in {'average_seconds_per_completed_job'}: value=format_duration(float(value),empty_zero=key=='average_seconds_per_completed_job')
             elif key=='files_per_minute': value=format_files_per_minute(value)
             elif key=='characters_per_minute': value=format_characters_per_minute(value)
+            elif key=='characters_per_second': value=f'{float(value):,.1f}' if float(value)>0 else '—'
+            elif key=='jobs_per_minute': value=format_files_per_minute(value)
             elif key in {'current_filename','next_filename'}:
                 full=str(value) if value else '—'; label.setToolTip(full); value=elide_middle(full,38)
             elif value is None: value='—'
@@ -496,7 +556,15 @@ class MainWindow(QMainWindow):
         percent=int((state.processed/state.total)*100) if state.total else 0; self.monitor_progress.setValue(percent); self.monitor_percent.setText(f'{state.processed:,} / {state.total:,} · {percent}%')
         self.monitor_status.setText(state.current_status); color=status_color(state.current_status); self.monitor_status.setStyleSheet(f'color:{color};font-weight:700;border:1px solid {color};border-radius:6px;padding:6px;')
         output=state.current_output_path; latest=self.latest_completed_output_path(); self.monitor_output.setText(elide_middle(output,46) if output else '—'); self.monitor_output.setToolTip(output); self.monitor_copy_path.setEnabled(bool(output)); self.monitor_open_output.setEnabled(bool(output and Path(output).exists())); self.monitor_play_output.setEnabled(bool(output and Path(output).exists())); self.monitor_play_latest.setEnabled(bool(latest and latest.exists()))
-        self.monitor_error.setPlainText(state.last_provider_error); self.monitor_error.setVisible(bool(state.last_provider_error))
+        self.monitor_error.setPlainText(state.last_provider_error); self.monitor_error.setVisible(bool(state.last_provider_error)); self.render_failure_summary()
+    def render_failure_summary(self):
+        if not hasattr(self,'failure_summary_label'): return
+        summary=self.generation_controller.failure_summary(); failed=int(summary.get('failed',0)); retryable=int(summary.get('retryable',0)); permanent=int(summary.get('permanent',0)); exhausted=int(summary.get('exhausted',0)); categories=summary.get('categories',{}); fingerprints=summary.get('fingerprints',{})
+        self.failure_summary_label.setText(f'{failed} failed · {retryable} retryable · {permanent} permanent · {exhausted} exhausted' if failed else 'No failed jobs.')
+        self.failure_category_label.setText('Categories: '+(', '.join(f'{key} {value}' for key,value in categories.items()) if categories else '—'))
+        top=next(iter(fingerprints.items()),None); self.failure_fingerprint_label.setText(f'Top fingerprint: {top[0]} ({top[1]})' if top else 'Top fingerprint: —')
+        active=self.generation_controller.is_active; self.failure_retry_transient_button.setEnabled(bool(retryable) and not active); self.failure_export_button.setEnabled(bool(failed))
+
     def copy_monitor_output_path(self):
         path=self.monitor_service.state.current_output_path
         if path: QApplication.clipboard().setText(path)
@@ -514,7 +582,7 @@ class MainWindow(QMainWindow):
     def refresh_monitor_queue(self):
         self.monitor_service.refresh_queue(self.generation_controller.jobs,provider=self.provider_display_name(self.provider.currentText()),output_dir=Path(self.out.text() or self.project_controller.default_output_path),settings=self.settings())
     def restore_layout_state(self):
-        settings=QSettings('S Talking','S Talking'); version=str(settings.value('main_window/layout_version','')); state=settings.value('main_window/state') if version in {'v018','v0181'} else None; visible=settings.value('main_window/monitor_visible',True,type=bool); width=settings.value('main_window/monitor_width',MONITOR_DEFAULT_WIDTH,type=int); preset=str(settings.value('main_window/layout_preset','Standard')) if version in {'v018','v0181'} else 'Standard'
+        settings=QSettings('S Talking','S Talking'); version=str(settings.value('main_window/layout_version','')); state=settings.value('main_window/state') if version in {'v018','v0181'} else None; visible=settings.value('main_window/monitor_visible',True,type=bool); width=settings.value('main_window/monitor_width',MONITOR_DEFAULT_WIDTH,type=int); preset=self.workspace_profiles.last_profile
         if state:
             try:
                 if not self.restoreState(state):
@@ -527,7 +595,7 @@ class MainWindow(QMainWindow):
     def save_layout_state(self):
         settings=QSettings('S Talking','S Talking'); settings.setValue('main_window/layout_version','v0181'); settings.setValue('main_window/state',self.saveState())
         if hasattr(self,'layout_actions'):
-            selected=next((name for name,action in self.layout_actions.items() if action.isChecked()),'Standard'); settings.setValue('main_window/layout_preset',selected)
+            selected=next((name for name,action in self.layout_actions.items() if action.isChecked()),'Standard'); self.workspace_profiles.select(selected); settings.setValue('main_window/layout_preset',selected)
         if hasattr(self,'monitor_dock'):
             settings.setValue('main_window/monitor_visible',self.monitor_dock.isVisible()); settings.setValue('main_window/monitor_width',self.safe_monitor_width(self.monitor_dock.width()))
         self.save_session_restore_state()
@@ -547,14 +615,79 @@ class MainWindow(QMainWindow):
             if p.csv_path and p.csv_path.exists(): self.load_csv(update_project=False,source='Restored')
             else: self.restore_project_queue()
             self.queue_filter.setCurrentText(session.queue_filter.title())
-            if session.selected_row is not None and self.table.rowCount()>session.selected_row: self.table.selectRow(session.selected_row)
+            if session.selected_row is not None: self.queue_adapter.select_view_row(session.selected_row)
             self.log.appendPlainText(f'Restored project: {session.last_project_path}')
         except Exception as e:
             self.log.appendPlainText(f'Session restore skipped: {e}')
+    def offer_generation_recovery(self):
+        if self.generation_controller.is_active:
+            return
+        service=self.context.generation_recovery_service
+        snapshot=service.load()
+        if snapshot is None:
+            return
+        project=self.project_controller.current_project
+        project_key=project.project_key if project else self.project_controller.current_project_key
+        settings=self.settings()
+        compatible=service.is_compatible(snapshot,settings=settings,project_key=project_key)
+        reason=service.incompatibility_reason(snapshot,settings=settings,project_key=project_key)
+        dialog=GenerationRecoveryDialog(snapshot,compatible=compatible,incompatibility_reason=reason,parent=self)
+        if dialog.exec()!=QDialog.Accepted:
+            return
+        if dialog.choice==GenerationRecoveryDialog.DISCARD:
+            service.discard()
+            self.context.product_activity_service.activity(
+                'generation','Recovery snapshot discarded',
+                f'Discarded interrupted session for {snapshot.project_key}.',
+                project_id=project.project_id if project else None,
+            )
+            self.context.product_activity_service.notify(
+                'info','Recovery snapshot discarded','The interrupted generation snapshot was removed.'
+            )
+            self.log.appendPlainText('Generation recovery snapshot discarded.')
+            return
+        if not compatible:
+            return
+        if self.generation_controller.is_active:
+            self.notifications.warning('Generation recovery','Stop the active generation before restoring another session.')
+            return
+        if self.generation_controller.jobs:
+            answer=QMessageBox.question(
+                self,'Replace current queue?',
+                'Recovery will replace the current queue with the saved interrupted session. Continue?',
+                QMessageBox.Yes|QMessageBox.No,QMessageBox.No,
+            )
+            if answer!=QMessageBox.Yes:
+                return
+        retry_failed=dialog.choice==GenerationRecoveryDialog.RESUME_RETRY_FAILED
+        jobs=service.restore_jobs(snapshot,retry_failed=retry_failed)
+        output_dir=Path(snapshot.output_dir or self.out.text() or self.project_controller.default_output_path)
+        self.out.setText(str(output_dir))
+        self.generation_controller.set_jobs(
+            jobs,
+            project_id=project.project_id if project else None,
+            output_dir=output_dir,
+            settings=settings,
+        )
+        self.render_queue(); self.refresh_monitor_queue(); self.dashboard(); self.update_status_bar()
+        action='Restored and queued failed jobs for retry' if retry_failed else 'Restored pending interrupted jobs'
+        self.context.product_activity_service.activity(
+            'generation','Generation session recovered',
+            f'{action}: {snapshot.resumable_jobs:,} recoverable jobs.',
+            project_id=project.project_id if project else None,
+            metadata={'retry_failed':retry_failed,'snapshot_saved_at':snapshot.saved_at},
+        )
+        self.context.product_activity_service.notify(
+            'success','Generation session recovered',
+            f'{len(jobs):,} queue jobs restored. Generation will continue after preflight.'
+        )
+        self.log.appendPlainText(f'Generation recovery: {action}.')
+        QTimer.singleShot(0,self.generate)
+
     def save_session_restore_state(self):
         try:
-            rows=self.table.selectionModel().selectedRows() if hasattr(self,'table') and self.table.selectionModel() else []
-            selected=rows[0].row() if rows else None
+            rows=self.queue_adapter.selected_view_rows() if hasattr(self,'queue_adapter') else []
+            selected=rows[0] if rows else None
             project=self.project_controller.current_project
             self.context.session_restore_service.save(last_project_path=project.project_file if project else None,auto_restore_enabled=True,queue_filter=self.generation_controller.status_filter,selected_row=selected)
         except Exception:
@@ -846,7 +979,8 @@ class MainWindow(QMainWindow):
             self.replace_project_csv_with_repaired(repaired); return True
         return False
     def settings_values(self): return SettingsViewData(provider=self.provider.currentText(),api_key=self.key.text(),voice_id=self.voice.text(),model_id=self.current_model_id(),language_code=self.current_language_code(),piper_model_path=self.piper.text() or None,stability=self.stability.value()/100,similarity_boost=self.similarity.value()/100,style=self.style.value()/100,speed=self.speed.value(),short_text_pronunciation_aid=self.pronunciation_aid.isChecked(),delay_seconds=self.delay.value(),max_retries=self.retries.value(),use_speaker_boost=self.boost.isChecked(),skip_existing=self.skip.isChecked(),active_api_profile_id=self.active_api_profile_id(),api_profile_failover=self.current_failover_mode(),generation_scope=self.current_scope_mode(),execution_order=self.current_execution_order(),pronunciation_dictionary_locators=self.active_pronunciation_locators(),active_pronunciation_dictionary_id=self.active_pronunciation_dictionary_id(),job_pronunciation_overrides=self.job_pronunciation_overrides)
-    def settings(self): return self.settings_controller.from_view_data(self.settings_values())
+    def settings(self):
+        settings=self.settings_controller.from_view_data(self.settings_values()); failover=self.context.api_profile_service.failover_settings(settings.provider); return settings.model_copy(update={'api_profile_failover_max_switches':failover.max_switches_per_run,'api_profile_failover_sequence_mode':failover.sequence_mode,'api_profile_failover_manual_sequence':list(failover.manual_sequence),'allow_unknown_quota_override':failover.allow_unknown_quota_override})
     def settings_changed(self):
         s=self.settings()
         if self.settings_controller.settings_changed(s):
@@ -987,7 +1121,7 @@ class MainWindow(QMainWindow):
     def new_project(self):
         d=NewProjectDialog(self,self.project_controller.last_csv_dir,self.project_controller.last_output_dir)
         if d.exec()!=QDialog.Accepted: return
-        name,csv_path,out_path=d.values(); s=self.project_controller.new_project(name,csv_path,out_path,self.settings()); self.apply_project_state(s); self.project_sources=[]; self.render_project_sources(); self.generation_controller.clear_jobs(); self.table.setRowCount(0); self.dashboard(); self.log.appendPlainText('New project.')
+        name,csv_path,out_path=d.values(); s=self.project_controller.new_project(name,csv_path,out_path,self.settings()); self.apply_project_state(s); self.project_sources=[]; self.render_project_sources(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.dashboard(); self.log.appendPlainText('New project.')
         if csv_path and csv_path.exists(): self.load_csv(update_project=False)
         self.dashboard(); self.update_status_bar()
     def save_project(self):
@@ -1009,7 +1143,7 @@ class MainWindow(QMainWindow):
             p=self.project_controller.open_project(Path(s)); self.apply_project_state(p)
             if p.csv_path and p.csv_path.exists(): self.load_csv(update_project=False)
             else: self.restore_project_queue()
-            self.dashboard(); self.update_status_bar()
+            self.dashboard(); self.update_status_bar(); QTimer.singleShot(0,self.offer_generation_recovery)
         except Exception as e: self.notifications.error('Project error',str(e))
     def recent_projects(self):
         d=RecentProjectsDialog(self.project_controller.list_recent_projects(),self)
@@ -1018,10 +1152,11 @@ class MainWindow(QMainWindow):
                 state=self.project_controller.open_project(Path(d.selected_project.project_file)); self.apply_project_state(state)
                 if state.csv_path and state.csv_path.exists(): self.load_csv(update_project=False)
                 else: self.restore_project_queue()
+                QTimer.singleShot(0,self.offer_generation_recovery)
             except Exception as e: self.notifications.error('Project error',str(e))
         elif d.removed_project_id: self.project_controller.remove_recent_project(d.removed_project_id)
     def close_project(self):
-        self.project_controller.close_project(); self.project_path=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.table.setRowCount(0); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
+        self.project_controller.close_project(); self.project_path=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
     def autosave(self):
         try:
             if self.project_controller.autosave_if_needed(generation_active=self.generation_controller.is_active): self.log.appendPlainText('Project auto-saved.'); self.update_window_title(); self.update_status_bar()
@@ -1033,7 +1168,7 @@ class MainWindow(QMainWindow):
             self.startb.setEnabled(not self.generation_controller.is_active)
     def run_preflight(self,write_report=False):
         self.refresh_quota_snapshot()
-        state=self.preflight_service.run(jobs=self.generation_controller.generation_jobs(),settings=self.settings(),output_dir=Path(self.out.text() or self.project_controller.default_output_path),csv_path=Path(self.csv.text()) if self.csv.text().strip() else None,project_name=self.project_controller.project_name)
+        state=self.preflight_service.run(jobs=self.generation_controller.generation_jobs(),settings=self.settings(),output_dir=Path(self.out.text() or self.project_controller.default_output_path),csv_path=Path(self.csv.text()) if self.csv.text().strip() else None,project_name=self.project_controller.project_name,project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None)
         if write_report: self.preflight_service.write_report(state,self.project_controller.project_name)
         color={'Ready':'#22C55E','Ready with warnings':'#F59E0B','Blocked by errors':'#EF4444','No pending jobs':'#94A3B8','Not checked':'#94A3B8'}[state.status]
         errors=sum(1 for issue in state.issues if issue.severity in {'hard_error','overridable_error','error'} and not (issue.overridable and issue.overridden)); warnings=sum(1 for issue in state.issues if issue.severity=='warning'); pending=len(self.generation_controller.generation_jobs())
@@ -1075,12 +1210,16 @@ class MainWindow(QMainWindow):
         if confirmation.requires_user_confirmation and not self.notifications.confirmation(confirmation.title,confirmation.message):
             self.show_preflight_dialog(state); return
         self.generation_started_at=datetime.now(timezone.utc); self.run_logs=[]; self.dashboard()
-        if self.generation_controller.start(self,s,project.output_path,project.project_key): self.monitor_service.start_run(self.generation_controller.generation_jobs(),provider=s.provider,output_dir=project.output_path,settings=s); self.set_generation_controls(active=True); self.update_status_bar()
+        if self.generation_controller.start(self,s,project.output_path,project.project_key):
+            self.monitor_service.start_run(self.generation_controller.generation_jobs(),provider=s.provider,output_dir=project.output_path,settings=s,project_key=project.project_key); self.set_generation_controls(active=True); self.update_status_bar()
+            current=self.project_controller.current_project; self.context.product_activity_service.activity('generation','Generation started',f'{len(self.generation_controller.generation_jobs()):,} job(s) queued.',project_id=current.project_id if current else None)
+    def generation_failover(self,payload):
+        source=str(payload.get('from_profile_name') or 'Current provider'); target=str(payload.get('to_profile_name') or 'No backup'); outcome=str(payload.get('outcome') or 'unknown'); filename=str(payload.get('filename') or 'job'); category=str(payload.get('failure_category') or 'unknown'); code=str(payload.get('error_code') or 'unknown'); message=f'Orchestration {outcome}: {filename} · {source} → {target} · {category}/{code}'; self.log.appendPlainText(message); self.statusBar().showMessage(message,8000); self.notification_center.refresh() if hasattr(self,'notification_center') else None; self.activity_timeline.refresh() if hasattr(self,'activity_timeline') else None
     def pause(self):
         if not self.generation_controller.is_paused:
-            if self.generation_controller.pause(): self.pauseb.setText('Resume'); self.monitor_service.pause(); self.dashboard()
+            if self.generation_controller.pause(): self.pauseb.setText('Resume'); self.monitor_service.pause(); self.dashboard(); self.context.product_activity_service.activity('generation','Generation paused','The active batch was paused.')
         else:
-            if self.generation_controller.resume(): self.pauseb.setText('Pause'); self.monitor_service.resume(); self.dashboard()
+            if self.generation_controller.resume(): self.pauseb.setText('Pause'); self.monitor_service.resume(); self.dashboard(); self.context.product_activity_service.activity('generation','Generation resumed','The active batch resumed.')
     def stop(self):
         if self.generation_controller.stop():
             self.stopb.setText('Stopping…')
@@ -1088,11 +1227,36 @@ class MainWindow(QMainWindow):
             self.pauseb.setEnabled(False)
             self.monitor_service.stop_requested()
             self.statusBar().showMessage('Stopping after the current provider request…')
+            self.context.product_activity_service.activity('generation','Stop requested','Stopping after the current provider request.')
     def resume_generation(self):
         if self.generation_controller.is_paused: self.pause()
     def open_output_folder(self): self.context.desktop_service.open_path(Path(self.out.text() or self.project_controller.default_output_path))
     def retry_failed(self): self.queue_action('Retry failed',self.generation_controller.retry_failed,success='{count} failed jobs reset to pending.',empty='No failed jobs are eligible to retry.')
     def retry_selected(self): self.queue_action('Retry selected',lambda:self.generation_controller.retry_selected(self.selected_queue_jobs()),success='{count} selected jobs reset to pending.',empty='No selected failed jobs are eligible to retry.')
+    def retry_all_eligible(self):
+        self.apply_retry_result('Retry all eligible',self.generation_controller.retry_all_failed(max_retries=self.settings().max_retries))
+    def retry_transient(self):
+        self.apply_retry_result('Retry transient only',self.generation_controller.retry_transient_failed(max_retries=self.settings().max_retries))
+    def retry_selected_policy(self):
+        self.apply_retry_result('Retry selected',self.generation_controller.retry_selected_advanced(self.selected_queue_jobs(),max_retries=self.settings().max_retries))
+    def manual_retry_selected(self):
+        jobs=self.selected_queue_jobs()
+        if not jobs: self.statusBar().showMessage('Select failed jobs for manual override.',5000); return
+        if not self.notifications.confirmation('Manual retry override','Retry selected failures even when they are permanent or have reached the retry limit?'): return
+        self.apply_retry_result('Manual retry override',self.generation_controller.retry_selected_advanced(jobs,max_retries=self.settings().max_retries,manual_override=True))
+    def retry_by_category(self):
+        failed=[job for job in self.generation_controller.jobs if job.status.value=='failed']
+        categories=sorted({(job.failure_category or FailureCategory.UNKNOWN).value for job in failed})
+        if not categories: self.statusBar().showMessage('No failed jobs are available.',5000); return
+        category,ok=QInputDialog.getItem(self,'Retry by error category','Category',categories,0,False)
+        if ok: self.apply_retry_result(f'Retry {category}',self.generation_controller.retry_failed_category(category,max_retries=self.settings().max_retries))
+    def apply_retry_result(self,label,result):
+        self.invalidate_preflight(); self.render_queue(); self.refresh_monitor_queue(); self.dashboard(); self.render_failure_summary(); self.update_status_bar()
+        blocked=', '.join(f'{key}: {value}' for key,value in result.blocked_reasons.items())
+        message=f'{label}: {result.scheduled} scheduled'+(f' · {result.blocked} blocked ({blocked})' if result.blocked else '')
+        self.log.appendPlainText(message); self.statusBar().showMessage(message,7000)
+        project=self.project_controller.current_project
+        self.context.product_activity_service.activity('generation','Retry scheduled',message,project_id=project.project_id if project else None,metadata={'rows':list(result.row_numbers),'categories':result.categories})
     def skip_selected(self): self.queue_action('Skip selected',lambda:self.generation_controller.skip_selected(self.selected_queue_jobs()))
     def reset_selected(self): self.queue_action('Reset selected',lambda:self.generation_controller.reset_selected(self.selected_queue_jobs()))
     def clear_completed(self): self.queue_action('Clear completed',self.generation_controller.clear_completed)
@@ -1116,28 +1280,46 @@ class MainWindow(QMainWindow):
             jobs=[job for job in jobs if query in job.filename.casefold() or query in job.text.casefold() or query in (job.source_display_name or '').casefold() or query in (job.source_sheet or '').casefold()]
         return self.generation_controller.scope_service.order_jobs(jobs,self.generation_controller.scope_service._order(getattr(self.generation_controller,'display_order','csv')))
     def render_queue(self):
-        selected_ids={job.row_number for job in self.selected_queue_jobs()} if hasattr(self,'table') and self.table.selectionModel() else set()
-        jobs=self.displayed_queue_jobs(); self.table.setRowCount(len(jobs))
+        selected_ids=self.queue_adapter.selected_job_ids() if hasattr(self,'queue_adapter') else set()
+        jobs=self.displayed_queue_jobs()
         if hasattr(self,'empty_state'):
             self.empty_state.setVisible(not jobs)
             self.table.setVisible(bool(jobs))
-        for r,j in enumerate(jobs):
-            output_path=self.generation_controller.output_path_for(j,Path(self.out.text() or self.project_controller.default_output_path),self.settings())
-            values=[j.source_row or j.row_number,j.filename,j.source_display_name or (Path(self.csv.text()).name if hasattr(self,'csv') and self.csv.text().strip() else '—'),j.source_sheet or '—',f'{j.character_count:,}',j.status.value,j.provider_override or self.provider.currentText(),j.voice_override or self.voice.text() or '—',j.model_override or self.current_model_id() or '—',f'{j.duration_seconds:.2f}s' if j.duration_seconds else '—',j.retry_count,output_path.name]
-            for c,v in enumerate(values):
-                item=QTableWidgetItem(str(v)); item.setData(Qt.UserRole,j.row_number); item.setToolTip(str(v))
-                if c in {0,4,9,10}: item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
-                if c==4: item.setData(Qt.UserRole+1,j.character_count)
-                if c==5: item.setTextAlignment(Qt.AlignCenter); item.setData(Qt.AccessibleTextRole,f'Status: {j.status.value}')
-                self.table.setItem(r,c,item)
-            self.paint(r,j.status.value)
-        if selected_ids and self.table.selectionModel():
-            self.table.blockSignals(True)
-            self.table.clearSelection()
-            for row,job in enumerate(jobs):
-                if job.row_number in selected_ids:
-                    self.table.selectionModel().select(self.table.model().index(row,0),QItemSelectionModel.Select|QItemSelectionModel.Rows)
-            self.table.blockSignals(False)
+        if self.queue_adapter.is_model_view:
+            output_dir=Path(self.out.text() or self.project_controller.default_output_path)
+            current_settings=self.settings()
+            output_paths={
+                int(job.row_number): self.generation_controller.output_path_for(job,output_dir,current_settings)
+                for job in jobs
+            }
+            progress={
+                int(job.row_number): 100.0
+                for job in jobs
+                if job.status.value=='completed'
+            }
+            self.queue_adapter.refresh_jobs(
+                jobs,
+                default_provider=self.provider.currentText(),
+                default_voice=self.voice.text() or '—',
+                default_model=self.current_model_id() or '—',
+                default_source=Path(self.csv.text()).name if hasattr(self,'csv') and self.csv.text().strip() else '—',
+                output_paths=output_paths,
+                progress=progress,
+            )
+        else:
+            self.table.setRowCount(len(jobs))
+            for r,j in enumerate(jobs):
+                output_path=self.generation_controller.output_path_for(j,Path(self.out.text() or self.project_controller.default_output_path),self.settings())
+                values=[j.source_row or j.row_number,j.filename,j.source_display_name or (Path(self.csv.text()).name if hasattr(self,'csv') and self.csv.text().strip() else '—'),j.source_sheet or '—',f'{j.character_count:,}',j.status.value,j.provider_override or self.provider.currentText(),j.voice_override or self.voice.text() or '—',j.model_override or self.current_model_id() or '—',f'{j.duration_seconds:.2f}s' if j.duration_seconds else '—',j.retry_count,output_path.name]
+                for c,v in enumerate(values):
+                    item=QTableWidgetItem(str(v)); item.setData(Qt.UserRole,j.row_number); item.setToolTip(str(v))
+                    if c in {0,4,9,10}: item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                    if c==4: item.setData(Qt.UserRole+1,j.character_count)
+                    if c==5: item.setTextAlignment(Qt.AlignCenter); item.setData(Qt.AccessibleTextRole,f'Status: {j.status.value}')
+                    self.table.setItem(r,c,item)
+                self.paint(r,j.status.value)
+        if selected_ids:
+            self.queue_adapter.restore_selection(selected_ids)
         self.update_queue_summary_strip()
         self.update_queue_scope_summary(jobs)
         self.update_selection_scope_summary()
@@ -1147,7 +1329,7 @@ class MainWindow(QMainWindow):
         visible=list(visible_jobs if visible_jobs is not None else self.displayed_queue_jobs())
         selected=self.selected_queue_jobs() if hasattr(self,'table') and self.table.selectionModel() else []
         scope_names={'entire_queue':'Entire queue','current_source':'Current source','filtered':'Filtered list','selected':'Selected rows','row_range':'Original row range','display_range':'Displayed range','quota_batch':'Quota-sized batch'}
-        self.queue_scope_summary.update_stats(QueueSelectionStats(visible_jobs=len(visible),visible_characters=sum(job.character_count for job in visible),selected_jobs=len(selected),selected_characters=sum(job.character_count for job in selected),scope_label=scope_names.get(self.current_scope_mode(),self.current_scope_mode())))
+        stats=QueueSelectionStats(visible_jobs=len(visible),visible_characters=sum(job.character_count for job in visible),selected_jobs=len(selected),selected_characters=sum(job.character_count for job in selected),scope_label=scope_names.get(self.current_scope_mode(),self.current_scope_mode())); self.queue_scope_summary.update_stats(stats); self.queue_workspace.update_footer(stats)
     def update_selection_scope_summary(self):
         if not hasattr(self,'range_summary_label'): return
         self.update_queue_scope_summary()
@@ -1187,9 +1369,7 @@ class MainWindow(QMainWindow):
             remaining=catalog.account.remaining_characters if catalog and catalog.account else None
         self.generation_controller.set_quota_remaining(remaining)
     def selected_queue_jobs(self):
-        rows=sorted({i.row() for i in self.table.selectionModel().selectedRows()})
-        visible=self.displayed_queue_jobs()
-        return [visible[row] for row in rows if 0 <= row < len(visible)]
+        return self.queue_adapter.selected_jobs() if hasattr(self,'queue_adapter') else []
     def queue_action(self,label,command,success=None,empty=None):
         changed=command()
         self.invalidate_preflight(); self.render_queue(); self.refresh_monitor_queue(); self.dashboard(); self.update_status_bar()
@@ -1264,10 +1444,10 @@ class MainWindow(QMainWindow):
     def queue_context_menu(self,pos):
         menu=QMenu(self); selected=bool(self.selected_queue_jobs())
         output_path=self.selected_output_path(); output_exists=bool(output_path and output_path.exists())
-        actions=[('Generate selected row',self.generate_selected_row,selected),('Generate selected rows',self.generate_selected_rows,selected),('Retry selected',self.retry_selected,selected and any(j.status.value=='failed' for j in self.selected_queue_jobs())),('Skip selected',self.skip_selected,selected),('Reset selected',self.reset_selected,selected),('Move to top',lambda:self.move_selected_custom('top'),selected),('Move up',lambda:self.move_selected_custom('up'),selected),('Move down',lambda:self.move_selected_custom('down'),selected),('Move to bottom',lambda:self.move_selected_custom('bottom'),selected),('Use project dictionary',lambda:self.set_selected_pronunciation_override(None),selected),('Disable dictionary for this job',lambda:self.set_selected_pronunciation_override('dictionary_disabled'),selected),('Select dictionary for this job',self.select_dictionary_for_selected_jobs,selected),('Test pronunciation',self.test_selected_pronunciation,selected),('Reveal output',self.open_selected_output,output_exists),('Copy filename',self.copy_selected_filename,selected),('Copy text',self.copy_selected_text,selected),('Open containing folder',self.open_output_folder,True),('Play output',self.play_selected_output,output_exists),('Copy output path',self.copy_selected_output_path,selected)]
+        actions=[('Generate selected row',self.generate_selected_row,selected),('Generate selected rows',self.generate_selected_rows,selected),('Retry selected',self.retry_selected_policy,selected and any(j.status.value=='failed' for j in self.selected_queue_jobs())),('Skip selected',self.skip_selected,selected),('Reset selected',self.reset_selected,selected),('Move to top',lambda:self.move_selected_custom('top'),selected),('Move up',lambda:self.move_selected_custom('up'),selected),('Move down',lambda:self.move_selected_custom('down'),selected),('Move to bottom',lambda:self.move_selected_custom('bottom'),selected),('Use project dictionary',lambda:self.set_selected_pronunciation_override(None),selected),('Disable dictionary for this job',lambda:self.set_selected_pronunciation_override('dictionary_disabled'),selected),('Select dictionary for this job',self.select_dictionary_for_selected_jobs,selected),('Test pronunciation',self.test_selected_pronunciation,selected),('Reveal output',self.open_selected_output,output_exists),('Copy filename',self.copy_selected_filename,selected),('Copy text',self.copy_selected_text,selected),('Open containing folder',self.open_output_folder,True),('Play output',self.play_selected_output,output_exists),('Copy output path',self.copy_selected_output_path,selected)]
         for text,handler,enabled in actions:
             action=menu.addAction(text); action.setEnabled(enabled); action.triggered.connect(handler)
-        menu.exec(self.table.viewport().mapToGlobal(pos))
+        menu.exec(self.queue_adapter.map_viewport_to_global(pos))
     def update_queue_actions(self):
         selected=self.selected_queue_jobs() if hasattr(self,'table') and self.table.selectionModel() else []
         has_failed=any(j.status.value=='failed' for j in self.generation_controller.jobs)
@@ -1282,8 +1462,24 @@ class MainWindow(QMainWindow):
             button.setEnabled(enabled and not self.generation_controller.is_active)
         if hasattr(self,'play_output_button'):
             self.play_output_button.setEnabled(output_exists); self.open_selected_button.setEnabled(selected_any); self.copy_output_button.setEnabled(selected_any); self.stop_playback_button.setEnabled(True)
+    def refresh_queue_progress(self,name,status):
+        if not hasattr(self,'queue_adapter') or not self.queue_adapter.is_model_view:
+            self.render_queue(); return
+        jobs=self.displayed_queue_jobs()
+        visible_ids=tuple(int(job.row_number) for job in jobs)
+        if visible_ids!=self.queue_adapter.job_ids():
+            self.render_queue(); return
+        self.queue_adapter.refresh_rows(jobs)
+        target_name=Path(name).name if name else ''
+        if target_name:
+            for job in jobs:
+                if Path(job.filename).name==target_name:
+                    self.queue_adapter.set_progress(job.row_number,100.0 if status=='completed' else None)
+                    break
+        self.update_queue_summary_strip(); self.update_queue_scope_summary(jobs); self.update_selection_scope_summary(); self.update_queue_actions()
+
     def progress(self,i,total,name,status,duration,retry,error):
-        self.bar.setMaximum(total); self.bar.setValue(i); self.monitor_service.handle_progress(self.generation_controller.jobs,status=status,name=name,duration=duration,retry=retry,error=error); self.render_queue()
+        self.bar.setMaximum(total); self.bar.setValue(i); self.monitor_service.handle_progress(self.generation_controller.jobs,status=status,name=name,duration=duration,retry=retry,error=error); self.refresh_queue_progress(name,status)
         display_name=Path(name).name if name else ''
         line=f'[{i}/{total}] {status}: {display_name}'+(f' — {error}' if error else ''); self.run_logs.append(line); self.log.appendPlainText(line); self.dashboard(); self.update_status_bar()
     def set_generation_controls(self, *, active: bool) -> None:
@@ -1302,11 +1498,12 @@ class MainWindow(QMainWindow):
         if self.provider.currentText()=='elevenlabs': self.context.voice_service.invalidate_provider_cache(self.settings()); self.test_elevenlabs_connection()
         report=self.create_report(s); self.context.health_service.invalidate(); self.notify_report_created(report,s); self.update_status_bar()
     def failed(self,e):
-        self.monitor_service.finish({'stopped':True}); self.set_generation_controls(active=False); self.dashboard(); self.run_logs.append(f'FAILED: {e}'); report=self.create_report({'total':len(self.generation_controller.generation_jobs()),'completed':0,'skipped':0,'failed':1,'stopped':True,'error':e}); self.notify_report_created(report,{'completed':0,'skipped':0,'failed':1}); self.notifications.error('Error',e); self.update_status_bar()
+        self.monitor_service.finish({'stopped':True}); self.set_generation_controls(active=False); self.dashboard(); self.run_logs.append(f'FAILED: {e}'); report=self.create_report({'total':len(self.generation_controller.generation_jobs()),'completed':0,'skipped':0,'failed':1,'stopped':True,'error':e}); self.context.product_activity_service.notify('error','Generation failed',str(e)); self.context.product_activity_service.activity('generation','Generation failed',str(e)); self.notify_report_created(report,{'completed':0,'skipped':0,'failed':1}); self.notifications.error('Error',e); self.update_status_bar()
     def closeEvent(self,event):
         for dialog in list(self.report_dialogs): dialog.close()
         self.audio_player_service.stop()
         self.developer_tools.close()
+        self.monitor_service.persist_recovery()
         self.save_layout_state()
         close_summaries=getattr(self.notifications,'close_summaries',None)
         if callable(close_summaries): close_summaries()
@@ -1337,16 +1534,15 @@ class MainWindow(QMainWindow):
         except ValueError: index=-1
         widgets[(index+1)%len(widgets)].setFocus()
     def paint(self,r,status):
+        if self.queue_adapter.is_model_view: return
         it=self.table.item(r,5)
         if it: it.setForeground(QColor(COLORS.get(status,'#E5E7EB')))
     def preview(self):
-        rows=self.table.selectionModel().selectedRows()
-        if rows:
-            selected=self.generation_controller.selected_jobs([rows[0].row()])
-            if not selected: return
-            j=selected[0]; out=self.generation_controller.output_path_for(j,Path(self.out.text() or self.project_controller.default_output_path),self.settings()); color=COLORS.get(j.status.value,'#94A3B8'); self.pname.setText(j.filename); self.pstatus.setText(j.status.value.title()); self.pstatus.setStyleSheet(f'background:{color};color:white;border-radius:6px;padding:3px 7px;font-weight:700;'); self.pmeta.setText(f'Row {j.row_number} • {len(j.text):,} characters • {self.provider_display_name()} • Voice {self.voice.text() or "—"}'); self.presolved.setText(self.resolved_request_summary(j,out)); self.presolved.setToolTip(self.resolved_request_summary(j,out)); self.poutput.setText(f'Output: {elide_middle(str(out),54)}'); self.poutput.setToolTip(str(out)); self.ptext.setPlainText(j.text)
+        selected=self.queue_adapter.selected_jobs() if hasattr(self,'queue_adapter') else []
+        if selected:
+            j=selected[0]; out=self.generation_controller.output_path_for(j,Path(self.out.text() or self.project_controller.default_output_path),self.settings()); color=COLORS.get(j.status.value,'#94A3B8'); self.pname.setText(j.filename); self.pstatus.setText(j.status.value.title()); self.pstatus.setStyleSheet(f'background:{color};color:white;border-radius:6px;padding:3px 7px;font-weight:700;'); failure_meta=f' • Error {(j.failure_category or FailureCategory.UNKNOWN).value} • FP {j.error_fingerprint or "—"} • Retry {j.retry_count}/{self.settings().max_retries}' if j.status.value=='failed' else ''; self.pmeta.setText(f'Row {j.row_number} • {len(j.text):,} characters • {self.provider_display_name()} • Voice {self.voice.text() or "—"}{failure_meta}'); resolved=self.resolved_request_summary(j,out); history=f'\nRetry history: {len(j.retry_history)} event(s)' if j.retry_history else ''; self.presolved.setText(resolved+history); self.presolved.setToolTip(resolved+history); self.poutput.setText(f'Output: {elide_middle(str(out),54)}'); self.poutput.setToolTip(str(out)); history_lines=[f'{entry.timestamp} · {entry.event} · attempt {entry.attempt} · {entry.category.value}'+(f' · {entry.delay_seconds:.0f}s' if entry.delay_seconds else '') for entry in j.retry_history]; self.pretry.setPlainText('\n'.join(history_lines)); self.pretry.setVisible(bool(history_lines)); self.ptext.setPlainText(j.text)
         else:
-            self.pname.setText('No row selected'); self.pstatus.clear(); self.pmeta.setText('Load a CSV and select a row to inspect it.'); self.presolved.setText('Resolved request: —'); self.poutput.clear(); self.ptext.setPlainText('The selected row preview will appear here after a CSV is loaded.')
+            self.pname.setText('No row selected'); self.pstatus.clear(); self.pmeta.setText('Load a CSV and select a row to inspect it.'); self.presolved.setText('Resolved request: —'); self.poutput.clear(); self.pretry.clear(); self.pretry.hide(); self.ptext.setPlainText('The selected row preview will appear here after a CSV is loaded.')
     def dashboard(self):
         self.refresh_quota_snapshot()
         scoped_jobs=self.generation_controller.generation_jobs(); metrics=self.generation_controller.scoped_metrics()
@@ -1365,7 +1561,8 @@ class MainWindow(QMainWindow):
         project=self.project_controller.current_project; settings=self.settings(); jobs=list(self.generation_controller.generation_jobs())
         self.context.product_activity_service.notify('success' if failed==0 else 'warning','Batch finished',f'{completed} completed, {failed} failed, {skipped} skipped.',action_label='Open report',action_payload=str(report.report_html))
         self.context.product_activity_service.activity('generation','Batch finished',f'{completed} completed, {failed} failed, {skipped} skipped.',project_id=project.project_id if project else None,metadata={'report':str(report.report_html)})
-        self.context.product_activity_service.record_batch(BatchSessionRecord(session_id=f'batch-{datetime.now(timezone.utc).timestamp()}',project_id=project.project_id if project else None,scope=self.current_scope_mode(),provider=settings.provider,model=settings.model_id,voice=settings.voice_id,total_jobs=len(jobs),completed_jobs=completed,failed_jobs=failed,skipped_jobs=skipped,character_count=sum(len(job.text) for job in jobs),report_path=str(report.report_html),output_path=self.out.text(),result='failed' if failed else 'completed',started_at=(self.generation_started_at or datetime.now(timezone.utc)).isoformat(),finished_at=datetime.now(timezone.utc).isoformat()))
+        monitor_metrics=self.monitor_service.report_metrics(); result='stopped' if bool(summary.get('stopped')) else 'failed' if failed else 'completed'; failure_summary=self.generation_controller.failure_summary(); session_id=self.monitor_service.session_id or f'batch-{datetime.now(timezone.utc).timestamp()}'
+        self.context.product_activity_service.record_batch(BatchSessionRecord(session_id=session_id,project_id=project.project_id if project else None,scope=self.current_scope_mode(),provider=settings.provider,model=settings.model_id,voice=settings.voice_id,total_jobs=len(jobs),completed_jobs=completed,failed_jobs=failed,skipped_jobs=skipped,character_count=sum(len(job.text) for job in jobs),report_path=str(report.report_html),output_path=self.out.text(),result=result,started_at=(self.generation_started_at or datetime.now(timezone.utc)).isoformat(),finished_at=datetime.now(timezone.utc).isoformat(),elapsed_seconds=float(monitor_metrics.get('elapsed_seconds',self.monitor_service.state.total_elapsed_seconds)),active_seconds=float(monitor_metrics.get('active_generation_time',0.0)),paused_seconds=float(monitor_metrics.get('paused_time',0.0)),retry_events=int(monitor_metrics.get('retry_events',0)),files_per_minute=float(monitor_metrics.get('files_per_minute',0.0)),characters_per_minute=float(monitor_metrics.get('characters_per_minute',0.0)),failure_summary=failure_summary,monitor_metrics=monitor_metrics))
         self.latest_report_notification=report
         self.report_button.setText(f'● Report {stamp}: {completed} done / {failed} failed / {skipped} skipped')
         self.report_button.setToolTip(f'Batch finished — View report\n{report.report_html}')
@@ -1378,6 +1575,26 @@ class MainWindow(QMainWindow):
     def open_latest_report(self):
         path=self.report_service.latest_report_dir()
         if path: self.open_path(path/'report.html')
+    def export_failure_report(self):
+        failed=[job for job in self.generation_controller.jobs if job.status.value=='failed']
+        if not failed: self.statusBar().showMessage('No failed jobs to export.',5000); return None
+        project=self.project_controller.current_project; project_name=getattr(project,'name',None) or getattr(self.project_controller,'project_name','project')
+        json_path,csv_path=self.generation_controller.export_failure_report(self.context.container.runtime.reports_dir/'failures',project_name=str(project_name))
+        message=f'Failure report exported: {json_path.name} and {csv_path.name}'; self.log.appendPlainText(message); self.statusBar().showMessage(message,7000); self.context.product_activity_service.activity('generation','Failure report exported',message,project_id=project.project_id if project else None,metadata={'json':str(json_path),'csv':str(csv_path)}); return json_path,csv_path
+    def open_generation_orchestration(self):
+        project=self.project_controller.current_project; dialog=GenerationOrchestrationDialog(self.context.generation_orchestration_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',settings_provider=self.settings,export_dir=self.context.container.runtime.reports_dir/'orchestration'); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+    def open_generation_maintenance(self):
+        project=self.project_controller.current_project; dialog=GenerationMaintenanceDialog(self.context.generation_maintenance_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'hardening'); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+    def open_generation_cost_capacity(self):
+        project=self.project_controller.current_project; settings=self.settings(); dialog=GenerationCostCapacityDialog(self.context.generation_cost_capacity_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',provider=settings.provider,model=settings.model_id,export_dir=self.context.container.runtime.reports_dir/'cost-capacity'); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+    def open_generation_reliability(self):
+        project=self.project_controller.current_project; dialog=GenerationReliabilityDialog(self.context.generation_reliability_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'reliability',open_history=self.open_generation_history,open_incidents=self.open_generation_incidents); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+    def open_generation_history(self):
+        project=self.project_controller.current_project; dialog=GenerationHistoryDialog(self.context.generation_history_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'history',open_path=self.open_path,copy_path=self.copy_path); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+    def open_generation_incidents(self):
+        project=self.project_controller.current_project; dialog=GenerationIncidentDialog(self.context.generation_incident_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'incidents',problem_service=self.context.generation_problem_service,automation_service=self.context.generation_remediation_automation_service); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+    def open_generation_problems(self):
+        project=self.project_controller.current_project; dialog=GenerationProblemDialog(self.context.generation_problem_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'problems'); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
     def open_reports_folder(self): self.open_path(self.context.container.runtime.reports_dir)
     def copy_path(self,path): QApplication.clipboard().setText(str(path)); self.statusBar().showMessage(f'Copied: {path}')
     def copy_report_path(self):
@@ -1409,6 +1626,13 @@ class MainWindow(QMainWindow):
             PaletteCommand('Settings: Pronunciation Dictionaries',act('Pronunciation dictionaries')),
             PaletteCommand('Help: Quick Setup',act('Quick Setup')),
             PaletteCommand('Help: Shortcut Reference',act('Shortcut Reference')),
+            PaletteCommand('Reports: Queue Orchestration',act('Queue Orchestration')),
+            PaletteCommand('Reports: Hardening & Maintenance',act('Hardening & Maintenance')),
+            PaletteCommand('Reports: Cost & Capacity',act('Cost & Capacity')),
+            PaletteCommand('Reports: Reliability Dashboard',act('Reliability Dashboard')),
+            PaletteCommand('Reports: Generation History',act('Generation History')),
+            PaletteCommand('Reports: Incident Center',act('Incident Center')),
+            PaletteCommand('Reports: Problem Center',act('Problem Center')),
             PaletteCommand('Reports: Open Latest Report',act('Open Latest Report'),lambda: self.report_service.latest_report_dir() is not None),
             PaletteCommand('Reports: Open Reports Folder',act('Open Reports Folder')),
             PaletteCommand('Reports: Export Diagnostics',act('Export Diagnostics')),
@@ -1435,8 +1659,7 @@ class MainWindow(QMainWindow):
         for row,source in enumerate(self.project_sources):
             if source.source_id==source_id: self.sources_table.selectRow(row); self.source_filter.setCurrentIndex(self.source_filter.findData(source_id)); return
     def select_queue_row_number(self,row_number):
-        for row,job in enumerate(self.generation_controller.visible_jobs()):
-            if job.row_number==row_number: self.table.selectRow(row); return
+        self.queue_adapter.select_job_id(row_number)
     def open_command_palette(self):
         self.palette=CommandPalette(self.command_palette_commands(),self); self.palette.show(); self.palette.search.setFocus()
     def theme(self): self.apply_theme(self.theme_manager.current())
