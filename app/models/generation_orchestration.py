@@ -23,6 +23,27 @@ class SchedulingMode(StrEnum):
     ADAPTIVE = "adaptive"
 
 
+class OrchestrationPreset(StrEnum):
+    SAFE = "safe"
+    BALANCED = "balanced"
+    THROUGHPUT = "throughput"
+    DEADLINE = "deadline"
+
+
+class DeadlineRiskLevel(StrEnum):
+    ON_TRACK = "on_track"
+    WATCH = "watch"
+    AT_RISK = "at_risk"
+    MISSED = "missed"
+    INSUFFICIENT_DATA = "insufficient_data"
+
+
+class OrchestrationAttentionSeverity(StrEnum):
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
+
+
 @dataclass(frozen=True)
 class GenerationOrchestrationPolicy:
     policy_key: str = "global"
@@ -69,6 +90,116 @@ class GenerationSchedulingPolicy:
     decrease_factor: float = 0.5
     rate_limit_cooldown_seconds: int = 30
     updated_at: str = ""
+
+
+@dataclass(frozen=True)
+class GenerationDeadlinePolicy:
+    policy_key: str = "global"
+    project_id: int | None = None
+    enabled: bool = False
+    target_completion_minutes: int = 60
+    warning_slack_minutes: int = 15
+    allow_concurrency_boost: bool = True
+    maximum_deadline_concurrency: int = 8
+    fallback_characters_per_minute: int = 1200
+    safety_margin_percent: int = 15
+    persist_forecasts: bool = True
+    updated_at: str = ""
+
+
+@dataclass(frozen=True)
+class GenerationQueueForecast:
+    forecast_id: str
+    project_id: int | None
+    provider: str
+    job_count: int
+    total_characters: int
+    current_concurrency: int
+    recommended_concurrency: int
+    characters_per_minute: float
+    estimated_duration_seconds: float
+    estimated_finish_at: str
+    deadline_at: str
+    slack_seconds: float
+    risk_score: float
+    risk_level: DeadlineRiskLevel
+    recommendation: str
+    source: str
+    created_at: str
+    metadata: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class GenerationOrchestrationViewPreferences:
+    preference_key: str = "global"
+    project_id: int | None = None
+    selected_tab: int = 0
+    auto_refresh: bool = False
+    refresh_interval_seconds: int = 10
+    table_density: str = "comfortable"
+    search_text: str = ""
+    status_filter: str = "all"
+    updated_at: str = ""
+
+
+@dataclass(frozen=True)
+class GenerationOrchestrationSavedView:
+    view_id: str
+    project_id: int | None
+    name: str
+    selected_tab: int = 0
+    table_density: str = "comfortable"
+    search_text: str = ""
+    status_filter: str = "all"
+    is_default: bool = False
+    created_at: str = ""
+    updated_at: str = ""
+
+
+@dataclass(frozen=True)
+class GenerationOrchestrationAttentionItem:
+    attention_id: str
+    project_id: int | None
+    severity: OrchestrationAttentionSeverity
+    category: str
+    provider: str
+    profile_id: str | None
+    profile_name: str
+    title: str
+    detail: str
+    recommendation: str
+    action_type: str
+    target_key: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class GenerationOrchestrationOperatorAction:
+    action_id: str
+    project_id: int | None
+    action_type: str
+    target_type: str
+    target_count: int
+    summary: str
+    created_at: str
+    metadata: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class GenerationOrchestrationDashboardSummary:
+    healthy_profiles: int = 0
+    degraded_profiles: int = 0
+    open_circuits: int = 0
+    half_open_circuits: int = 0
+    current_concurrency: int = 1
+    rate_limited_profiles: int = 0
+    provider_events: int = 0
+    failover_switches: int = 0
+    latest_deadline_risk: DeadlineRiskLevel = DeadlineRiskLevel.INSUFFICIENT_DATA
+    latest_deadline_slack_seconds: float | None = None
+    recommended_concurrency: int = 1
+    severity: str = "neutral"
+    recommendation: str = "No orchestration telemetry is available yet."
 
 
 @dataclass(frozen=True)
@@ -196,6 +327,14 @@ class GenerationExecutionPlan:
     increase_step: int = 1
     decrease_factor: float = 0.5
     rate_limit_cooldown_seconds: int = 30
+    deadline_enabled: bool = False
+    deadline_at: str | None = None
+    deadline_risk_level: DeadlineRiskLevel = DeadlineRiskLevel.INSUFFICIENT_DATA
+    deadline_risk_score: float = 0.0
+    deadline_recommended_concurrency: int = 1
+    deadline_estimated_finish_at: str | None = None
+    deadline_recommendation: str = ""
+    queue_forecast_id: str | None = None
 
     @property
     def primary(self) -> ProviderExecutionCandidate | None:

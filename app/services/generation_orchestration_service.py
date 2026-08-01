@@ -13,10 +13,18 @@ from typing import Callable
 from app.models.api_profile import ApiProfile, ApiProfileFailoverMode
 from app.models.domain import AppSettings, TTSJob
 from app.models.generation_orchestration import (
+    DeadlineRiskLevel,
     GenerationAdaptiveRoutingPolicy,
+    GenerationDeadlinePolicy,
     GenerationExecutionPlan,
     GenerationFailoverEvent,
+    GenerationQueueForecast,
+    GenerationOrchestrationAttentionItem,
+    GenerationOrchestrationOperatorAction,
     GenerationOrchestrationPolicy,
+    GenerationOrchestrationSavedView,
+    GenerationOrchestrationDashboardSummary,
+    GenerationOrchestrationViewPreferences,
     GenerationRoutingDecision,
     GenerationSchedulerEvent,
     GenerationSchedulingPolicy,
@@ -25,6 +33,8 @@ from app.models.generation_orchestration import (
     ProviderExecutionCandidate,
     ProviderRoutingMetric,
     ProviderThrottleSnapshot,
+    OrchestrationAttentionSeverity,
+    OrchestrationPreset,
     RoutingMode,
     SchedulingMode,
 )
@@ -66,6 +76,465 @@ class GenerationOrchestrationService:
         self.notification_service = notification_service
         self.activity_service = activity_service
         self._now = now_factory or (lambda: datetime.now(timezone.utc))
+
+
+    def default_view_preferences(
+        self,
+        project_id: int | None,
+    ) -> GenerationOrchestrationViewPreferences:
+        return GenerationOrchestrationViewPreferences(
+            preference_key="global" if project_id is None else f"project:{project_id}",
+            project_id=project_id,
+            updated_at=self._now().isoformat(),
+        )
+
+    def get_view_preferences(
+        self,
+        project_id: int | None,
+    ) -> GenerationOrchestrationViewPreferences:
+        return (
+            self.repository.get_view_preferences(project_id)
+            or self.default_view_preferences(project_id)
+        )
+
+    def save_view_preferences(
+        self,
+        preferences: GenerationOrchestrationViewPreferences,
+    ) -> GenerationOrchestrationViewPreferences:
+        density = (preferences.table_density or "comfortable").strip().lower()
+        if density not in {"compact", "comfortable"}:
+            density = "comfortable"
+        status_filter = (preferences.status_filter or "all").strip().lower()
+        allowed_filters = {"all", "attention", "healthy", "failures", "rate_limited", "at_risk"}
+        if status_filter not in allowed_filters:
+            status_filter = "all"
+        normalized = replace(
+            preferences,
+            preference_key=(
+                "global"
+                if preferences.project_id is None
+                else f"project:{preferences.project_id}"
+            ),
+            selected_tab=max(0, min(12, int(preferences.selected_tab))),
+            refresh_interval_seconds=max(3, min(300, int(preferences.refresh_interval_seconds))),
+            table_density=density,
+            search_text=(preferences.search_text or "")[:200],
+            status_filter=status_filter,
+            updated_at=self._now().isoformat(),
+        )
+        return self.repository.save_view_preferences(normalized)
+
+    def apply_preset(
+        self,
+        project_id: int | None,
+        preset: OrchestrationPreset | str,
+    ) -> dict[str, object]:
+        try:
+            selected = OrchestrationPreset(str(preset))
+        except ValueError:
+            selected = OrchestrationPreset.BALANCED
+        failover = self.get_policy(project_id)
+        routing = self.get_routing_policy(project_id)
+        scheduling = self.get_scheduling_policy(project_id)
+        deadline = self.get_deadline_policy(project_id)
+        if selected == OrchestrationPreset.SAFE:
+            failover = replace(failover, enabled=True, auto_failover=True, max_switches_per_run=1, failure_threshold=2)
+            routing = replace(routing, enabled=False, mode=RoutingMode.PRIORITY)
+            scheduling = replace(scheduling, enabled=False, minimum_concurrency=1, initial_concurrency=1, maximum_concurrency=1, per_profile_concurrency=1)
+            deadline = replace(deadline, allow_concurrency_boost=False)
+        elif selected == OrchestrationPreset.THROUGHPUT:
+            failover = replace(failover, enabled=True, auto_failover=True, max_switches_per_run=3)
+            routing = replace(routing, enabled=True, mode=RoutingMode.ADAPTIVE, health_weight=0.35, capacity_weight=0.35, latency_weight=0.20, priority_weight=0.10, max_profile_share_percent=80)
+            scheduling = replace(scheduling, enabled=True, mode=SchedulingMode.ADAPTIVE, minimum_concurrency=2, initial_concurrency=4, maximum_concurrency=8, per_profile_concurrency=4, success_window=3, increase_step=1)
+            deadline = replace(deadline, allow_concurrency_boost=True, maximum_deadline_concurrency=max(8, deadline.maximum_deadline_concurrency))
+        elif selected == OrchestrationPreset.DEADLINE:
+            failover = replace(failover, enabled=True, auto_failover=True, max_switches_per_run=3)
+            routing = replace(routing, enabled=True, mode=RoutingMode.ADAPTIVE, health_weight=0.40, capacity_weight=0.30, latency_weight=0.20, priority_weight=0.10)
+            scheduling = replace(scheduling, enabled=True, mode=SchedulingMode.ADAPTIVE, minimum_concurrency=1, initial_concurrency=3, maximum_concurrency=12, per_profile_concurrency=4, success_window=3)
+            deadline = replace(deadline, enabled=True, allow_concurrency_boost=True, maximum_deadline_concurrency=16, safety_margin_percent=max(15, deadline.safety_margin_percent))
+        else:
+            failover = replace(failover, enabled=True, auto_failover=True, max_switches_per_run=2, failure_threshold=2)
+            routing = replace(routing, enabled=True, mode=RoutingMode.ADAPTIVE, health_weight=0.45, capacity_weight=0.30, latency_weight=0.15, priority_weight=0.10, max_profile_share_percent=70)
+            scheduling = replace(scheduling, enabled=True, mode=SchedulingMode.ADAPTIVE, minimum_concurrency=1, initial_concurrency=2, maximum_concurrency=4, per_profile_concurrency=2, success_window=5, increase_step=1)
+            deadline = replace(deadline, allow_concurrency_boost=True, maximum_deadline_concurrency=max(8, deadline.maximum_deadline_concurrency))
+        saved_failover = self.save_policy(failover)
+        saved_routing = self.save_routing_policy(routing)
+        saved_scheduling = self.save_scheduling_policy(scheduling)
+        saved_deadline = self.save_deadline_policy(deadline)
+        return {
+            "preset": selected.value,
+            "failover": saved_failover,
+            "routing": saved_routing,
+            "scheduling": saved_scheduling,
+            "deadline": saved_deadline,
+        }
+
+    def dashboard_summary(
+        self,
+        project_id: int | None,
+    ) -> GenerationOrchestrationDashboardSummary:
+        metrics = self.repository.list_routing_metrics(project_id=project_id)
+        circuits = self.repository.list_circuits(project_id=project_id)
+        throttles = self.repository.list_throttle_states(project_id=project_id)
+        events = self.repository.list_events(project_id=project_id)
+        forecasts = self.repository.list_queue_forecasts(project_id=project_id)
+        healthy = sum(1 for item in metrics if item.health_score >= 80.0)
+        degraded = sum(1 for item in metrics if item.health_score < 80.0)
+        open_circuits = sum(1 for item in circuits if item.status == ProviderCircuitStatus.OPEN)
+        half_open = sum(1 for item in circuits if item.status == ProviderCircuitStatus.HALF_OPEN)
+        rate_limited = sum(1 for item in throttles if item.recent_rate_limits > 0 or item.cooldown_until)
+        current_concurrency = max([item.current_concurrency for item in throttles] or [self.get_scheduling_policy(project_id).initial_concurrency])
+        latest = forecasts[0] if forecasts else None
+        switches = sum(1 for item in events if item.outcome == "switched")
+        severity = "success"
+        recommendation = "Routing is healthy. No operator action is required."
+        if open_circuits or (latest and latest.risk_level in {DeadlineRiskLevel.AT_RISK, DeadlineRiskLevel.MISSED}):
+            severity = "error" if latest and latest.risk_level == DeadlineRiskLevel.MISSED else "warning"
+            if open_circuits:
+                recommendation = f"Review {open_circuits} open circuit(s) and keep healthy backup accounts enabled."
+            else:
+                recommendation = latest.recommendation
+        elif rate_limited or degraded:
+            severity = "warning"
+            recommendation = "Monitor throttled or degraded accounts; adaptive scheduling will reduce pressure automatically."
+        elif not metrics and not events and not forecasts:
+            severity = "neutral"
+            recommendation = "Run a generation session to populate routing health and queue forecasts."
+        return GenerationOrchestrationDashboardSummary(
+            healthy_profiles=healthy,
+            degraded_profiles=degraded,
+            open_circuits=open_circuits,
+            half_open_circuits=half_open,
+            current_concurrency=current_concurrency,
+            rate_limited_profiles=rate_limited,
+            provider_events=len(events),
+            failover_switches=switches,
+            latest_deadline_risk=(latest.risk_level if latest else DeadlineRiskLevel.INSUFFICIENT_DATA),
+            latest_deadline_slack_seconds=(latest.slack_seconds if latest else None),
+            recommended_concurrency=(latest.recommended_concurrency if latest else current_concurrency),
+            severity=severity,
+            recommendation=recommendation,
+        )
+
+    def list_saved_views(
+        self,
+        project_id: int | None,
+    ) -> list[GenerationOrchestrationSavedView]:
+        return self.repository.list_saved_views(project_id=project_id)
+
+    def save_saved_view(
+        self,
+        view: GenerationOrchestrationSavedView,
+    ) -> GenerationOrchestrationSavedView:
+        name = " ".join((view.name or "").split())[:60]
+        if not name:
+            raise ValueError("Saved view name is required")
+        density = (view.table_density or "comfortable").strip().lower()
+        if density not in {"compact", "comfortable"}:
+            density = "comfortable"
+        status_filter = (view.status_filter or "all").strip().lower()
+        allowed_filters = {
+            "all",
+            "attention",
+            "healthy",
+            "failures",
+            "rate_limited",
+            "at_risk",
+        }
+        if status_filter not in allowed_filters:
+            status_filter = "all"
+        now = self._now().isoformat()
+        existing = next(
+            (
+                item
+                for item in self.list_saved_views(view.project_id)
+                if item.name.casefold() == name.casefold()
+            ),
+            None,
+        )
+        normalized = replace(
+            view,
+            view_id=(
+                view.view_id
+                or (existing.view_id if existing is not None else "")
+                or f"orchestration-view-{uuid.uuid4().hex}"
+            ),
+            name=name,
+            selected_tab=max(0, min(20, int(view.selected_tab))),
+            table_density=density,
+            search_text=(view.search_text or "")[:200],
+            status_filter=status_filter,
+            is_default=(
+                view.is_default
+                if view.view_id or existing is None
+                else existing.is_default
+            ),
+            created_at=(
+                view.created_at
+                or (existing.created_at if existing is not None else "")
+                or now
+            ),
+            updated_at=now,
+        )
+        return self.repository.save_saved_view(normalized)
+
+    def delete_saved_view(self, view_id: str) -> bool:
+        return self.repository.delete_saved_view(view_id)
+
+    def set_default_saved_view(
+        self,
+        view_id: str,
+    ) -> GenerationOrchestrationSavedView:
+        view = self.repository.get_saved_view(view_id)
+        if view is None:
+            raise ValueError("Saved view was not found")
+        return self.save_saved_view(replace(view, is_default=True))
+
+    def apply_saved_view(
+        self,
+        view_id: str,
+    ) -> GenerationOrchestrationViewPreferences:
+        view = self.repository.get_saved_view(view_id)
+        if view is None:
+            raise ValueError("Saved view was not found")
+        current = self.get_view_preferences(view.project_id)
+        return self.save_view_preferences(
+            GenerationOrchestrationViewPreferences(
+                project_id=view.project_id,
+                selected_tab=view.selected_tab,
+                auto_refresh=current.auto_refresh,
+                refresh_interval_seconds=current.refresh_interval_seconds,
+                table_density=view.table_density,
+                search_text=view.search_text,
+                status_filter=view.status_filter,
+            )
+        )
+
+    def attention_items(
+        self,
+        project_id: int | None,
+    ) -> list[GenerationOrchestrationAttentionItem]:
+        items: list[GenerationOrchestrationAttentionItem] = []
+        for circuit in self.repository.list_circuits(project_id=project_id):
+            if circuit.status == ProviderCircuitStatus.CLOSED:
+                continue
+            severity = (
+                OrchestrationAttentionSeverity.CRITICAL
+                if circuit.status == ProviderCircuitStatus.OPEN
+                else OrchestrationAttentionSeverity.WARNING
+            )
+            account = circuit.profile_name or circuit.profile_id or "Temporary key"
+            items.append(
+                GenerationOrchestrationAttentionItem(
+                    attention_id=f"circuit:{circuit.state_key}",
+                    project_id=circuit.project_id,
+                    severity=severity,
+                    category="circuit",
+                    provider=circuit.provider,
+                    profile_id=circuit.profile_id,
+                    profile_name=account,
+                    title=f"{account} circuit is {circuit.status}",
+                    detail=(
+                        f"{circuit.consecutive_failures} consecutive failure(s); "
+                        f"retry after {circuit.retry_after or 'manual review'}."
+                    ),
+                    recommendation="Review the provider failure, then reset the circuit.",
+                    action_type="reset_circuit",
+                    target_key=circuit.state_key,
+                    updated_at=circuit.updated_at,
+                )
+            )
+        for throttle in self.repository.list_throttle_states(project_id=project_id):
+            if throttle.recent_rate_limits <= 0 and not throttle.cooldown_until:
+                continue
+            account = throttle.profile_name or throttle.profile_id or "Temporary key"
+            items.append(
+                GenerationOrchestrationAttentionItem(
+                    attention_id=f"throttle:{throttle.throttle_key}",
+                    project_id=throttle.project_id,
+                    severity=OrchestrationAttentionSeverity.WARNING,
+                    category="rate_limit",
+                    provider=throttle.provider,
+                    profile_id=throttle.profile_id,
+                    profile_name=account,
+                    title=f"{account} is rate limited",
+                    detail=(
+                        f"{throttle.recent_rate_limits} recent limit(s); "
+                        f"cooldown until {throttle.cooldown_until or 'not set'}."
+                    ),
+                    recommendation=(
+                        "Keep adaptive backpressure enabled, or clear the cooldown "
+                        "after provider recovery."
+                    ),
+                    action_type="clear_throttle",
+                    target_key=throttle.throttle_key,
+                    updated_at=throttle.updated_at,
+                )
+            )
+        forecasts = self.repository.list_queue_forecasts(project_id=project_id)
+        if forecasts:
+            forecast = forecasts[0]
+            if forecast.risk_level in {
+                DeadlineRiskLevel.WATCH,
+                DeadlineRiskLevel.AT_RISK,
+                DeadlineRiskLevel.MISSED,
+            }:
+                severity = (
+                    OrchestrationAttentionSeverity.CRITICAL
+                    if forecast.risk_level
+                    in {DeadlineRiskLevel.AT_RISK, DeadlineRiskLevel.MISSED}
+                    else OrchestrationAttentionSeverity.WARNING
+                )
+                items.append(
+                    GenerationOrchestrationAttentionItem(
+                        attention_id=f"deadline:{forecast.forecast_id}",
+                        project_id=forecast.project_id,
+                        severity=severity,
+                        category="deadline",
+                        provider=forecast.provider,
+                        profile_id=None,
+                        profile_name="Queue",
+                        title=f"Deadline is {forecast.risk_level}",
+                        detail=(
+                            f"Recommended concurrency {forecast.recommended_concurrency}; "
+                            f"slack {forecast.slack_seconds / 60.0:.1f} min."
+                        ),
+                        recommendation=forecast.recommendation,
+                        action_type="apply_recommended_concurrency",
+                        target_key=forecast.forecast_id,
+                        updated_at=forecast.created_at,
+                    )
+                )
+        priority = {
+            OrchestrationAttentionSeverity.CRITICAL: 0,
+            OrchestrationAttentionSeverity.WARNING: 1,
+            OrchestrationAttentionSeverity.INFO: 2,
+        }
+        return sorted(items, key=lambda item: (priority[item.severity], item.updated_at))
+
+    def clear_throttle(
+        self,
+        *,
+        project_id: int | None,
+        provider: str,
+        profile_id: str | None,
+    ) -> ProviderThrottleSnapshot:
+        current = self.repository.get_throttle_state(
+            project_id=project_id,
+            provider=provider,
+            profile_id=profile_id,
+        )
+        if current is None:
+            raise ValueError("Throttle state was not found")
+        now = self._now().isoformat()
+        return self.repository.save_throttle_state(
+            replace(
+                current,
+                recent_rate_limits=0,
+                cooldown_until=None,
+                last_recovered_at=now,
+                updated_at=now,
+            )
+        )
+
+    def apply_recommended_concurrency(
+        self,
+        project_id: int | None,
+        forecast_id: str | None = None,
+    ) -> GenerationSchedulingPolicy:
+        forecasts = self.repository.list_queue_forecasts(project_id=project_id)
+        forecast = next(
+            (
+                item
+                for item in forecasts
+                if forecast_id is None or item.forecast_id == forecast_id
+            ),
+            None,
+        )
+        if forecast is None:
+            raise ValueError("Queue forecast was not found")
+        recommended = max(1, min(32, int(forecast.recommended_concurrency)))
+        policy = self.get_scheduling_policy(project_id)
+        return self.save_scheduling_policy(
+            replace(
+                policy,
+                enabled=True,
+                initial_concurrency=recommended,
+                maximum_concurrency=max(policy.maximum_concurrency, recommended),
+            )
+        )
+
+    def execute_attention_actions(
+        self,
+        project_id: int | None,
+        attention_ids: list[str] | tuple[str, ...],
+        *,
+        safe_only: bool = False,
+    ) -> GenerationOrchestrationOperatorAction:
+        available = {item.attention_id: item for item in self.attention_items(project_id)}
+        selected = [available[item_id] for item_id in attention_ids if item_id in available]
+        if safe_only:
+            selected = [
+                item
+                for item in selected
+                if item.action_type in {"reset_circuit", "clear_throttle"}
+            ]
+        completed: list[str] = []
+        errors: list[str] = []
+        for item in selected:
+            try:
+                if item.action_type == "reset_circuit":
+                    self.reset_circuit(
+                        project_id=item.project_id,
+                        provider=item.provider,
+                        profile_id=item.profile_id,
+                        profile_name=item.profile_name,
+                    )
+                elif item.action_type == "clear_throttle":
+                    self.clear_throttle(
+                        project_id=item.project_id,
+                        provider=item.provider,
+                        profile_id=item.profile_id,
+                    )
+                elif item.action_type == "apply_recommended_concurrency":
+                    self.apply_recommended_concurrency(item.project_id, item.target_key)
+                else:
+                    continue
+                completed.append(item.attention_id)
+            except (ValueError, RuntimeError) as exc:
+                errors.append(f"{item.attention_id}: {exc}")
+        now = self._now().isoformat()
+        action = GenerationOrchestrationOperatorAction(
+            action_id=f"operator-action-{uuid.uuid4().hex}",
+            project_id=project_id,
+            action_type="safe_fixes" if safe_only else "selected_actions",
+            target_type="attention_item",
+            target_count=len(completed),
+            summary=(
+                f"Completed {len(completed)} orchestration action(s)"
+                + (f" with {len(errors)} error(s)." if errors else ".")
+            ),
+            created_at=now,
+            metadata={
+                "attention_ids": completed,
+                "errors": errors,
+                "safe_only": safe_only,
+            },
+        )
+        self.repository.add_operator_action(action)
+        if self.activity_service is not None:
+            self.activity_service.record(
+                ActivityEvent(
+                    event_id=f"orchestration-{action.action_id}",
+                    project_id=project_id,
+                    category="generation_orchestration",
+                    title="Queue operator action completed",
+                    message=action.summary,
+                    created_at=now,
+                    metadata=action.metadata,
+                )
+            )
+        return action
 
     def default_policy(self, project_id: int | None) -> GenerationOrchestrationPolicy:
         return GenerationOrchestrationPolicy(
@@ -187,6 +656,186 @@ class GenerationOrchestrationService:
         )
         return self.repository.save_scheduling_policy(normalized)
 
+    def default_deadline_policy(
+        self,
+        project_id: int | None,
+    ) -> GenerationDeadlinePolicy:
+        return GenerationDeadlinePolicy(
+            policy_key="global" if project_id is None else f"project:{project_id}",
+            project_id=project_id,
+            updated_at=self._now().isoformat(),
+        )
+
+    def get_deadline_policy(
+        self,
+        project_id: int | None,
+    ) -> GenerationDeadlinePolicy:
+        return (
+            self.repository.get_effective_deadline_policy(project_id)
+            or self.default_deadline_policy(project_id)
+        )
+
+    def save_deadline_policy(
+        self,
+        policy: GenerationDeadlinePolicy,
+    ) -> GenerationDeadlinePolicy:
+        normalized = replace(
+            policy,
+            policy_key="global" if policy.project_id is None else f"project:{policy.project_id}",
+            target_completion_minutes=max(1, min(10080, int(policy.target_completion_minutes))),
+            warning_slack_minutes=max(0, min(1440, int(policy.warning_slack_minutes))),
+            maximum_deadline_concurrency=max(
+                1, min(32, int(policy.maximum_deadline_concurrency))
+            ),
+            fallback_characters_per_minute=max(
+                1, min(1_000_000, int(policy.fallback_characters_per_minute))
+            ),
+            safety_margin_percent=max(0, min(90, int(policy.safety_margin_percent))),
+            updated_at=self._now().isoformat(),
+        )
+        return self.repository.save_deadline_policy(normalized)
+
+    def forecast_queue(
+        self,
+        *,
+        project_id: int | None,
+        provider: str,
+        jobs: list[TTSJob],
+        current_concurrency: int,
+        deadline_at: datetime | None = None,
+        persist: bool | None = None,
+    ) -> GenerationQueueForecast:
+        now = self._now()
+        policy = self.get_deadline_policy(project_id)
+        deadline = deadline_at or (
+            now + timedelta(minutes=policy.target_completion_minutes)
+        )
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=timezone.utc)
+        total_characters = sum(max(0, job.character_count) for job in jobs)
+        metrics = self.repository.list_routing_metrics(
+            project_id=project_id,
+            provider=provider,
+        )
+        historical_characters = sum(item.total_characters for item in metrics)
+        historical_seconds = sum(item.total_latency_seconds for item in metrics)
+        if historical_characters > 0 and historical_seconds > 0:
+            raw_cpm = historical_characters * 60.0 / historical_seconds
+            source = "historical"
+        else:
+            raw_cpm = float(policy.fallback_characters_per_minute)
+            source = "fallback"
+        safe_cpm = max(1.0, raw_cpm * (1.0 - policy.safety_margin_percent / 100.0))
+        concurrency = max(1, int(current_concurrency))
+        estimated_seconds = (
+            total_characters * 60.0 / (safe_cpm * concurrency)
+            if total_characters > 0
+            else 0.0
+        )
+        available_seconds = max(0.0, (deadline - now).total_seconds())
+        required = (
+            max(1, math.ceil(total_characters * 60.0 / (safe_cpm * available_seconds)))
+            if total_characters > 0 and available_seconds > 0
+            else 1
+        )
+        recommended = max(concurrency, min(policy.maximum_deadline_concurrency, required))
+        finish = now + timedelta(seconds=estimated_seconds)
+        slack = (deadline - finish).total_seconds()
+        warning_seconds = policy.warning_slack_minutes * 60.0
+        if available_seconds <= 0 or slack < 0:
+            risk_level = DeadlineRiskLevel.MISSED
+            risk_score = 1.0
+        elif warning_seconds > 0 and slack <= warning_seconds:
+            risk_level = DeadlineRiskLevel.AT_RISK
+            risk_score = min(0.99, 0.75 + 0.24 * (1.0 - slack / warning_seconds))
+        elif warning_seconds > 0 and slack <= warning_seconds * 2:
+            risk_level = DeadlineRiskLevel.WATCH
+            risk_score = min(
+                0.74,
+                0.40
+                + 0.34
+                * (1.0 - (slack - warning_seconds) / warning_seconds),
+            )
+        else:
+            risk_level = DeadlineRiskLevel.ON_TRACK
+            denominator = max(1.0, available_seconds)
+            risk_score = min(0.39, max(0.0, estimated_seconds / denominator * 0.39))
+        if required > policy.maximum_deadline_concurrency:
+            recommendation = (
+                f"Deadline cannot be met within the configured concurrency cap "
+                f"({policy.maximum_deadline_concurrency}); split the queue or extend the deadline."
+            )
+        elif recommended > concurrency:
+            recommendation = f"Increase concurrency from {concurrency} to {recommended}."
+        elif risk_level == DeadlineRiskLevel.WATCH:
+            recommendation = "Keep the current concurrency and monitor throughput closely."
+        else:
+            recommendation = "Current capacity is sufficient for the configured deadline."
+        forecast = GenerationQueueForecast(
+            forecast_id=uuid.uuid4().hex,
+            project_id=project_id,
+            provider=provider,
+            job_count=len(jobs),
+            total_characters=total_characters,
+            current_concurrency=concurrency,
+            recommended_concurrency=recommended,
+            characters_per_minute=round(safe_cpm, 3),
+            estimated_duration_seconds=round(estimated_seconds, 3),
+            estimated_finish_at=finish.isoformat(),
+            deadline_at=deadline.isoformat(),
+            slack_seconds=round(slack, 3),
+            risk_score=round(risk_score, 4),
+            risk_level=risk_level,
+            recommendation=recommendation,
+            source=source,
+            created_at=now.isoformat(),
+            metadata={
+                "raw_characters_per_minute": round(raw_cpm, 3),
+                "safety_margin_percent": policy.safety_margin_percent,
+                "required_concurrency": required,
+            },
+        )
+        should_persist = policy.persist_forecasts if persist is None else persist
+        if not should_persist:
+            return forecast
+        stored = self.repository.add_queue_forecast(forecast)
+        if stored.risk_level in {DeadlineRiskLevel.AT_RISK, DeadlineRiskLevel.MISSED}:
+            if self.activity_service is not None:
+                self.activity_service.record(
+                    ActivityEvent(
+                        event_id=f"queue-forecast-{stored.forecast_id}",
+                        project_id=stored.project_id,
+                        category="generation_deadline",
+                        title="Queue deadline risk detected",
+                        message=(
+                            f"{stored.job_count} jobs are {stored.risk_level}; "
+                            f"recommended concurrency is {stored.recommended_concurrency}."
+                        ),
+                        created_at=stored.created_at,
+                        metadata={
+                            "forecast_id": stored.forecast_id,
+                            "risk_level": str(stored.risk_level),
+                            "risk_score": stored.risk_score,
+                        },
+                    )
+                )
+            if self.notification_service is not None:
+                self.notification_service.publish(
+                    NotificationRecord(
+                        notification_id=f"queue-deadline-{stored.forecast_id}",
+                        severity=(
+                            "error" if stored.risk_level == DeadlineRiskLevel.MISSED
+                            else "warning"
+                        ),
+                        title="Generation queue may miss its deadline",
+                        message=stored.recommendation,
+                        created_at=stored.created_at,
+                        action_label="Open orchestration",
+                        action_payload="generation-orchestration",
+                    )
+                )
+        return stored
+
     def build_plan(
         self,
         *,
@@ -198,6 +847,7 @@ class GenerationOrchestrationService:
         policy = self.get_policy(project_id)
         routing_policy = self.get_routing_policy(project_id)
         scheduling_policy = self.get_scheduling_policy(project_id)
+        deadline_policy = self.get_deadline_policy(project_id)
         profile_failover = self.api_profiles.failover_settings(settings.provider)
         try:
             mode = ApiProfileFailoverMode(str(settings.api_profile_failover or profile_failover.mode))
@@ -308,6 +958,49 @@ class GenerationOrchestrationService:
             routing_policy.max_profile_share_percent,
         ) if routing_enabled else ()
         distribution = self._distribution(candidates, routing_sequence, preview_count)
+        scheduling_enabled = bool(
+            scheduling_policy.enabled and jobs is not None and len(jobs) > 1
+        )
+        initial_concurrency = min(
+            scheduling_policy.maximum_concurrency,
+            max(
+                scheduling_policy.minimum_concurrency,
+                scheduling_policy.initial_concurrency,
+            ),
+        ) if scheduling_enabled else 1
+        maximum_concurrency = (
+            scheduling_policy.maximum_concurrency if scheduling_enabled else 1
+        )
+        per_profile_concurrency = (
+            scheduling_policy.per_profile_concurrency if scheduling_enabled else 1
+        )
+        forecast = None
+        if deadline_policy.enabled and jobs:
+            forecast = self.forecast_queue(
+                project_id=project_id,
+                provider=settings.provider,
+                jobs=jobs,
+                current_concurrency=initial_concurrency,
+                persist=deadline_policy.persist_forecasts,
+            )
+            if (
+                deadline_policy.allow_concurrency_boost
+                and forecast.risk_level
+                in {DeadlineRiskLevel.AT_RISK, DeadlineRiskLevel.MISSED}
+                and forecast.recommended_concurrency > initial_concurrency
+            ):
+                initial_concurrency = forecast.recommended_concurrency
+                maximum_concurrency = max(maximum_concurrency, initial_concurrency)
+                profile_count = max(1, len(candidates))
+                per_profile_concurrency = max(
+                    per_profile_concurrency,
+                    math.ceil(initial_concurrency / profile_count),
+                )
+                scheduling_enabled = (
+                    initial_concurrency > 1
+                    and jobs is not None
+                    and len(jobs) > 1
+                )
         return GenerationExecutionPlan(
             project_id=project_id,
             provider=settings.provider,
@@ -325,24 +1018,36 @@ class GenerationOrchestrationService:
             max_profile_share_percent=routing_policy.max_profile_share_percent,
             routing_sequence=routing_sequence,
             predicted_distribution=distribution,
-            scheduling_enabled=bool(
-                scheduling_policy.enabled
-                and jobs is not None
-                and len(jobs) > 1
-            ),
+            scheduling_enabled=scheduling_enabled,
             scheduling_mode=scheduling_policy.mode,
-            minimum_concurrency=scheduling_policy.minimum_concurrency,
-            initial_concurrency=min(
-                scheduling_policy.maximum_concurrency,
-                max(scheduling_policy.minimum_concurrency, scheduling_policy.initial_concurrency),
+            minimum_concurrency=(
+                scheduling_policy.minimum_concurrency if scheduling_enabled else 1
             ),
-            maximum_concurrency=scheduling_policy.maximum_concurrency,
-            per_profile_concurrency=scheduling_policy.per_profile_concurrency,
+            initial_concurrency=initial_concurrency,
+            maximum_concurrency=maximum_concurrency,
+            per_profile_concurrency=per_profile_concurrency,
             success_window=scheduling_policy.success_window,
             error_window=scheduling_policy.error_window,
             increase_step=scheduling_policy.increase_step,
             decrease_factor=scheduling_policy.decrease_factor,
             rate_limit_cooldown_seconds=scheduling_policy.rate_limit_cooldown_seconds,
+            deadline_enabled=bool(deadline_policy.enabled and jobs),
+            deadline_at=forecast.deadline_at if forecast is not None else None,
+            deadline_risk_level=(
+                forecast.risk_level if forecast is not None
+                else DeadlineRiskLevel.INSUFFICIENT_DATA
+            ),
+            deadline_risk_score=forecast.risk_score if forecast is not None else 0.0,
+            deadline_recommended_concurrency=(
+                forecast.recommended_concurrency if forecast is not None else initial_concurrency
+            ),
+            deadline_estimated_finish_at=(
+                forecast.estimated_finish_at if forecast is not None else None
+            ),
+            deadline_recommendation=(
+                forecast.recommendation if forecast is not None else ""
+            ),
+            queue_forecast_id=forecast.forecast_id if forecast is not None else None,
         )
 
     def should_failover(self, analysis: FailureAnalysis) -> bool:
@@ -509,6 +1214,13 @@ class GenerationOrchestrationService:
         policy = self.get_policy(project_id)
         routing_policy = self.get_routing_policy(project_id)
         scheduling_policy = self.get_scheduling_policy(project_id)
+        deadline_policy = self.get_deadline_policy(project_id)
+        view_preferences = self.get_view_preferences(project_id)
+        saved_views = self.list_saved_views(project_id)
+        dashboard_summary = self.dashboard_summary(project_id)
+        attention_items = self.attention_items(project_id)
+        operator_actions = self.repository.list_operator_actions(project_id=project_id)
+        forecasts = self.repository.list_queue_forecasts(project_id=project_id)
         throttle_states = self.repository.list_throttle_states(project_id=project_id)
         scheduler_events = self.repository.list_scheduler_events(project_id=project_id)
         circuits = self.repository.list_circuits(project_id=project_id)
@@ -521,6 +1233,13 @@ class GenerationOrchestrationService:
             "policy": policy.__dict__,
             "routing_policy": self._jsonable(routing_policy.__dict__),
             "scheduling_policy": self._jsonable(scheduling_policy.__dict__),
+            "deadline_policy": self._jsonable(deadline_policy.__dict__),
+            "view_preferences": self._jsonable(view_preferences.__dict__),
+            "saved_views": [self._jsonable(item.__dict__) for item in saved_views],
+            "dashboard_summary": self._jsonable(dashboard_summary.__dict__),
+            "attention_items": [self._jsonable(item.__dict__) for item in attention_items],
+            "operator_actions": [self._jsonable(item.__dict__) for item in operator_actions],
+            "queue_forecasts": [self._jsonable(item.__dict__) for item in forecasts],
             "throttle_states": [self._jsonable(item.__dict__) for item in throttle_states],
             "scheduler_events": [self._jsonable(item.__dict__) for item in scheduler_events],
             "circuits": [self._jsonable(item.__dict__) for item in circuits],
@@ -558,6 +1277,29 @@ class GenerationOrchestrationService:
             "active_jobs",
             "reason",
             "cooldown_until",
+            "job_count",
+            "total_characters",
+            "recommended_concurrency",
+            "characters_per_minute",
+            "estimated_duration_seconds",
+            "estimated_finish_at",
+            "deadline_at",
+            "slack_seconds",
+            "risk_score",
+            "risk_level",
+            "recommendation",
+            "source",
+            "name",
+            "severity",
+            "category",
+            "action_type",
+            "target_count",
+            "summary",
+            "status_filter",
+            "table_density",
+            "selected_tab",
+            "is_default",
+            "details",
         ]
         with csv_path.open("w", encoding="utf-8-sig", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=fields)
@@ -618,6 +1360,69 @@ class GenerationOrchestrationService:
                         "to_concurrency": state.current_concurrency,
                         "failures": state.recent_rate_limits,
                         "cooldown_until": state.cooldown_until,
+                    }
+                )
+            for forecast in forecasts:
+                writer.writerow(
+                    {
+                        "record_type": "queue_forecast",
+                        "created_at": forecast.created_at,
+                        "provider": forecast.provider,
+                        "from_concurrency": forecast.current_concurrency,
+                        "recommended_concurrency": forecast.recommended_concurrency,
+                        "job_count": forecast.job_count,
+                        "total_characters": forecast.total_characters,
+                        "characters_per_minute": forecast.characters_per_minute,
+                        "estimated_duration_seconds": forecast.estimated_duration_seconds,
+                        "estimated_finish_at": forecast.estimated_finish_at,
+                        "deadline_at": forecast.deadline_at,
+                        "slack_seconds": forecast.slack_seconds,
+                        "risk_score": forecast.risk_score,
+                        "risk_level": str(forecast.risk_level),
+                        "recommendation": forecast.recommendation,
+                        "source": forecast.source,
+                    }
+                )
+            for view in saved_views:
+                writer.writerow(
+                    {
+                        "record_type": "saved_view",
+                        "created_at": view.updated_at,
+                        "name": view.name,
+                        "status_filter": view.status_filter,
+                        "table_density": view.table_density,
+                        "selected_tab": view.selected_tab,
+                        "is_default": view.is_default,
+                    }
+                )
+            for item in attention_items:
+                writer.writerow(
+                    {
+                        "record_type": "attention_item",
+                        "created_at": item.updated_at,
+                        "provider": item.provider,
+                        "from_profile_name": item.profile_name,
+                        "severity": str(item.severity),
+                        "category": item.category,
+                        "action_type": item.action_type,
+                        "recommendation": item.recommendation,
+                        "summary": item.title,
+                        "details": item.detail,
+                    }
+                )
+            for action in operator_actions:
+                writer.writerow(
+                    {
+                        "record_type": "operator_action",
+                        "created_at": action.created_at,
+                        "action_type": action.action_type,
+                        "target_count": action.target_count,
+                        "summary": action.summary,
+                        "details": json.dumps(
+                            action.metadata,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        ),
                     }
                 )
             for metric in metrics:
@@ -1011,5 +1816,18 @@ class GenerationOrchestrationService:
     def _jsonable(value: dict[str, object]) -> dict[str, object]:
         result: dict[str, object] = {}
         for key, item in value.items():
-            result[key] = str(item) if isinstance(item, (ProviderCircuitStatus, RoutingMode)) else item
+            result[key] = (
+                str(item)
+                if isinstance(
+                    item,
+                    (
+                        ProviderCircuitStatus,
+                        RoutingMode,
+                        SchedulingMode,
+                        DeadlineRiskLevel,
+                        OrchestrationAttentionSeverity,
+                    ),
+                )
+                else item
+            )
         return result

@@ -214,6 +214,25 @@ QLabel#catalogMetric{{font-size:18px;font-weight:850;color:{tokens['text_primary
 QProgressBar#providerQuotaProgress{{background:{tokens['input']};border:0;border-radius:4px;}}
 QProgressBar#providerQuotaProgress::chunk{{background:{tokens['primary']};border-radius:4px;}}
 QLabel#failoverPreview{{background:{tokens['input']};border:1px solid {tokens['border_subtle']};border-radius:7px;padding:10px;color:{tokens['text_secondary']};}}
+QDialog#generationOrchestrationDialog{{background:{tokens['canvas']};}}
+QFrame#orchestrationHeader,QFrame#orchestrationToolbar,QFrame#orchestrationViewBar,QFrame#orchestrationFooter,QFrame#orchestrationPlanCard{{background:{tokens['panel']};border:1px solid {tokens['border_subtle']};border-radius:8px;}}
+QFrame#orchestrationRecommendation,QFrame#orchestrationPresetCard,QFrame#orchestrationAttentionSummary{{background:{tokens['surface_soft']};border:1px solid {tokens['border_subtle']};border-radius:8px;}}
+QLabel#orchestrationProjectBadge{{background:{tokens['surface_soft']};border:1px solid {tokens['focus']};border-radius:7px;padding:5px 10px;font-size:11px;font-weight:800;color:{tokens['text_primary']};}}
+QFrame#orchestrationMetricCard{{background:{tokens['panel']};border:1px solid {tokens['border_subtle']};border-radius:8px;}}
+QFrame#orchestrationMetricCard[status=success]{{border-color:{tokens['success']};}}
+QFrame#orchestrationMetricCard[status=warning]{{border-color:{tokens['warning']};}}
+QFrame#orchestrationMetricCard[status=error]{{border-color:{tokens['error']};}}
+QLabel#orchestrationMetricTitle{{font-size:10px;font-weight:750;color:{tokens['text_secondary']};}}
+QLabel#orchestrationMetricValue{{font-size:20px;font-weight:850;color:{tokens['text_primary']};}}
+QLabel#orchestrationMetricDetail{{font-size:10px;color:{tokens['text_secondary']};}}
+QLabel#summaryMuted[status=success]{{color:{tokens['success']};font-weight:650;}}
+QLabel#summaryMuted[status=warning]{{color:{tokens['warning']};font-weight:650;}}
+QLabel#summaryMuted[status=error]{{color:{tokens['error']};font-weight:650;}}
+QTableWidget#orchestrationTable{{background:{tokens['panel']};border:1px solid {tokens['border_subtle']};border-radius:8px;gridline-color:transparent;}}
+QTableWidget#orchestrationTable::item{{padding:5px 6px;border-bottom:1px solid {tokens['border_subtle']};}}
+QTableWidget#orchestrationTable::item:selected{{background:{tokens['selected_row']};color:{tokens['text_primary']};}}
+QTabWidget#orchestrationTabs::pane{{border:1px solid {tokens['border_subtle']};border-radius:8px;background:{tokens['panel']};}}
+QTabWidget#orchestrationTabs QTabBar::tab{{min-width:120px;text-align:left;padding:8px 10px;}}
 QTabWidget::pane{{border:1px solid {tokens['border_subtle']};border-radius:7px;background:{tokens['panel']};}}
 QTabBar::tab{{background:{tokens['elevated']};color:{tokens['text_secondary']};padding:6px 10px;border:1px solid {tokens['border_subtle']};border-bottom:0;border-top-left-radius:6px;border-top-right-radius:6px;}}
 QTabBar::tab:selected{{color:{tokens['text_primary']};background:{tokens['panel']};border-color:{tokens['border']};}}

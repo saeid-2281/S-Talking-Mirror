@@ -872,6 +872,108 @@ CREATE INDEX IF NOT EXISTS idx_scheduler_events_profile_created
 """
 
 
+GENERATION_DEADLINE_SCHEDULING_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS generation_deadline_scheduling_policies (
+    policy_key TEXT PRIMARY KEY,
+    project_id INTEGER UNIQUE,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    target_completion_minutes INTEGER NOT NULL DEFAULT 60,
+    warning_slack_minutes INTEGER NOT NULL DEFAULT 15,
+    allow_concurrency_boost INTEGER NOT NULL DEFAULT 1,
+    maximum_deadline_concurrency INTEGER NOT NULL DEFAULT 8,
+    fallback_characters_per_minute INTEGER NOT NULL DEFAULT 1200,
+    safety_margin_percent INTEGER NOT NULL DEFAULT 15,
+    persist_forecasts INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS generation_queue_forecasts (
+    forecast_id TEXT PRIMARY KEY,
+    project_id INTEGER,
+    provider TEXT NOT NULL,
+    job_count INTEGER NOT NULL DEFAULT 0,
+    total_characters INTEGER NOT NULL DEFAULT 0,
+    current_concurrency INTEGER NOT NULL DEFAULT 1,
+    recommended_concurrency INTEGER NOT NULL DEFAULT 1,
+    characters_per_minute REAL NOT NULL DEFAULT 0.0,
+    estimated_duration_seconds REAL NOT NULL DEFAULT 0.0,
+    estimated_finish_at TEXT NOT NULL,
+    deadline_at TEXT NOT NULL,
+    slack_seconds REAL NOT NULL DEFAULT 0.0,
+    risk_score REAL NOT NULL DEFAULT 0.0,
+    risk_level TEXT NOT NULL DEFAULT 'insufficient_data',
+    recommendation TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'fallback',
+    created_at TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_deadline_policy_project
+    ON generation_deadline_scheduling_policies(project_id);
+CREATE INDEX IF NOT EXISTS idx_queue_forecasts_project_created
+    ON generation_queue_forecasts(project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_queue_forecasts_risk_created
+    ON generation_queue_forecasts(risk_level, created_at);
+"""
+
+
+GENERATION_ORCHESTRATION_UI_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS generation_orchestration_view_preferences (
+    preference_key TEXT PRIMARY KEY,
+    project_id INTEGER UNIQUE,
+    selected_tab INTEGER NOT NULL DEFAULT 0,
+    auto_refresh INTEGER NOT NULL DEFAULT 0,
+    refresh_interval_seconds INTEGER NOT NULL DEFAULT 10,
+    table_density TEXT NOT NULL DEFAULT 'comfortable',
+    search_text TEXT NOT NULL DEFAULT '',
+    status_filter TEXT NOT NULL DEFAULT 'all',
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_orchestration_view_preferences_project
+    ON generation_orchestration_view_preferences(project_id);
+"""
+
+
+GENERATION_ORCHESTRATION_WORKFLOW_UI_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS generation_orchestration_saved_views (
+    view_id TEXT PRIMARY KEY,
+    scope_key TEXT NOT NULL,
+    project_id INTEGER,
+    name TEXT NOT NULL,
+    selected_tab INTEGER NOT NULL DEFAULT 0,
+    table_density TEXT NOT NULL DEFAULT 'comfortable',
+    search_text TEXT NOT NULL DEFAULT '',
+    status_filter TEXT NOT NULL DEFAULT 'all',
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(scope_key, name),
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS generation_orchestration_operator_actions (
+    action_id TEXT PRIMARY KEY,
+    project_id INTEGER,
+    action_type TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_count INTEGER NOT NULL DEFAULT 0,
+    summary TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_orchestration_saved_views_scope
+    ON generation_orchestration_saved_views(scope_key, is_default, updated_at);
+CREATE INDEX IF NOT EXISTS idx_orchestration_operator_actions_project_created
+    ON generation_orchestration_operator_actions(project_id, created_at);
+"""
+
+
 MIGRATIONS = (
     (1, INITIAL_SCHEMA_SQL),
     (2, MULTI_SOURCE_SCHEMA_SQL),
@@ -892,6 +994,9 @@ MIGRATIONS = (
     (17, GENERATION_ORCHESTRATION_SCHEMA_SQL),
     (18, GENERATION_ADAPTIVE_ROUTING_SCHEMA_SQL),
     (19, GENERATION_DYNAMIC_SCHEDULING_SCHEMA_SQL),
+    (20, GENERATION_DEADLINE_SCHEDULING_SCHEMA_SQL),
+    (21, GENERATION_ORCHESTRATION_UI_SCHEMA_SQL),
+    (22, GENERATION_ORCHESTRATION_WORKFLOW_UI_SCHEMA_SQL),
 )
 
 

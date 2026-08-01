@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.database.connection import Database
+from app.release import SCHEMA_VERSION
 from app.exceptions import ProviderError
 from app.models.api_profile import ApiProfileStatus, FailoverSettings, ApiProfileFailoverMode
 from app.models.domain import AppSettings, TTSJob
@@ -88,7 +89,7 @@ def test_phase17_migration_adds_orchestration_schema_and_backup(tmp_path: Path) 
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             )
         }
-    assert versions == tuple(range(1, 20))
+    assert versions == tuple(range(1, SCHEMA_VERSION + 1))
     assert {
         "generation_orchestration_policies",
         "generation_provider_circuit_states",

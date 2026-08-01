@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 VERSION = "0.18.2-rc1"
 RELEASE_CHANNEL = "rc"
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 22
 
 
 @dataclass(frozen=True)

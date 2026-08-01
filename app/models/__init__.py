@@ -97,10 +97,20 @@ from app.models.workspace_profile import WorkspaceProfile
 from app.models.provider_health import ProviderAccountHealth, ProviderHealthState, evaluate_provider_health
 
 from app.models.generation_orchestration import (
+    DeadlineRiskLevel,
     GenerationAdaptiveRoutingPolicy,
+    GenerationDeadlinePolicy,
     GenerationExecutionPlan,
     GenerationFailoverEvent,
+    GenerationQueueForecast,
+    GenerationOrchestrationAttentionItem,
+    GenerationOrchestrationOperatorAction,
     GenerationOrchestrationPolicy,
+    GenerationOrchestrationSavedView,
+    GenerationOrchestrationDashboardSummary,
+    GenerationOrchestrationViewPreferences,
+    OrchestrationAttentionSeverity,
+    OrchestrationPreset,
     GenerationRoutingDecision,
     GenerationSchedulerEvent,
     GenerationSchedulingPolicy,
@@ -114,6 +124,13 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "OrchestrationAttentionSeverity",
+    "GenerationOrchestrationSavedView",
+    "GenerationOrchestrationAttentionItem",
+    "GenerationOrchestrationOperatorAction",
+    "DeadlineRiskLevel",
+    "GenerationDeadlinePolicy",
+    "GenerationQueueForecast",
     "SchedulingMode",
     "ProviderThrottleSnapshot",
     "GenerationSchedulerEvent",
@@ -126,6 +143,9 @@ __all__ = [
     "ProviderCircuitStatus",
     "ProviderCircuitSnapshot",
     "GenerationOrchestrationPolicy",
+    "GenerationOrchestrationDashboardSummary",
+    "GenerationOrchestrationViewPreferences",
+    "OrchestrationPreset",
     "GenerationFailoverEvent",
     "GenerationExecutionPlan",
     "evaluate_provider_health",

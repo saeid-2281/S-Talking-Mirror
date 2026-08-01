@@ -322,6 +322,15 @@ class GenerationController(QObject):
             if orchestration_plan.blocked_reason:
                 self.log.emit(orchestration_plan.blocked_reason)
                 return False
+            if orchestration_plan.deadline_enabled:
+                self.log.emit(
+                    "Deadline forecast: "
+                    f"risk={orchestration_plan.deadline_risk_level}, "
+                    f"recommended concurrency="
+                    f"{orchestration_plan.deadline_recommended_concurrency}, "
+                    f"estimated finish="
+                    f"{orchestration_plan.deadline_estimated_finish_at}."
+                )
         self.worker = GenerationWorker(
             pending_jobs,
             settings,

@@ -5,9 +5,15 @@ from dataclasses import replace
 
 from app.database.connection import Database
 from app.models.generation_orchestration import (
+    DeadlineRiskLevel,
     GenerationAdaptiveRoutingPolicy,
+    GenerationDeadlinePolicy,
     GenerationFailoverEvent,
+    GenerationQueueForecast,
+    GenerationOrchestrationOperatorAction,
     GenerationOrchestrationPolicy,
+    GenerationOrchestrationSavedView,
+    GenerationOrchestrationViewPreferences,
     GenerationRoutingDecision,
     GenerationSchedulerEvent,
     GenerationSchedulingPolicy,
@@ -23,6 +29,177 @@ from app.models.generation_orchestration import (
 class GenerationOrchestrationRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
+
+
+    def save_view_preferences(
+        self,
+        preferences: GenerationOrchestrationViewPreferences,
+    ) -> GenerationOrchestrationViewPreferences:
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO generation_orchestration_view_preferences(
+                    preference_key, project_id, selected_tab, auto_refresh,
+                    refresh_interval_seconds, table_density, search_text,
+                    status_filter, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(preference_key) DO UPDATE SET
+                    project_id = excluded.project_id,
+                    selected_tab = excluded.selected_tab,
+                    auto_refresh = excluded.auto_refresh,
+                    refresh_interval_seconds = excluded.refresh_interval_seconds,
+                    table_density = excluded.table_density,
+                    search_text = excluded.search_text,
+                    status_filter = excluded.status_filter,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    preferences.preference_key,
+                    preferences.project_id,
+                    preferences.selected_tab,
+                    int(preferences.auto_refresh),
+                    preferences.refresh_interval_seconds,
+                    preferences.table_density,
+                    preferences.search_text,
+                    preferences.status_filter,
+                    preferences.updated_at,
+                ),
+            )
+        return preferences
+
+    def get_view_preferences(
+        self,
+        project_id: int | None,
+    ) -> GenerationOrchestrationViewPreferences | None:
+        key = "global" if project_id is None else f"project:{project_id}"
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM generation_orchestration_view_preferences WHERE preference_key = ?",
+                (key,),
+            ).fetchone()
+        return self._view_preferences(row) if row is not None else None
+
+    def save_saved_view(
+        self,
+        view: GenerationOrchestrationSavedView,
+    ) -> GenerationOrchestrationSavedView:
+        scope_key = "global" if view.project_id is None else f"project:{view.project_id}"
+        with self.database.transaction() as connection:
+            if view.is_default:
+                connection.execute(
+                    "UPDATE generation_orchestration_saved_views "
+                    "SET is_default = 0 WHERE scope_key = ?",
+                    (scope_key,),
+                )
+            connection.execute(
+                """
+                INSERT INTO generation_orchestration_saved_views(
+                    view_id, scope_key, project_id, name, selected_tab,
+                    table_density, search_text, status_filter, is_default,
+                    created_at, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(view_id) DO UPDATE SET
+                    scope_key = excluded.scope_key,
+                    project_id = excluded.project_id,
+                    name = excluded.name,
+                    selected_tab = excluded.selected_tab,
+                    table_density = excluded.table_density,
+                    search_text = excluded.search_text,
+                    status_filter = excluded.status_filter,
+                    is_default = excluded.is_default,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    view.view_id,
+                    scope_key,
+                    view.project_id,
+                    view.name,
+                    view.selected_tab,
+                    view.table_density,
+                    view.search_text,
+                    view.status_filter,
+                    int(view.is_default),
+                    view.created_at,
+                    view.updated_at,
+                ),
+            )
+        return view
+
+    def list_saved_views(
+        self,
+        *,
+        project_id: int | None,
+    ) -> list[GenerationOrchestrationSavedView]:
+        scope_key = "global" if project_id is None else f"project:{project_id}"
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM generation_orchestration_saved_views "
+                "WHERE scope_key = ? ORDER BY is_default DESC, name COLLATE NOCASE",
+                (scope_key,),
+            ).fetchall()
+        return [self._saved_view(row) for row in rows]
+
+    def get_saved_view(
+        self,
+        view_id: str,
+    ) -> GenerationOrchestrationSavedView | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM generation_orchestration_saved_views WHERE view_id = ?",
+                (view_id,),
+            ).fetchone()
+        return self._saved_view(row) if row is not None else None
+
+    def delete_saved_view(self, view_id: str) -> bool:
+        with self.database.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM generation_orchestration_saved_views WHERE view_id = ?",
+                (view_id,),
+            )
+        return cursor.rowcount > 0
+
+    def add_operator_action(
+        self,
+        action: GenerationOrchestrationOperatorAction,
+    ) -> GenerationOrchestrationOperatorAction:
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO generation_orchestration_operator_actions(
+                    action_id, project_id, action_type, target_type,
+                    target_count, summary, created_at, metadata_json
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    action.action_id,
+                    action.project_id,
+                    action.action_type,
+                    action.target_type,
+                    action.target_count,
+                    action.summary,
+                    action.created_at,
+                    json.dumps(action.metadata, ensure_ascii=False, sort_keys=True),
+                ),
+            )
+        return action
+
+    def list_operator_actions(
+        self,
+        *,
+        project_id: int | None = None,
+        limit: int = 200,
+    ) -> list[GenerationOrchestrationOperatorAction]:
+        where = "WHERE project_id = ?" if project_id is not None else ""
+        params: tuple[object, ...] = (
+            (project_id, max(1, limit)) if project_id is not None else (max(1, limit),)
+        )
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                f"SELECT * FROM generation_orchestration_operator_actions {where} "
+                "ORDER BY created_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [self._operator_action(row) for row in rows]
 
     def save_policy(self, policy: GenerationOrchestrationPolicy) -> GenerationOrchestrationPolicy:
         with self.database.connect() as connection:
@@ -611,6 +788,133 @@ class GenerationOrchestrationRepository:
             ).fetchall()
         return [self._scheduler_event(row) for row in rows]
 
+
+    def save_deadline_policy(
+        self,
+        policy: GenerationDeadlinePolicy,
+    ) -> GenerationDeadlinePolicy:
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO generation_deadline_scheduling_policies(
+                    policy_key, project_id, enabled, target_completion_minutes,
+                    warning_slack_minutes, allow_concurrency_boost,
+                    maximum_deadline_concurrency, fallback_characters_per_minute,
+                    safety_margin_percent, persist_forecasts, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(policy_key) DO UPDATE SET
+                    project_id = excluded.project_id,
+                    enabled = excluded.enabled,
+                    target_completion_minutes = excluded.target_completion_minutes,
+                    warning_slack_minutes = excluded.warning_slack_minutes,
+                    allow_concurrency_boost = excluded.allow_concurrency_boost,
+                    maximum_deadline_concurrency = excluded.maximum_deadline_concurrency,
+                    fallback_characters_per_minute = excluded.fallback_characters_per_minute,
+                    safety_margin_percent = excluded.safety_margin_percent,
+                    persist_forecasts = excluded.persist_forecasts,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    policy.policy_key,
+                    policy.project_id,
+                    int(policy.enabled),
+                    policy.target_completion_minutes,
+                    policy.warning_slack_minutes,
+                    int(policy.allow_concurrency_boost),
+                    policy.maximum_deadline_concurrency,
+                    policy.fallback_characters_per_minute,
+                    policy.safety_margin_percent,
+                    int(policy.persist_forecasts),
+                    policy.updated_at,
+                ),
+            )
+        return policy
+
+    def get_deadline_policy(
+        self,
+        project_id: int | None,
+    ) -> GenerationDeadlinePolicy | None:
+        key = "global" if project_id is None else f"project:{project_id}"
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM generation_deadline_scheduling_policies WHERE policy_key = ?",
+                (key,),
+            ).fetchone()
+        return self._deadline_policy(row) if row is not None else None
+
+    def get_effective_deadline_policy(
+        self,
+        project_id: int | None,
+    ) -> GenerationDeadlinePolicy | None:
+        exact = self.get_deadline_policy(project_id)
+        if exact is not None or project_id is None:
+            return exact
+        global_policy = self.get_deadline_policy(None)
+        if global_policy is None:
+            return None
+        return replace(global_policy, policy_key=f"project:{project_id}", project_id=project_id)
+
+    def add_queue_forecast(
+        self,
+        forecast: GenerationQueueForecast,
+    ) -> GenerationQueueForecast:
+        safe_metadata = {
+            key: value
+            for key, value in forecast.metadata.items()
+            if key not in {"api_key", "credential", "secret"}
+        }
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO generation_queue_forecasts(
+                    forecast_id, project_id, provider, job_count, total_characters,
+                    current_concurrency, recommended_concurrency, characters_per_minute,
+                    estimated_duration_seconds, estimated_finish_at, deadline_at,
+                    slack_seconds, risk_score, risk_level, recommendation, source,
+                    created_at, metadata_json
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    forecast.forecast_id,
+                    forecast.project_id,
+                    forecast.provider,
+                    forecast.job_count,
+                    forecast.total_characters,
+                    forecast.current_concurrency,
+                    forecast.recommended_concurrency,
+                    forecast.characters_per_minute,
+                    forecast.estimated_duration_seconds,
+                    forecast.estimated_finish_at,
+                    forecast.deadline_at,
+                    forecast.slack_seconds,
+                    forecast.risk_score,
+                    str(forecast.risk_level),
+                    forecast.recommendation,
+                    forecast.source,
+                    forecast.created_at,
+                    json.dumps(safe_metadata, ensure_ascii=False, sort_keys=True),
+                ),
+            )
+        return replace(forecast, metadata=safe_metadata)
+
+    def list_queue_forecasts(
+        self,
+        *,
+        project_id: int | None = None,
+        limit: int = 500,
+    ) -> list[GenerationQueueForecast]:
+        where = "WHERE project_id = ?" if project_id is not None else ""
+        params: tuple[object, ...] = (
+            (project_id, max(1, limit)) if project_id is not None else (max(1, limit),)
+        )
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                f"SELECT * FROM generation_queue_forecasts {where} "
+                "ORDER BY created_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [self._queue_forecast(row) for row in rows]
+
     @staticmethod
     def state_key(project_id: int | None, provider: str, profile_id: str | None) -> str:
         project = "global" if project_id is None else str(project_id)
@@ -625,6 +929,50 @@ class GenerationOrchestrationRepository:
     def throttle_key(project_id: int | None, provider: str, profile_id: str | None) -> str:
         return GenerationOrchestrationRepository.state_key(project_id, provider, profile_id)
 
+
+
+    @staticmethod
+    def _deadline_policy(row) -> GenerationDeadlinePolicy:
+        return GenerationDeadlinePolicy(
+            policy_key=str(row["policy_key"]),
+            project_id=row["project_id"],
+            enabled=bool(row["enabled"]),
+            target_completion_minutes=max(1, int(row["target_completion_minutes"])),
+            warning_slack_minutes=max(0, int(row["warning_slack_minutes"])),
+            allow_concurrency_boost=bool(row["allow_concurrency_boost"]),
+            maximum_deadline_concurrency=max(1, int(row["maximum_deadline_concurrency"])),
+            fallback_characters_per_minute=max(1, int(row["fallback_characters_per_minute"])),
+            safety_margin_percent=max(0, int(row["safety_margin_percent"])),
+            persist_forecasts=bool(row["persist_forecasts"]),
+            updated_at=str(row["updated_at"]),
+        )
+
+    @staticmethod
+    def _queue_forecast(row) -> GenerationQueueForecast:
+        try:
+            risk_level = DeadlineRiskLevel(str(row["risk_level"]))
+        except ValueError:
+            risk_level = DeadlineRiskLevel.INSUFFICIENT_DATA
+        return GenerationQueueForecast(
+            forecast_id=str(row["forecast_id"]),
+            project_id=row["project_id"],
+            provider=str(row["provider"]),
+            job_count=max(0, int(row["job_count"])),
+            total_characters=max(0, int(row["total_characters"])),
+            current_concurrency=max(1, int(row["current_concurrency"])),
+            recommended_concurrency=max(1, int(row["recommended_concurrency"])),
+            characters_per_minute=max(0.0, float(row["characters_per_minute"])),
+            estimated_duration_seconds=max(0.0, float(row["estimated_duration_seconds"])),
+            estimated_finish_at=str(row["estimated_finish_at"]),
+            deadline_at=str(row["deadline_at"]),
+            slack_seconds=float(row["slack_seconds"]),
+            risk_score=max(0.0, min(1.0, float(row["risk_score"]))),
+            risk_level=risk_level,
+            recommendation=str(row["recommendation"] or ""),
+            source=str(row["source"] or "fallback"),
+            created_at=str(row["created_at"]),
+            metadata=json.loads(row["metadata_json"] or "{}"),
+        )
 
     @staticmethod
     def _scheduling_policy(row) -> GenerationSchedulingPolicy:
@@ -681,6 +1029,55 @@ class GenerationOrchestrationRepository:
             reason=str(row["reason"] or ""),
             created_at=str(row["created_at"]),
             metadata=json.loads(row["metadata_json"] or "{}"),
+        )
+
+
+    @staticmethod
+    def _saved_view(row) -> GenerationOrchestrationSavedView:
+        density = str(row["table_density"] or "comfortable")
+        if density not in {"compact", "comfortable"}:
+            density = "comfortable"
+        return GenerationOrchestrationSavedView(
+            view_id=str(row["view_id"]),
+            project_id=row["project_id"],
+            name=str(row["name"]),
+            selected_tab=max(0, int(row["selected_tab"])),
+            table_density=density,
+            search_text=str(row["search_text"] or ""),
+            status_filter=str(row["status_filter"] or "all"),
+            is_default=bool(row["is_default"]),
+            created_at=str(row["created_at"]),
+            updated_at=str(row["updated_at"]),
+        )
+
+    @staticmethod
+    def _operator_action(row) -> GenerationOrchestrationOperatorAction:
+        return GenerationOrchestrationOperatorAction(
+            action_id=str(row["action_id"]),
+            project_id=row["project_id"],
+            action_type=str(row["action_type"]),
+            target_type=str(row["target_type"]),
+            target_count=max(0, int(row["target_count"])),
+            summary=str(row["summary"] or ""),
+            created_at=str(row["created_at"]),
+            metadata=json.loads(row["metadata_json"] or "{}"),
+        )
+
+    @staticmethod
+    def _view_preferences(row) -> GenerationOrchestrationViewPreferences:
+        density = str(row["table_density"] or "comfortable")
+        if density not in {"compact", "comfortable"}:
+            density = "comfortable"
+        return GenerationOrchestrationViewPreferences(
+            preference_key=str(row["preference_key"]),
+            project_id=row["project_id"],
+            selected_tab=max(0, int(row["selected_tab"])),
+            auto_refresh=bool(row["auto_refresh"]),
+            refresh_interval_seconds=max(3, int(row["refresh_interval_seconds"])),
+            table_density=density,
+            search_text=str(row["search_text"] or ""),
+            status_filter=str(row["status_filter"] or "all"),
+            updated_at=str(row["updated_at"]),
         )
 
     @staticmethod

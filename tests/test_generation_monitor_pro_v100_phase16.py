@@ -107,8 +107,8 @@ def test_phase16_migration_adds_hardening_schema_and_verified_backup(
     migration_backup = database.path.with_suffix(
         database.path.suffix + ".pre-v16.bak"
     )
-    assert versions == tuple(range(1, 20))
-    assert SCHEMA_VERSION == 19
+    assert versions == tuple(range(1, SCHEMA_VERSION + 1))
+    assert 16 in versions
     assert "generation_maintenance_policies" in tables
     assert "generation_maintenance_runs" in tables
     assert migration_backup.exists()
@@ -137,8 +137,8 @@ def test_phase16_health_policy_and_release_gate(tmp_path: Path) -> None:
     assert inherited.session_retention_days == 400
     assert inherited.backup_retention_count == 7
     assert health.ready
-    assert health.schema_version == 19
-    assert health.applied_versions == tuple(range(1, 20))
+    assert health.schema_version == SCHEMA_VERSION
+    assert health.applied_versions == tuple(range(1, SCHEMA_VERSION + 1))
     assert health.quick_check == "ok"
     assert health.foreign_key_violations == ()
     assert startup_health is not None and startup_health.ready
@@ -165,10 +165,10 @@ def test_phase16_verified_backup_restore_and_manifest(tmp_path: Path) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert second_project > first_project
     assert artifact.quick_check == "ok"
-    assert artifact.schema_version == 19
+    assert artifact.schema_version == SCHEMA_VERSION
     assert len(artifact.sha256) == 64
     assert manifest["sha256"] == artifact.sha256
-    assert manifest["expected_schema_version"] == 19
+    assert manifest["expected_schema_version"] == SCHEMA_VERSION
     assert pre_restore.path.exists()
     assert names == ["Before backup"]
     assert service.health(full=True).ready
@@ -345,8 +345,11 @@ def test_phase16_export_and_dialog(qt_app, tmp_path: Path) -> None:
     assert json_path.exists()
     assert csv_path.exists()
     assert payload["health"]["ready"] is True
-    assert payload["health"]["schema_version"] == 19
+    assert payload["health"]["schema_version"] == SCHEMA_VERSION
     assert dialog.windowTitle() == "Generation Hardening & Maintenance"
     assert dialog.backup_table.columnCount() == 5
     assert dialog.run_table.rowCount() >= 1
-    assert "schema 19/19" in dialog.health_label.text()
+    assert (
+        f"schema {SCHEMA_VERSION}/{SCHEMA_VERSION}"
+        in dialog.health_label.text()
+    )

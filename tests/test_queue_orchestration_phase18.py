@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.database.connection import Database
+from app.release import SCHEMA_VERSION
 from app.models.api_profile import ApiProfileFailoverMode, ApiProfileStatus, FailoverSettings
 from app.models.domain import AppSettings, TTSJob
 from app.models.generation_orchestration import RoutingMode
@@ -103,7 +104,7 @@ def test_phase18_migration_adds_adaptive_routing_schema_and_backup(tmp_path: Pat
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             )
         }
-    assert versions == tuple(range(1, 20))
+    assert versions == tuple(range(1, SCHEMA_VERSION + 1))
     assert {
         "generation_adaptive_routing_policies",
         "generation_provider_routing_metrics",

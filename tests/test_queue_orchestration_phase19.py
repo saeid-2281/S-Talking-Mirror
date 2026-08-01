@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.database.connection import Database
+from app.release import SCHEMA_VERSION
 from app.exceptions import ProviderError
 from app.models.api_profile import ApiProfileFailoverMode, ApiProfileStatus, FailoverSettings
 from app.models.domain import AppSettings, TTSJob
@@ -166,7 +167,7 @@ def test_phase19_migration_adds_scheduler_schema_and_backup(tmp_path: Path) -> N
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             )
         }
-    assert versions == tuple(range(1, 20))
+    assert versions == tuple(range(1, SCHEMA_VERSION + 1))
     assert {
         "generation_scheduling_policies",
         "generation_provider_throttle_states",
