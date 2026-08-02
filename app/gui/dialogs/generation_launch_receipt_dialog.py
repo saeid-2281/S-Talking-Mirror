@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.gui.icons import action_icon
+from app.gui.dialogs.generation_launch_receipt_drift_dialog import GenerationLaunchReceiptDriftDialog
 from app.gui.widgets.dialog_workspace import DialogSection, DialogStatusCard, DialogWorkspace
 from app.models.generation_launch_receipt import GenerationLaunchReceipt
 from app.services.generation_launch_receipt_service import GenerationLaunchReceiptService
@@ -50,6 +51,7 @@ class GenerationLaunchReceiptDialog(QDialog):
         self.copy_path_callback = copy_path
         self.all_receipts: list[GenerationLaunchReceipt] = []
         self.filtered_receipts: list[GenerationLaunchReceipt] = []
+        self.drift_dialogs: list[GenerationLaunchReceiptDriftDialog] = []
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setObjectName("generationLaunchReceiptDialog")
         self.setWindowTitle("Generation launch receipts")
@@ -194,10 +196,18 @@ class GenerationLaunchReceiptDialog(QDialog):
             "Receipt actions",
             "Open or copy only the selected receipt. Export creates a secret-free JSON and CSV catalog of the filtered rows.",
         )
+        self.baseline_label = QLabel("No project baseline selected.")
+        self.baseline_label.setObjectName("historySummaryText")
+        self.baseline_label.setWordWrap(True)
+        actions_section.add_widget(self.baseline_label)
+
         actions = QGridLayout()
         actions.setContentsMargins(0, 0, 0, 0)
         actions.setHorizontalSpacing(8)
         actions.setVerticalSpacing(8)
+        self.set_baseline_button = QPushButton("Set as project baseline")
+        self.clear_baseline_button = QPushButton("Clear project baseline")
+        self.compare_baseline_button = QPushButton("Compare to baseline")
         self.open_json_button = QPushButton("Open JSON receipt")
         self.open_markdown_button = QPushButton("Open Markdown receipt")
         self.open_output_button = QPushButton("Open output")
@@ -205,6 +215,9 @@ class GenerationLaunchReceiptDialog(QDialog):
         self.copy_fingerprint_button = QPushButton("Copy fingerprint")
         self.export_button = QPushButton("Export filtered catalog")
         action_specs = (
+            (self.set_baseline_button, "save"),
+            (self.clear_baseline_button, "general.clear"),
+            (self.compare_baseline_button, "report"),
             (self.open_json_button, "report"),
             (self.open_markdown_button, "report"),
             (self.open_output_button, "project.output_folder"),
@@ -237,6 +250,9 @@ class GenerationLaunchReceiptDialog(QDialog):
         self.integrity_filter.currentIndexChanged.connect(self.apply_filters)
         self.search.textChanged.connect(self.apply_filters)
         self.table.itemSelectionChanged.connect(self.update_details)
+        self.set_baseline_button.clicked.connect(self.set_selected_baseline)
+        self.clear_baseline_button.clicked.connect(self.clear_selected_baseline)
+        self.compare_baseline_button.clicked.connect(self.compare_selected_to_baseline)
         self.open_json_button.clicked.connect(self.open_json)
         self.open_markdown_button.clicked.connect(self.open_markdown)
         self.open_output_button.clicked.connect(self.open_output)
@@ -259,6 +275,7 @@ class GenerationLaunchReceiptDialog(QDialog):
         self.provider_filter.setCurrentIndex(max(0, provider_index))
         self.provider_filter.blockSignals(False)
         self.apply_filters()
+        self.refresh_baseline_status()
 
     def apply_filters(self) -> None:
         project_name = self.project_name if self.current_project_only.isChecked() else None
@@ -307,6 +324,7 @@ class GenerationLaunchReceiptDialog(QDialog):
 
     def update_details(self) -> None:
         receipt = self.selected_receipt()
+        self.refresh_baseline_status(receipt.project_name if receipt else None)
         if receipt is None:
             self.details.clear()
             self._update_action_state()
@@ -333,6 +351,83 @@ class GenerationLaunchReceiptDialog(QDialog):
             )
         )
         self._update_action_state()
+
+    def refresh_baseline_status(self, project_name: str | None = None) -> None:
+        project = project_name or (
+            self.project_name if self.project_name not in {"", "all-projects"} else ""
+        )
+        if not project:
+            receipt = self.selected_receipt()
+            project = receipt.project_name if receipt is not None else ""
+        baseline = self.service.baseline(project) if project else None
+        if baseline is None:
+            self.baseline_label.setText(
+                "No project baseline selected. Choose a trusted receipt to enable drift comparison."
+            )
+            return
+        self.baseline_label.setText(
+            f"Baseline for {baseline.project_name}: "
+            f"{baseline.receipt_id or baseline.launch_fingerprint[:12] or baseline.path.name} "
+            f"· {baseline.integrity_status.title()} · {baseline.created_at}"
+        )
+
+    def set_selected_baseline(self) -> Path | None:
+        receipt = self.selected_receipt()
+        if receipt is None:
+            return None
+        try:
+            path = self.service.set_baseline(receipt)
+        except (ValueError, FileNotFoundError) as exc:
+            self.status_label.setText(str(exc))
+            return None
+        self.refresh_baseline_status(receipt.project_name)
+        self._update_action_state()
+        self.status_label.setText(
+            f"Project baseline set to {receipt.receipt_id or receipt.path.name}."
+        )
+        return path
+
+    def clear_selected_baseline(self) -> bool:
+        receipt = self.selected_receipt()
+        project = receipt.project_name if receipt is not None else self.project_name
+        if not project or project == "all-projects":
+            return False
+        cleared = self.service.clear_baseline(project)
+        self.refresh_baseline_status(project)
+        self._update_action_state()
+        self.status_label.setText(
+            "Project baseline cleared." if cleared else "No project baseline was set."
+        )
+        return cleared
+
+    def compare_selected_to_baseline(self) -> GenerationLaunchReceiptDriftDialog | None:
+        receipt = self.selected_receipt()
+        if receipt is None:
+            return None
+        baseline = self.service.baseline(receipt.project_name)
+        if baseline is None:
+            self.status_label.setText(
+                "Set a trusted receipt as the project baseline before comparing drift."
+            )
+            return None
+        comparison = self.service.compare(baseline, receipt)
+        dialog = GenerationLaunchReceiptDriftDialog(
+            self.service,
+            comparison,
+            self,
+            export_dir=self.export_dir / "drift",
+        )
+        self.drift_dialogs.append(dialog)
+        dialog.finished.connect(self._release_drift_dialog)
+        dialog.show()
+        self.status_label.setText(comparison.summary)
+        return dialog
+
+    def _release_drift_dialog(self, _result: int) -> None:
+        """Release closed child dialogs before deferred Qt deletion runs."""
+        dialog = self.sender()
+        if dialog in self.drift_dialogs:
+            self.drift_dialogs.remove(dialog)
 
     def open_json(self) -> None:
         receipt = self.selected_receipt()
@@ -442,6 +537,10 @@ class GenerationLaunchReceiptDialog(QDialog):
         self.open_output_button.setEnabled(
             bool(receipt and receipt.output_directory and Path(receipt.output_directory).exists())
         )
+        baseline = self.service.baseline(receipt.project_name) if receipt else None
+        self.set_baseline_button.setEnabled(bool(receipt and receipt.integrity_ok))
+        self.clear_baseline_button.setEnabled(baseline is not None)
+        self.compare_baseline_button.setEnabled(bool(receipt and baseline is not None))
         self.copy_path_button.setEnabled(has_receipt)
         self.copy_fingerprint_button.setEnabled(bool(receipt and receipt.launch_fingerprint))
         self.export_button.setEnabled(bool(self.filtered_receipts))
