@@ -14,6 +14,7 @@ from app.services.failure_analysis_service import FailureAnalysisService, RetryP
 from app.services.generation_maintenance_service import GenerationMaintenanceService
 from app.services.generation_monitor_service import GenerationMonitorService
 from app.services.generation_planning_service import GenerationPlanningService
+from app.services.generation_launch_receipt_service import GenerationLaunchReceiptService
 from app.services.generation_orchestration_service import GenerationOrchestrationService
 from app.services.generation_history_service import GenerationHistoryService
 from app.services.generation_incident_service import GenerationIncidentService
@@ -52,6 +53,7 @@ __all__ = [
     "GenerationMaintenanceService",
     "GenerationMonitorService",
     "GenerationPlanningService",
+    "GenerationLaunchReceiptService",
     "GenerationOrchestrationService",
     "GenerationHistoryService",
     "GenerationIncidentService",

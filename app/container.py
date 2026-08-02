@@ -24,6 +24,7 @@ from app.services.audio_player_service import AudioPlayerService
 from app.services.api_profile_service import ApiProfileService
 from app.services.git_service import GitService
 from app.services.generation_confirmation_service import GenerationConfirmationCoordinator
+from app.services.generation_launch_receipt_service import GenerationLaunchReceiptService
 from app.services.generation_cost_capacity_service import GenerationCostCapacityService
 from app.services.generation_scope_service import GenerationScopeService
 from app.services.generation_maintenance_service import GenerationMaintenanceService
@@ -108,6 +109,7 @@ class ServiceContainer:
     generation_scope_service: GenerationScopeService
     source_import_service: SourceImportService
     generation_confirmation_service: GenerationConfirmationCoordinator
+    generation_launch_receipt_service: GenerationLaunchReceiptService
     pronunciation_dictionary_service: PronunciationDictionaryService
     provider_verification_service: ProviderVerificationService
     provider_catalog_service: ProviderCatalogService
@@ -146,6 +148,7 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
     generation_scope_service = GenerationScopeService()
     source_import_service = SourceImportService()
     generation_confirmation_service = GenerationConfirmationCoordinator()
+    generation_launch_receipt_service = GenerationLaunchReceiptService(config.reports_dir)
     git_service = GitService(config.app_root)
     report_service = ReportService(config)
     project_manager = ProjectManager(
@@ -272,6 +275,7 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
         generation_scope_service=generation_scope_service,
         source_import_service=source_import_service,
         generation_confirmation_service=generation_confirmation_service,
+        generation_launch_receipt_service=generation_launch_receipt_service,
         pronunciation_dictionary_service=pronunciation_dictionary_service,
         provider_verification_service=provider_verification_service,
         provider_catalog_service=ProviderCatalogService(),

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from app.models.domain import AppSettings
 from app.models.preflight_state import PreflightState
+from app.services.generation_launch_receipt_service import GenerationLaunchReceiptService
 
 
 @dataclass(frozen=True)
@@ -243,11 +244,12 @@ class GenerationConfirmationCoordinator:
             Path(reports_dir)
             / self._safe_name(project_name)
             / "launches"
-            / f"{timestamp.strftime('%Y-%m-%d_%H-%M-%S')}-{confirmation.fingerprint[:8]}"
+            / f"{timestamp.strftime('%Y-%m-%d_%H-%M-%S-%f')}-{confirmation.fingerprint[:8]}"
         )
         folder.mkdir(parents=True, exist_ok=True)
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
+            "receipt_id": f"launch-{timestamp.strftime('%Y%m%dT%H%M%S%fZ')}-{confirmation.fingerprint[:12]}",
             "created_at": timestamp.isoformat(),
             "project_name": project_name,
             "launch_fingerprint": confirmation.fingerprint,
@@ -278,6 +280,10 @@ class GenerationConfirmationCoordinator:
             "output_directory": str(Path(output_dir)),
             "checks": [asdict(item) for item in confirmation.checks],
             "generation_plan": asdict(state.generation_plan) if state.generation_plan is not None else None,
+        }
+        payload["integrity"] = {
+            "algorithm": "sha256",
+            "digest": GenerationLaunchReceiptService.canonical_digest(payload),
         }
         receipt_path = folder / "generation-launch.json"
         receipt_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -343,9 +349,12 @@ class GenerationConfirmationCoordinator:
         lines = [
             "# S Talking Generation Launch Receipt",
             "",
+            f"- Receipt ID: `{payload.get('receipt_id', '')}`",
             f"- Created: {payload['created_at']}",
             f"- Project: {payload['project_name']}",
             f"- Launch fingerprint: `{payload['launch_fingerprint']}`",
+            f"- Integrity: {payload.get('integrity', {}).get('algorithm', 'legacy')} "
+            f"`{payload.get('integrity', {}).get('digest', '')}`",
             f"- Preflight status: {payload['preflight_status']}",
             f"- Files: {scope['files']:,}",
             f"- Characters: {scope['characters']:,}",

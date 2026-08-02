@@ -9,6 +9,10 @@ from app.models.generation_report import GenerationReport, ReportJob
 from app.models.generation_monitor_state import GenerationMonitorState
 from app.models.generation_scope import ExecutionOrderMode, GenerationPlan, GenerationScopeMode
 from app.models.generation_planning import BatchGenerationPlan, GenerationPlanScenario
+from app.models.generation_launch_receipt import (
+    GenerationLaunchReceipt,
+    GenerationLaunchReceiptSummary,
+)
 from app.models.generation_session import GenerationSession
 from app.models.generation_cost_capacity import (
     GenerationCapacityForecast,
@@ -170,6 +174,8 @@ __all__ = [
     "GenerationPlan",
     "BatchGenerationPlan",
     "GenerationPlanScenario",
+    "GenerationLaunchReceipt",
+    "GenerationLaunchReceiptSummary",
     "GenerationScopeMode",
     "GenerationSession",
     "GenerationHistorySummary",
