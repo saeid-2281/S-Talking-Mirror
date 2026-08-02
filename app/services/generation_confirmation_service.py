@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.models.domain import AppSettings
+from app.models.generation_launch_receipt import GenerationLaunchReceipt
 from app.models.preflight_state import PreflightState
 from app.services.generation_launch_receipt_service import GenerationLaunchReceiptService
 
@@ -41,7 +42,15 @@ class GenerationConfirmationCoordinator:
 
     CLOUD_PROVIDERS = {"elevenlabs", "openai", "azure", "google", "aws_polly"}
 
-    def evaluate(self, state: PreflightState, settings: AppSettings) -> GenerationConfirmation:
+    def evaluate(
+        self,
+        state: PreflightState,
+        settings: AppSettings,
+        *,
+        receipt_service: GenerationLaunchReceiptService | None = None,
+        project_name: str = "",
+        output_dir: Path | None = None,
+    ) -> GenerationConfirmation:
         if state.status == "Blocked by errors":
             checks = (
                 GenerationLaunchCheck(
@@ -216,7 +225,7 @@ class GenerationConfirmationCoordinator:
         else:
             message = "Preflight, scope and planning checks are ready for generation."
 
-        return self._confirmation(
+        confirmation = self._confirmation(
             allowed=True,
             title="Preflight warnings" if state.status == "Ready with warnings" else "Generation ready",
             message=message,
@@ -224,6 +233,147 @@ class GenerationConfirmationCoordinator:
             state=state,
             settings=settings,
             checks=tuple(checks),
+        )
+        return self._apply_baseline_guard(
+            confirmation,
+            state,
+            settings,
+            receipt_service=receipt_service,
+            project_name=project_name,
+            output_dir=output_dir,
+        )
+
+    def _apply_baseline_guard(
+        self,
+        confirmation: GenerationConfirmation,
+        state: PreflightState,
+        settings: AppSettings,
+        *,
+        receipt_service: GenerationLaunchReceiptService | None,
+        project_name: str,
+        output_dir: Path | None,
+    ) -> GenerationConfirmation:
+        project = str(project_name or "").strip()
+        if receipt_service is None or not project:
+            return confirmation
+        candidate = GenerationLaunchReceipt(
+            path=Path(output_dir or ".") / ".generation-launch-preview.json",
+            markdown_path=Path(output_dir or ".") / ".generation-launch-preview.md",
+            schema_version=2,
+            project_name=project,
+            launch_fingerprint=confirmation.fingerprint,
+            preflight_status=state.status,
+            review_status=confirmation.status,
+            provider=settings.provider,
+            model_id=settings.model_id,
+            voice_id=settings.voice_id,
+            language_code=settings.language_code,
+            file_extension=settings.file_extension,
+            max_retries=settings.max_retries,
+            delay_seconds=settings.delay_seconds,
+            skip_existing=settings.skip_existing,
+            overwrite_existing=settings.overwrite_existing,
+            generation_scope=settings.generation_scope,
+            execution_order=settings.execution_order,
+            output_directory=str(Path(output_dir or ".")),
+            files=state.estimated_files,
+            characters=state.estimated_characters,
+            provider_requests=state.estimated_provider_requests,
+            existing_outputs=len(state.existing_outputs),
+            risk_level=(
+                state.generation_plan.risk_level
+                if state.generation_plan is not None
+                else "unknown"
+            ),
+            estimated_cost=(
+                state.generation_plan.estimated_cost
+                if state.generation_plan is not None
+                else state.estimated_cost
+            ),
+            currency=(
+                state.generation_plan.currency
+                if state.generation_plan is not None
+                else "USD"
+            ),
+            required_acknowledgements=confirmation.required_acknowledgements,
+            integrity_status="verified",
+            integrity_message="Current preflight preview.",
+        )
+        decision = receipt_service.evaluate_guard(candidate)
+        if decision.status == "disabled":
+            check = GenerationLaunchCheck(
+                "baseline_guard_disabled",
+                "Project baseline guard is disabled",
+                decision.summary,
+                "info",
+            )
+        elif decision.status == "no_baseline":
+            check = GenerationLaunchCheck(
+                "baseline_guard_no_baseline",
+                "No project launch baseline",
+                "Set a trusted receipt in Reports → Launch Receipts to enable drift protection.",
+                "info",
+            )
+        elif decision.status == "matching":
+            check = GenerationLaunchCheck(
+                "baseline_guard_matching",
+                "Protected launch settings match baseline",
+                decision.summary,
+                "success",
+            )
+        elif decision.status == "informational_drift":
+            check = GenerationLaunchCheck(
+                "baseline_guard_information",
+                "Informational baseline drift",
+                decision.summary,
+                "info",
+            )
+        elif decision.status == "review_required":
+            check = GenerationLaunchCheck(
+                "baseline_drift_guard",
+                "Protected launch settings changed",
+                decision.summary,
+                "error" if decision.critical_count else "warning",
+                True,
+            )
+        else:
+            check = GenerationLaunchCheck(
+                "baseline_drift_blocked",
+                "Project baseline guard blocked launch",
+                decision.summary,
+                "error",
+            )
+        checks = (*confirmation.checks, check)
+        if not decision.allowed:
+            return self._confirmation(
+                allowed=False,
+                title="Launch blocked by project baseline",
+                message=(
+                    f"{decision.summary} Restore protected settings or change the "
+                    "project guard policy in Launch Receipts."
+                ),
+                status="baseline_guard_blocked",
+                state=state,
+                settings=settings,
+                checks=checks,
+            )
+        required = any(item.requires_acknowledgement for item in checks)
+        return self._confirmation(
+            allowed=True,
+            title=(
+                "Baseline drift review"
+                if decision.requires_acknowledgement
+                else confirmation.title
+            ),
+            message=(
+                decision.summary
+                if decision.requires_acknowledgement
+                else confirmation.message
+            ),
+            status="confirmation_required" if required else confirmation.status,
+            state=state,
+            settings=settings,
+            checks=checks,
         )
 
     def write_receipt(

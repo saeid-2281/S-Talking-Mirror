@@ -1839,7 +1839,13 @@ class MainWindow(QMainWindow):
         self.refresh_quota_snapshot()
         s=self.settings(); project=self.project_controller.generation_context(self.out.text())
         state=self.run_preflight(write_report=False)
-        confirmation=self.context.generation_confirmation_service.evaluate(state,s)
+        confirmation=self.context.generation_confirmation_service.evaluate(
+            state,
+            s,
+            receipt_service=self.context.generation_launch_receipt_service,
+            project_name=self.project_controller.project_name,
+            output_dir=project.output_path,
+        )
         if not confirmation.allowed:
             self.show_preflight_dialog(state); return
         acknowledged_codes=self.review_generation_launch(confirmation,state)

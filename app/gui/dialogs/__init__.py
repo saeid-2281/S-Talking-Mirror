@@ -13,7 +13,11 @@ from app.gui.dialogs.generation_reliability_dialog import (
 )
 from app.gui.dialogs.generation_history_dialog import GenerationHistoryDialog
 from app.gui.dialogs.generation_launch_dialog import GenerationLaunchDialog
+from app.gui.dialogs.generation_launch_guard_policy_dialog import (
+    GenerationLaunchGuardPolicyDialog,
+)
 from app.gui.dialogs.generation_launch_receipt_dialog import GenerationLaunchReceiptDialog
+from app.gui.dialogs.generation_launch_receipt_drift_dialog import GenerationLaunchReceiptDriftDialog
 from app.gui.dialogs.generation_maintenance_dialog import GenerationMaintenanceDialog
 from app.gui.dialogs.generation_orchestration_dialog import GenerationOrchestrationDialog
 from app.gui.dialogs.generation_incident_dialog import GenerationIncidentDialog
@@ -57,7 +61,9 @@ __all__ = [
     "GenerationReliabilityDialog",
     "GenerationHistoryDialog",
     "GenerationLaunchDialog",
+    "GenerationLaunchGuardPolicyDialog",
     "GenerationLaunchReceiptDialog",
+    "GenerationLaunchReceiptDriftDialog",
     "GenerationMaintenanceDialog",
     "GenerationOrchestrationDialog",
     "GenerationIncidentDialog",
