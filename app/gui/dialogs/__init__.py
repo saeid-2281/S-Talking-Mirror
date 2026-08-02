@@ -12,6 +12,7 @@ from app.gui.dialogs.generation_reliability_dialog import (
     GenerationSloPolicyDialog,
 )
 from app.gui.dialogs.generation_history_dialog import GenerationHistoryDialog
+from app.gui.dialogs.generation_launch_dialog import GenerationLaunchDialog
 from app.gui.dialogs.generation_maintenance_dialog import GenerationMaintenanceDialog
 from app.gui.dialogs.generation_orchestration_dialog import GenerationOrchestrationDialog
 from app.gui.dialogs.generation_incident_dialog import GenerationIncidentDialog
@@ -29,6 +30,7 @@ from app.gui.dialogs.incident_runbook_editor_dialog import (
     IncidentRunbookEditorDialog,
 )
 from app.gui.dialogs.incident_sla_policy_dialog import IncidentSlaPolicyDialog
+from app.gui.dialogs.interface_preferences_dialog import InterfacePreferencesDialog
 from app.gui.dialogs.performance_budget_dialog import PerformanceBudgetDialog
 from app.gui.dialogs.remediation_automation_policy_dialog import (
     RemediationAutomationPolicyDialog,
@@ -53,6 +55,7 @@ __all__ = [
     "GenerationSloPolicyDialog",
     "GenerationReliabilityDialog",
     "GenerationHistoryDialog",
+    "GenerationLaunchDialog",
     "GenerationMaintenanceDialog",
     "GenerationOrchestrationDialog",
     "GenerationIncidentDialog",
@@ -62,6 +65,7 @@ __all__ = [
     "GenerationIncidentReviewDialog",
     "IncidentRunbookEditorDialog",
     "IncidentSlaPolicyDialog",
+    "InterfacePreferencesDialog",
     "PerformanceBudgetDialog",
     "RemediationAutomationPolicyDialog",
     "PreflightDialog",

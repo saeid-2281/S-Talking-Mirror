@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -21,12 +23,14 @@ from PySide6.QtWidgets import (
 )
 
 from app.gui.dialogs.performance_budget_dialog import PerformanceBudgetDialog
+from app.gui.icons import action_icon
+from app.gui.widgets.dialog_workspace import DialogSection, DialogStatusCard, DialogWorkspace
 from app.models.product_events import BatchSessionRecord
 from app.services.generation_history_service import GenerationHistoryService
 
 
 class GenerationHistoryDialog(QDialog):
-    """Searchable session archive with baselines, regression analysis, and export."""
+    """Professional session archive with analysis, alert and report workflows."""
 
     def __init__(
         self,
@@ -50,11 +54,29 @@ class GenerationHistoryDialog(QDialog):
         self.filtered_sessions: list[BatchSessionRecord] = []
 
         self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setObjectName("generationHistoryDialog")
         self.setWindowTitle("Generation history")
-        self.resize(1260, 760)
+        self.resize(1280, 800)
         root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
 
-        filters = QHBoxLayout()
+        self.workspace = DialogWorkspace(
+            "Generation history",
+            "Search sessions, compare performance, manage regression alerts and open the exact report or output behind each run.",
+            icon_name="history",
+            parent=self,
+        )
+        root.addWidget(self.workspace)
+
+        filters_section = DialogSection(
+            "Find sessions",
+            "Combine project, result, provider, regression and alert filters. Search also checks model, voice, scope and regression reasons.",
+        )
+        filters_section.setObjectName("historyFilterSection")
+        filters = QGridLayout()
+        filters.setContentsMargins(0, 0, 0, 0)
+        filters.setHorizontalSpacing(8)
+        filters.setVerticalSpacing(8)
         self.current_project_only = QCheckBox("Current project only")
         self.current_project_only.setChecked(project_id is not None)
         self.current_project_only.setEnabled(project_id is not None)
@@ -78,24 +100,69 @@ class GenerationHistoryDialog(QDialog):
         self.alert_filter.addItem("Silenced", "silenced")
         self.alert_filter.addItem("No alert", "none")
         self.search = QLineEdit()
+        self.search.setObjectName("historySearch")
         self.search.setPlaceholderText("Search session, provider, model, voice, scope…")
         self.search.setClearButtonEnabled(True)
-        refresh_button = QPushButton("Refresh")
-        refresh_button.clicked.connect(self.refresh)
-        filters.addWidget(self.current_project_only)
-        filters.addWidget(self.result_filter)
-        filters.addWidget(self.provider_filter)
-        filters.addWidget(self.regression_filter)
-        filters.addWidget(self.alert_filter)
-        filters.addWidget(self.search, 1)
-        filters.addWidget(refresh_button)
-        root.addLayout(filters)
+        self.refresh_button = QPushButton("Refresh")
+        self.refresh_button.setObjectName("historyRefreshButton")
+        self.refresh_button.setIcon(action_icon("general.refresh"))
+        self.refresh_button.clicked.connect(self.refresh)
+        filters.addWidget(self.current_project_only, 0, 0)
+        filters.addWidget(self.result_filter, 0, 1)
+        filters.addWidget(self.provider_filter, 0, 2)
+        filters.addWidget(self.regression_filter, 1, 0)
+        filters.addWidget(self.alert_filter, 1, 1)
+        filters.addWidget(self.search, 1, 2)
+        filters.addWidget(self.refresh_button, 1, 3)
+        filters.setColumnStretch(2, 1)
+        filters_section.add_layout(filters)
+        self.workspace.add_body_widget(filters_section)
 
+        self.summary_card = DialogStatusCard(
+            "No sessions loaded",
+            "History metrics update after filters are applied.",
+            tone="info",
+        )
+        self.summary_card.setObjectName("historySummaryCard")
+        summary_layout = self.summary_card.layout()
+        self.metric_row = QHBoxLayout()
+        self.metric_row.setContentsMargins(0, 7, 0, 0)
+        self.metric_row.setSpacing(7)
+        self.metric_values: dict[str, QLabel] = {}
+        for key, label in (
+            ("sessions", "Sessions"),
+            ("completion", "Success"),
+            ("health", "Health"),
+            ("regressions", "Regressions"),
+            ("alerts", "Open alerts"),
+        ):
+            card = QFrame()
+            card.setObjectName("historyMetricCard")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(10, 7, 10, 7)
+            card_layout.setSpacing(1)
+            caption = QLabel(label)
+            caption.setObjectName("historyMetricCaption")
+            value = QLabel("—")
+            value.setObjectName("historyMetricValue")
+            card_layout.addWidget(caption)
+            card_layout.addWidget(value)
+            self.metric_values[key] = value
+            self.metric_row.addWidget(card, 1)
+        summary_layout.addLayout(self.metric_row)
         self.summary_label = QLabel()
+        self.summary_label.setObjectName("historySummaryText")
         self.summary_label.setWordWrap(True)
-        root.addWidget(self.summary_label)
+        summary_layout.addWidget(self.summary_label)
+        self.workspace.add_body_widget(self.summary_card)
 
+        records_section = DialogSection(
+            "Session archive",
+            "Select one session for full operational details or exactly two sessions for a baseline comparison.",
+        )
+        records_section.setObjectName("historyRecordsSection")
         self.table = QTableWidget(0, 16)
+        self.table.setObjectName("generationHistoryTable")
         self.table.setHorizontalHeaderLabels(
             [
                 "Started",
@@ -120,17 +187,36 @@ class GenerationHistoryDialog(QDialog):
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.setMinimumHeight(330)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemSelectionChanged.connect(self.update_details)
-        root.addWidget(self.table, 1)
+        records_section.add_widget(self.table, 1)
+        self.workspace.add_body_widget(records_section, 1)
 
+        details_section = DialogSection(
+            "Selected session details",
+            "Paths, provider configuration, timing, throughput, failures, regression analysis, alert state and incident linkage.",
+        )
+        details_section.setObjectName("historyDetailsSection")
         self.details = QPlainTextEdit()
+        self.details.setObjectName("generationHistoryDetails")
         self.details.setReadOnly(True)
-        self.details.setMaximumHeight(210)
+        self.details.setMaximumHeight(190)
+        self.details.setMinimumHeight(130)
         self.details.setPlaceholderText("Select one session for details or two sessions to compare.")
-        root.addWidget(self.details)
+        details_section.add_widget(self.details)
+        self.workspace.add_body_widget(details_section)
 
-        actions = QHBoxLayout()
+        actions_section = DialogSection(
+            "Operational actions",
+            "Analysis, alert management and report paths remain grouped so the primary workflow is easy to scan.",
+        )
+        actions_section.setObjectName("historyActionsSection")
+        actions = QGridLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setHorizontalSpacing(8)
+        actions.setVerticalSpacing(8)
         self.compare_button = QPushButton("Compare selected")
         self.reanalyze_button = QPushButton("Recalculate baselines")
         self.acknowledge_button = QPushButton("Acknowledge alerts")
@@ -141,7 +227,40 @@ class GenerationHistoryDialog(QDialog):
         self.open_output_button = QPushButton("Open output")
         self.copy_report_button = QPushButton("Copy report path")
         self.export_button = QPushButton("Export filtered history")
+        action_specs = (
+            (self.compare_button, "activity"),
+            (self.reanalyze_button, "general.refresh"),
+            (self.budget_button, "health"),
+            (self.acknowledge_button, "general.success"),
+            (self.silence_button, "notification"),
+            (self.resume_alerts_button, "generation.start"),
+            (self.open_output_button, "project.output_folder"),
+            (self.copy_report_button, "general.copy"),
+        )
+        for index, (button, icon_name) in enumerate(action_specs):
+            button.setObjectName("historyToolAction")
+            button.setIcon(action_icon(icon_name))
+            button.setMinimumHeight(34)
+            actions.addWidget(button, index // 4, index % 4)
+        for column in range(4):
+            actions.setColumnStretch(column, 1)
+        actions_section.add_layout(actions)
+        self.workspace.add_body_widget(actions_section)
+
+        self.status_label = QLabel("Ready")
+        self.status_label.setObjectName("historyStatusLabel")
+        self.status_label.setWordWrap(True)
         close_button = QPushButton("Close")
+        close_button.setObjectName("historyCloseButton")
+        self.open_report_button.setObjectName("historyOpenReportButton")
+        self.open_report_button.setIcon(action_icon("report"))
+        self.export_button.setObjectName("historyExportButton")
+        self.export_button.setIcon(action_icon("save"))
+        self.workspace.add_footer_widget(self.status_label, 1)
+        self.workspace.add_footer_widget(self.open_report_button)
+        self.workspace.add_footer_widget(self.export_button)
+        self.workspace.add_footer_widget(close_button)
+
         self.compare_button.clicked.connect(self.compare_selected)
         self.reanalyze_button.clicked.connect(self.reanalyze_all)
         self.acknowledge_button.clicked.connect(self.acknowledge_selected)
@@ -153,25 +272,6 @@ class GenerationHistoryDialog(QDialog):
         self.copy_report_button.clicked.connect(self.copy_selected_report)
         self.export_button.clicked.connect(self.export_filtered)
         close_button.clicked.connect(self.close)
-        for button in (
-            self.compare_button,
-            self.reanalyze_button,
-            self.acknowledge_button,
-            self.silence_button,
-            self.resume_alerts_button,
-            self.budget_button,
-            self.open_report_button,
-            self.open_output_button,
-            self.copy_report_button,
-            self.export_button,
-        ):
-            actions.addWidget(button)
-        actions.addStretch(1)
-        actions.addWidget(close_button)
-        root.addLayout(actions)
-
-        self.status_label = QLabel()
-        root.addWidget(self.status_label)
 
         self.current_project_only.toggled.connect(self.refresh)
         self.result_filter.currentIndexChanged.connect(self.apply_filters)
@@ -273,6 +373,28 @@ class GenerationHistoryDialog(QDialog):
     def render_summary(self) -> None:
         summary = self.service.summary(self.filtered_sessions)
         trend = self.service.trend(self.filtered_sessions)
+        open_alerts = sum(item.alert_state == "open" for item in self.filtered_sessions)
+        regressions = summary.warning_regressions + summary.critical_regressions
+        self.metric_values["sessions"].setText(f"{summary.session_count:,}")
+        self.metric_values["completion"].setText(f"{summary.completion_rate:.1f}%")
+        self.metric_values["health"].setText(f"{summary.average_health_score:.1f}")
+        self.metric_values["regressions"].setText(f"{regressions:,}")
+        self.metric_values["alerts"].setText(f"{open_alerts:,}")
+        tone = "error" if summary.critical_regressions else "warning" if summary.warning_regressions or open_alerts else "success" if summary.session_count else "info"
+        title = (
+            "Critical performance attention required"
+            if summary.critical_regressions
+            else "Performance review recommended"
+            if summary.warning_regressions or open_alerts
+            else "History is healthy"
+            if summary.session_count
+            else "No sessions match the current view"
+        )
+        detail = (
+            f"{summary.session_count:,} session(s) · {summary.total_jobs:,} job(s) · "
+            f"trend {trend.direction.title()} ({trend.health_delta:+.1f})"
+        )
+        self.summary_card.update_status(title, detail, tone=tone)
         self.summary_label.setText(
             " · ".join(
                 [
@@ -284,7 +406,7 @@ class GenerationHistoryDialog(QDialog):
                     f"Health {summary.average_health_score:.1f}",
                     f"Warnings {summary.warning_regressions:,}",
                     f"Critical {summary.critical_regressions:,}",
-                    f"Open alerts {sum(item.alert_state == 'open' for item in self.filtered_sessions):,}",
+                    f"Open alerts {open_alerts:,}",
                     f"Trend {trend.direction.title()} ({trend.health_delta:+.1f})",
                     f"Avg throughput {summary.average_files_per_minute:.2f} files/min",
                 ]

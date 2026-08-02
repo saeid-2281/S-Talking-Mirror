@@ -8,8 +8,8 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFileDialog,
-    QHBoxLayout,
-    QLabel,
+    QFormLayout,
+    QGridLayout,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.gui.icons import action_icon
+from app.gui.widgets.dialog_workspace import DialogSection, DialogStatusCard, DialogWorkspace
 from app.models.project_source import SourceCollectionImportResult, SourceImportResult
 
 
@@ -25,12 +27,33 @@ class SourceImportReviewDialog(QDialog):
         super().__init__(parent)
         self.import_result = result
         self.selected_mode = "selected"
+        self.setObjectName("sourceImportReviewDialog")
         self.setWindowTitle("Source Import Review")
-        self.resize(980, 560)
-        layout = QVBoxLayout(self)
-        self.summary = QLabel(self._summary_text())
-        layout.addWidget(self.summary)
+        self.resize(1040, 680)
+        self.setMinimumSize(720, 500)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        self.workspace = DialogWorkspace(
+            "Source import review",
+            "Validate mappings, row counts and collisions before creating generation jobs.",
+            icon_name="project.add_sources",
+            parent=self,
+        )
+        root.addWidget(self.workspace)
+
+        self.summary_card = DialogStatusCard("Import summary", self._summary_text(), tone="info")
+        self.summary_card.setObjectName("sourceImportSummaryCard")
+        self.summary = self.summary_card.detail_label
+        self.workspace.add_body_widget(self.summary_card)
+
+        table_section = DialogSection(
+            "Sources and mappings",
+            "Use horizontal scrolling for detailed mapping columns. Select one or more rows before applying source-specific actions.",
+        )
         self.table = QTableWidget(0, 13)
+        self.table.setObjectName("sourceImportTable")
         self.table.setHorizontalHeaderLabels(
             [
                 "Enabled",
@@ -50,23 +73,55 @@ class SourceImportReviewDialog(QDialog):
         )
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        layout.addWidget(self.table, 1)
-        self.render()
-        buttons = QHBoxLayout()
-        for text, handler in [
-            ("Import selected", self.import_selected),
-            ("Import all valid", self.import_all_valid),
-            ("Enable/disable source", self.toggle_selected),
-            ("Remove source", self.remove_selected),
-            ("Reconfigure mapping", self.reconfigure_selected),
-            ("Export diagnostics", self.export_diagnostics),
-            ("Cancel", self.reject),
-        ]:
+        self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.table.setMinimumHeight(280)
+        table_section.add_widget(self.table, 1)
+        self.workspace.add_body_widget(table_section, 1)
+
+        tools_section = DialogSection(
+            "Selected-source tools",
+            "These actions affect only selected source rows and do not import jobs until an Import action is confirmed.",
+        )
+        tools = QGridLayout()
+        tools.setContentsMargins(0, 0, 0, 0)
+        tools.setHorizontalSpacing(8)
+        tools.setVerticalSpacing(8)
+        tool_specs = [
+            ("Enable / disable", self.toggle_selected, "general.settings"),
+            ("Remove source", self.remove_selected, "general.remove"),
+            ("Reconfigure mapping", self.reconfigure_selected, "general.edit"),
+            ("Export diagnostics", self.export_diagnostics, "report"),
+        ]
+        self.tool_buttons: list[QPushButton] = []
+        for index, (text, handler, icon_name) in enumerate(tool_specs):
             button = QPushButton(text)
+            button.setObjectName("sourceImportToolAction")
+            button.setIcon(action_icon(icon_name))
+            button.setMinimumHeight(34)
             button.clicked.connect(handler)
-            buttons.addWidget(button)
-        layout.addLayout(buttons)
+            tools.addWidget(button, index // 2, index % 2)
+            self.tool_buttons.append(button)
+        tools.setColumnStretch(0, 1)
+        tools.setColumnStretch(1, 1)
+        tools_section.add_layout(tools)
+        self.workspace.add_body_widget(tools_section)
+
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.reject)
+        self.import_all_button = QPushButton("Import all valid")
+        self.import_all_button.clicked.connect(self.import_all_valid)
+        self.import_selected_button = QPushButton("Import selected")
+        self.import_selected_button.setObjectName("dialogPrimaryAction")
+        self.import_selected_button.setIcon(action_icon("project.add_sources"))
+        self.import_selected_button.clicked.connect(self.import_selected)
+        self.workspace.add_footer_stretch()
+        self.workspace.add_footer_widget(self.cancel_button)
+        self.workspace.add_footer_widget(self.import_all_button)
+        self.workspace.add_footer_widget(self.import_selected_button)
+
+        self.render()
 
     def importable_results(self) -> list[SourceImportResult]:
         if self.selected_mode == "all":
@@ -124,7 +179,11 @@ class SourceImportReviewDialog(QDialog):
         Path(path).write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def render(self) -> None:
-        self.summary.setText(self._summary_text())
+        valid = sum(len(item.jobs) for item in self.import_result.sources if item.can_import)
+        rejected = sum(item.source.rejected_rows for item in self.import_result.sources)
+        collisions = len(self.import_result.collisions)
+        tone = "error" if collisions else ("warning" if rejected else "success")
+        self.summary_card.update_status("Import summary", self._summary_text(), tone=tone)
         self.table.setRowCount(len(self.import_result.sources))
         for row, item in enumerate(self.import_result.sources):
             source = item.source
@@ -149,20 +208,44 @@ class SourceImportReviewDialog(QDialog):
                 table_item.setToolTip(str(source.source_path) if column in {1, 3} else str(value))
                 self.table.setItem(row, column, table_item)
         self.table.resizeColumnsToContents()
+        self.import_all_button.setEnabled(bool(valid))
+        self.import_selected_button.setEnabled(bool(valid))
 
     def _summary_text(self) -> str:
         valid = sum(len(item.jobs) for item in self.import_result.sources if item.can_import)
         rejected = sum(item.source.rejected_rows for item in self.import_result.sources)
         collisions = len(self.import_result.collisions)
-        return f"{len(self.import_result.sources):,} source(s), {valid:,} importable rows, {rejected:,} rejected rows, {collisions:,} collision(s). Jobs are created only after import."
+        return f"{len(self.import_result.sources):,} source(s) · {valid:,} importable row(s) · {rejected:,} rejected row(s) · {collisions:,} collision(s). Jobs are created only after import."
 
 
 class SourceMappingDialog(QDialog):
     def __init__(self, result: SourceImportResult, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.result = result
+        self.setObjectName("sourceMappingDialog")
         self.setWindowTitle("Reconfigure source mapping")
-        layout = QVBoxLayout(self)
+        self.resize(620, 500)
+        self.setMinimumSize(480, 380)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        self.workspace = DialogWorkspace(
+            "Reconfigure source mapping",
+            "Map source columns to the text, filename and optional provider override fields.",
+            icon_name="general.edit",
+            parent=self,
+        )
+        root.addWidget(self.workspace)
+
+        section = DialogSection(
+            result.source.display_name,
+            "Text and filename are required. Voice, model and language mappings are optional.",
+        )
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setVerticalSpacing(10)
+        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         self.text_column = self._combo(result.source.mapping.text_column)
         self.filename_column = self._combo(result.source.mapping.filename_column)
         self.voice_column = self._combo(result.source.mapping.voice_column, optional=True)
@@ -175,19 +258,19 @@ class SourceMappingDialog(QDialog):
             ("Model column", self.model_column),
             ("Language column", self.language_column),
         ]:
-            row = QHBoxLayout()
-            row.addWidget(QLabel(label))
-            row.addWidget(widget, 1)
-            layout.addLayout(row)
-        buttons = QHBoxLayout()
-        apply_button = QPushButton("Apply")
+            form.addRow(label, widget)
+        section.add_layout(form)
+        self.workspace.add_body_widget(section)
+        self.workspace.add_body_stretch()
+
         cancel = QPushButton("Cancel")
+        apply_button = QPushButton("Apply mapping")
+        apply_button.setObjectName("dialogPrimaryAction")
         apply_button.clicked.connect(self.apply)
         cancel.clicked.connect(self.reject)
-        buttons.addStretch()
-        buttons.addWidget(apply_button)
-        buttons.addWidget(cancel)
-        layout.addLayout(buttons)
+        self.workspace.add_footer_stretch()
+        self.workspace.add_footer_widget(cancel)
+        self.workspace.add_footer_widget(apply_button)
 
     def _combo(self, current: str | None, *, optional: bool = False) -> QComboBox:
         combo = QComboBox()

@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 from app.gui.design_system import COMPACT, SPACING
 from app.gui.icons import action_icon, icon
 from app.gui.widgets import ControlledDoubleSpinBox, ControlledSpinBox
-from app.gui.widgets.provider_controls import ProviderSection
+from app.gui.widgets.provider_controls import ProviderOverviewCard, ProviderSection
 
 
 class IconActionButton(QPushButton):
@@ -138,6 +138,9 @@ class ProviderWorkspaceBuilder:
         header_layout.addWidget(owner.account_manager_button)
         root.addWidget(header)
 
+        owner.provider_overview = ProviderOverviewCard()
+        root.addWidget(owner.provider_overview)
+
         owner.provider = QComboBox()
         owner.provider.addItems(self.PROVIDERS)
         owner.provider.setToolTip(
@@ -226,44 +229,72 @@ class ProviderWorkspaceBuilder:
         piper_row = self._inline_row(owner.piper, owner.piper_model_button)
 
         owner.provider_sections = {
-            "Provider & Account": ProviderSection("Provider & Account", "Account", True),
-            "Voice & Model": ProviderSection("Voice & Model", "Voice/model", True),
-            "Audio Settings": ProviderSection("Audio Settings", "Speed 1.00×", False),
-            "Pronunciation": ProviderSection("Pronunciation", "Project dictionary", False),
-            "Advanced": ProviderSection("Advanced", "Retry 4 · Skip existing", False),
+            "Provider & Account": ProviderSection(
+                "Provider & Account",
+                "Account",
+                True,
+                "Choose the synthesis engine and the credential profile used for this project.",
+            ),
+            "Voice & Model": ProviderSection(
+                "Voice & Model",
+                "Voice/model",
+                True,
+                "Select the speaking voice, model and source language for generated audio.",
+            ),
+            "Audio Settings": ProviderSection(
+                "Audio Settings",
+                "Speed 1.00×",
+                False,
+                "Tune provider-specific expression controls and pacing.",
+            ),
+            "Pronunciation": ProviderSection(
+                "Pronunciation",
+                "Project dictionary",
+                False,
+                "Apply the active pronunciation dictionary without modifying source text.",
+            ),
+            "Advanced": ProviderSection(
+                "Advanced",
+                "Retry 4 · Skip existing",
+                False,
+                "Control failover, retries and output-protection behavior.",
+            ),
         }
         for section in owner.provider_sections.values():
             root.addWidget(section)
 
-        account = owner.provider_sections["Provider & Account"]
-        account.addRow("Provider", owner.provider)
-        account.addRow("API profile", profile_row)
-        account.addRow("API key", key_row)
-        account.addRow("Connection", owner.connection_status)
+        owner.provider_field_rows = {}
 
-        voice = owner.provider_sections["Voice & Model"]
-        voice.addRow("Voice", voice_row)
-        voice.addRow("Model", model_row)
-        voice.addRow("Language", owner.language)
-        voice.addRow("Piper model", piper_row)
+        def add_field(section_name: str, key: str, label: str, widget: QWidget):
+            field = owner.provider_sections[section_name].addRow(label, widget)
+            owner.provider_field_rows[key] = field
+            return field
 
-        audio = owner.provider_sections["Audio Settings"]
-        for label, widget in [
-            ("Stability", owner.stability),
-            ("Similarity", owner.similarity),
-            ("Style", owner.style),
-            ("Speed", owner.speed),
-            ("Delay", owner.delay),
+        add_field("Provider & Account", "provider", "Provider", owner.provider)
+        add_field("Provider & Account", "api_profile", "API profile", profile_row)
+        add_field("Provider & Account", "api_key", "API key", key_row)
+        add_field("Provider & Account", "connection", "Connection", owner.connection_status)
+
+        add_field("Voice & Model", "voice", "Voice", voice_row)
+        add_field("Voice & Model", "model", "Model", model_row)
+        add_field("Voice & Model", "language", "Language", owner.language)
+        add_field("Voice & Model", "piper", "Piper model", piper_row)
+
+        for key, label, widget in [
+            ("stability", "Stability", owner.stability),
+            ("similarity", "Similarity", owner.similarity),
+            ("style", "Style", owner.style),
+            ("speed", "Speed", owner.speed),
+            ("delay", "Delay", owner.delay),
         ]:
-            audio.addRow(label, widget)
+            add_field("Audio Settings", key, label, widget)
 
-        owner.provider_sections["Pronunciation"].addRow("Dictionary", owner.pronunciation_aid)
-        advanced = owner.provider_sections["Advanced"]
-        advanced.addRow("Failover", owner.failover)
-        advanced.addRow("Retries", owner.retries)
-        advanced.addRow("", owner.boost)
-        advanced.addRow("", owner.skip)
-        advanced.addRow("", owner.restore_defaults_button)
+        add_field("Pronunciation", "pronunciation", "Dictionary", owner.pronunciation_aid)
+        add_field("Advanced", "failover", "Failover", owner.failover)
+        add_field("Advanced", "retries", "Retries", owner.retries)
+        add_field("Advanced", "boost", "", owner.boost)
+        add_field("Advanced", "skip", "", owner.skip)
+        add_field("Advanced", "restore_defaults", "", owner.restore_defaults_button)
 
         root.addStretch()
 

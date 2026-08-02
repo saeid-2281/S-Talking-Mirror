@@ -30,7 +30,16 @@ from PySide6.QtWidgets import (
 
 from app.gui.icons import action_icon
 from app.gui.widgets.numeric_spinbox import ControlledDoubleSpinBox, ControlledSpinBox
+from app.gui.widgets.professional_components import InlineFeedbackBar
+from app.gui.widgets.text_studio_quality import TextStudioQualityPanel
 from app.services.text_source_service import TextSourceEntry, TextSourceService
+from app.services.text_studio_quality import (
+    TextStudioQualitySummary,
+    analyze_text_studio_entries,
+    normalize_reading_text,
+    renumber_entry_filenames,
+    replace_entry_text,
+)
 from app.services.text_sources import DocumentSection
 
 
@@ -83,6 +92,7 @@ class TextStudioWorkspace(QWidget):
         self._document_sections: dict[str, list[DocumentSection]] = {}
         self._restored_section_keys: set[str] = set()
         self._entries: list[TextSourceEntry] = []
+        self._quality_summary = analyze_text_studio_entries([])
         self._loading = False
         self.setObjectName("textStudioWorkspace")
         self.setAcceptDrops(True)
@@ -118,6 +128,16 @@ class TextStudioWorkspace(QWidget):
         header_layout.addWidget(self.import_button)
         root.addWidget(header)
 
+        self.quality_panel = TextStudioQualityPanel()
+        self.quality_panel.issues_only_changed.connect(lambda _checked: self._apply_search(self.search.text()))
+        self.quality_panel.normalize_selected_requested.connect(self.normalize_selected_text)
+        self.quality_panel.normalize_all_requested.connect(self.normalize_all_text)
+        self.quality_panel.remove_duplicates_requested.connect(self.remove_duplicate_text)
+        self.quality_panel.renumber_requested.connect(self.renumber_filenames)
+        self.quality_panel.replace_selected_requested.connect(self.replace_selected_text)
+        self.quality_panel.replace_all_requested.connect(self.replace_all_text)
+        root.addWidget(self.quality_panel)
+
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
         splitter.addWidget(self._sources_panel())
@@ -131,7 +151,9 @@ class TextStudioWorkspace(QWidget):
 
         self.metrics = QLabel("0 enabled jobs · 0 characters")
         self.metrics.setObjectName("textStudioWorkspaceMetrics")
+        self.feedback = InlineFeedbackBar()
         root.addWidget(self.metrics)
+        root.addWidget(self.feedback)
 
         self._autosave = QTimer(self)
         self._autosave.setSingleShot(True)
@@ -148,6 +170,10 @@ class TextStudioWorkspace(QWidget):
             if item is None or item.checkState() == Qt.Checked:
                 result.append(entry)
         return result
+
+    @property
+    def quality_summary(self) -> TextStudioQualitySummary:
+        return self._quality_summary
 
     def _sources_panel(self) -> QWidget:
         panel = QFrame()
@@ -551,8 +577,8 @@ class TextStudioWorkspace(QWidget):
         for row in selected_ids:
             if row < self.chunk_table.rowCount():
                 self.chunk_table.selectRow(row)
-        self._apply_search(self.search.text())
         self._update_metrics()
+        self._apply_search(self.search.text())
         self._load_selected_entry()
 
     def _selected_rows(self) -> list[int]:
@@ -747,10 +773,156 @@ class TextStudioWorkspace(QWidget):
         self._schedule_session_save()
 
     def _apply_search(self, query: str) -> None:
-        query = query.strip().casefold()
+        query = str(query or "").strip().casefold()
+        issue_rows = self._quality_summary.issue_rows
+        issues_only = self.quality_panel.issues_only.isChecked()
         for row, entry in enumerate(self._entries):
             haystack = f"{entry.filename}\n{entry.text}\n{entry.source_label}".casefold()
-            self.chunk_table.setRowHidden(row, bool(query) and query not in haystack)
+            query_mismatch = bool(query) and query not in haystack
+            issue_mismatch = issues_only and row not in issue_rows
+            self.chunk_table.setRowHidden(row, query_mismatch or issue_mismatch)
+
+    def _replace_entries_preserving_state(
+        self,
+        entries: list[TextSourceEntry],
+        states: list[bool],
+        *,
+        selected_rows: list[int] | None = None,
+    ) -> None:
+        self._entries = entries
+        self._render_entries()
+        self._restore_enabled_states(states)
+        self.chunk_table.clearSelection()
+        for row in selected_rows or []:
+            if 0 <= row < self.chunk_table.rowCount():
+                self.chunk_table.selectRow(row)
+        self._update_metrics()
+        self._apply_search(self.search.text())
+        self._schedule_session_save()
+
+    def normalize_selected_text(self) -> None:
+        rows = self._selected_rows()
+        if not rows:
+            self.feedback.show_message("Select one or more jobs to normalize.", tone="warning")
+            return
+        states = self._enabled_states()
+        updated = list(self._entries)
+        changed = 0
+        for row in rows:
+            entry = updated[row]
+            text = normalize_reading_text(entry.text)
+            if text and text != entry.text:
+                updated[row] = TextSourceEntry(text, entry.filename, entry.source_label)
+                changed += 1
+        self._replace_entries_preserving_state(updated, states, selected_rows=rows)
+        self.feedback.show_message(
+            f"Normalized whitespace in {changed:,} selected job(s).",
+            tone="success" if changed else "info",
+        )
+
+    def normalize_all_text(self) -> None:
+        states = self._enabled_states()
+        updated: list[TextSourceEntry] = []
+        changed = 0
+        for entry in self._entries:
+            text = normalize_reading_text(entry.text)
+            if text and text != entry.text:
+                changed += 1
+                updated.append(TextSourceEntry(text, entry.filename, entry.source_label))
+            else:
+                updated.append(entry)
+        self._replace_entries_preserving_state(updated, states)
+        self.feedback.show_message(
+            f"Normalized whitespace in {changed:,} job(s).",
+            tone="success" if changed else "info",
+        )
+
+    def remove_duplicate_text(self) -> None:
+        states = self._enabled_states()
+        seen: set[str] = set()
+        keep_entries: list[TextSourceEntry] = []
+        keep_states: list[bool] = []
+        removed = 0
+        for row, entry in enumerate(self._entries):
+            key = " ".join(entry.text.split()).casefold()
+            enabled = states[row] if row < len(states) else True
+            if enabled and key and key in seen:
+                removed += 1
+                continue
+            if enabled and key:
+                seen.add(key)
+            keep_entries.append(entry)
+            keep_states.append(enabled)
+        self._replace_entries_preserving_state(keep_entries, keep_states)
+        self.feedback.show_message(
+            f"Removed {removed:,} duplicate enabled job(s).",
+            tone="success" if removed else "info",
+        )
+
+    def renumber_filenames(self) -> None:
+        states = self._enabled_states()
+        updated = renumber_entry_filenames(
+            self._entries,
+            prefix=self.prefix.text().strip() or "text-studio",
+            start_index=self.start_number.value(),
+            extension=self.extension.currentData() or ".mp3",
+        )
+        self._replace_entries_preserving_state(updated, states)
+        self.feedback.show_message(f"Renumbered {len(updated):,} filename(s).", tone="success")
+
+    def replace_selected_text(self, find_text: str, replacement: str, case_sensitive: bool) -> None:
+        rows = self._selected_rows()
+        if not rows:
+            self.feedback.show_message("Select one or more jobs before replacing text.", tone="warning")
+            return
+        states = self._enabled_states()
+        updated, count = replace_entry_text(
+            self._entries,
+            find_text=find_text,
+            replacement=replacement,
+            rows=rows,
+            case_sensitive=case_sensitive,
+        )
+        self._replace_entries_preserving_state(updated, states, selected_rows=rows)
+        self.feedback.show_message(
+            f"Replaced {count:,} occurrence(s) in selected jobs.",
+            tone="success" if count else "info",
+        )
+
+    def replace_all_text(self, find_text: str, replacement: str, case_sensitive: bool) -> None:
+        states = self._enabled_states()
+        updated, count = replace_entry_text(
+            self._entries,
+            find_text=find_text,
+            replacement=replacement,
+            case_sensitive=case_sensitive,
+        )
+        self._replace_entries_preserving_state(updated, states)
+        self.feedback.show_message(
+            f"Replaced {count:,} occurrence(s) across all jobs.",
+            tone="success" if count else "info",
+        )
+
+    def _annotate_quality_issues(self) -> None:
+        by_row: dict[int, list[str]] = {}
+        for issue in self._quality_summary.issues:
+            by_row.setdefault(issue.row, []).append(issue.message)
+        # Tooltip and metadata are presentation-only. QTableWidgetItem changes
+        # emit itemChanged, whose handler recalculates the quality summary.
+        # Blocking the table signals here prevents issue rows from recursively
+        # re-entering _update_metrics() while their annotations are refreshed.
+        previous = self.chunk_table.blockSignals(True)
+        try:
+            for row in range(self.chunk_table.rowCount()):
+                messages = tuple(by_row.get(row, []))
+                tooltip = "\n".join(messages) or "Preparation checks passed."
+                for column in (1, 2):
+                    item = self.chunk_table.item(row, column)
+                    if item is not None:
+                        item.setToolTip(tooltip)
+                        item.setData(Qt.UserRole + 20, messages)
+        finally:
+            self.chunk_table.blockSignals(previous)
 
     def _update_metrics(self) -> None:
         metrics = self.service.metrics(
@@ -758,19 +930,33 @@ class TextStudioWorkspace(QWidget):
             characters_per_minute=self.characters_per_minute.value(),
             price_per_million_characters=self.price_per_million.value(),
         )
+        self._quality_summary = analyze_text_studio_entries(
+            self._entries,
+            enabled=self._enabled_states(),
+            max_characters=self.max_characters.value(),
+        )
+        self.quality_panel.set_summary(self._quality_summary)
+        self._annotate_quality_issues()
         minutes, seconds = divmod(int(round(metrics.estimated_seconds)), 60)
         duration = f"{minutes}m {seconds}s" if minutes else f"{seconds}s"
         cost = f" · estimated cost {metrics.estimated_cost:,.2f}" if self.price_per_million.value() > 0 else ""
         self.metrics.setText(
             f"{metrics.jobs:,} enabled jobs · {metrics.characters:,} characters · estimated audio {duration}{cost}"
         )
-        self.import_button.setEnabled(bool(self.entries))
+        self.import_button.setEnabled(self._quality_summary.ready_for_import)
+        self.import_button.setToolTip(
+            "Add all enabled jobs to the generation queue"
+            if self._quality_summary.ready_for_import
+            else self._quality_summary.status_text
+        )
 
     def _emit_import(self) -> None:
         entries = self.entries
-        if not entries:
+        if not entries or not self._quality_summary.ready_for_import:
+            self.feedback.show_message(self._quality_summary.status_text, tone=self._quality_summary.tone)
             return
         self.import_requested.emit(entries, self.source_label.text().strip() or "Text Studio")
+        self.feedback.show_message(f"Prepared {len(entries):,} job(s) for queue import.", tone="success")
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.mimeData().hasUrls() and any(

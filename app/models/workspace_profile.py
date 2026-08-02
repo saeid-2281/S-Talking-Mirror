@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class WorkspaceProfile:
-    """Declarative desktop workspace arrangement."""
+    """Declarative desktop workspace arrangement and presentation mode."""
 
     name: str
     left_dock_visible: bool
@@ -17,3 +17,6 @@ class WorkspaceProfile:
     right_tab: int = 0
     toolbar_visible: bool = True
     description: str = ""
+    density: str = "comfortable"
+    header_mode: str = "expanded"
+    metrics_visible: bool = True

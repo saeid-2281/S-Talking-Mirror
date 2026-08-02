@@ -6,6 +6,7 @@ import html
 import json
 import re
 import tempfile
+from dataclasses import asdict, is_dataclass
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,7 @@ from app.services.monitor_formatting import format_duration
 from app.services.voice_service import VoiceService
 from app.services.provider_catalog_service import ProviderCatalogService
 from app.services.provider_readiness_service import ProviderReadinessService
+from app.services.generation_planning_service import GenerationPlanningService
 
 if TYPE_CHECKING:
     from app.services.generation_cost_capacity_service import GenerationCostCapacityService
@@ -51,6 +53,7 @@ class PreflightService:
         self.voice_service = voice_service
         self.provider_readiness_service = provider_readiness_service or ProviderReadinessService()
         self.cost_capacity_service = cost_capacity_service
+        self.planning_service = GenerationPlanningService(cost_capacity_service)
         self.fallback_seconds_per_job = fallback_seconds_per_job
         self.latest: PreflightState | None = None
         self._cache_key: tuple[Any, ...] | None = None
@@ -141,16 +144,20 @@ class PreflightService:
         warnings = sum(1 for issue in issues if issue.severity == "warning")
         blocking = sum(1 for issue in issues if issue.severity in {"hard_error", "overridable_error", "error"} and not (issue.overridable and issue.overridden))
         revision = hashlib.sha256(json.dumps(self._key(jobs, settings, output_dir, csv_path, project_id), default=str, sort_keys=True).encode("utf-8")).hexdigest()
-        estimated_cost = None
-        if self.cost_capacity_service is not None:
-            estimated_cost, _rate, _currency, _source = (
-                self.cost_capacity_service.estimate_cost(
-                    project_id=project_id,
-                    provider=settings.provider,
-                    model=settings.model_id,
-                    characters=pending_characters,
-                )
-            )
+        fallback_duration = len(pending) * self.fallback_seconds_per_job
+        generation_plan = self.planning_service.build(
+            project_id=project_id,
+            provider=settings.provider,
+            model=settings.model_id,
+            files=len(pending),
+            characters=pending_characters,
+            provider_requests=len(pending),
+            fallback_duration_seconds=fallback_duration,
+            quota_snapshot=quota_snapshot,
+            max_retries=settings.max_retries,
+            delay_seconds=settings.delay_seconds,
+        )
+        estimated_cost = generation_plan.estimated_cost if generation_plan.cost_available else None
         state = PreflightState(
             total_jobs=len(jobs),
             valid_jobs=max(0, len(jobs) - len({issue.row for issue in issues if issue.severity in {"hard_error", "error"} and issue.row})),
@@ -164,9 +171,10 @@ class PreflightService:
             existing_outputs=existing_outputs,
             estimated_characters=pending_characters,
             estimated_files=len(pending),
-            estimated_duration_seconds=len(pending) * self.fallback_seconds_per_job,
+            estimated_duration_seconds=generation_plan.estimated_duration_seconds,
             estimated_provider_requests=len(pending),
             estimated_cost=estimated_cost,
+            generation_plan=generation_plan,
             provider_ready=provider_ready,
             output_directory_ready=output_ready,
             can_start=blocking == 0 and bool(pending) and output_ready and provider_ready and extension_ready,
@@ -287,9 +295,30 @@ class PreflightService:
                 else "- Estimated cost: Cost unavailable"
             ),
             f"- Existing outputs: {len(state.existing_outputs):,}",
-            "",
-            "## Issues",
         ]
+        if state.generation_plan is not None:
+            plan = state.generation_plan
+            lines.extend(
+                [
+                    f"- Plan risk: {plan.risk_level.title()}",
+                    f"- Throughput confidence: {plan.throughput_confidence.title()} ({plan.historical_session_count} historical sessions)",
+                    f"- Quota remaining: {plan.quota_remaining:,}" if plan.quota_remaining is not None else "- Quota remaining: Unknown",
+                    f"- Queue budget usage: {plan.budget_usage_percent:.1f}%" if plan.budget_usage_percent is not None else "- Queue budget usage: No limit",
+                    "",
+                    "## Planning scenarios",
+                ]
+            )
+            lines.extend(
+                f"- {scenario.label}: {scenario.characters:,} characters, {scenario.provider_requests:,} requests, {format_duration(scenario.estimated_duration_seconds)}, "
+                + (f"{plan.currency} {scenario.estimated_cost:.4f}" if plan.cost_available else "Cost unavailable")
+                for scenario in plan.scenarios
+            )
+        lines.extend(
+            [
+                "",
+                "## Issues",
+            ]
+        )
         if state.issues:
             lines.extend(
                 f"- {issue.severity.upper()} row {issue.row or '—'} `{issue.filename}`: {issue.message} Fix: {issue.suggested_action}"
@@ -315,11 +344,42 @@ class PreflightService:
 <h1>S Talking Preflight Report</h1>
 <p>Status: <strong>{html.escape(state.status)}</strong></p>
 {self._cost_html(state)}
+{self._plan_html(state)}
 <table><thead><tr><th>Severity</th><th>Row</th><th>Filename</th><th>Problem</th><th>Suggested fix</th></tr></thead><tbody>{rows}</tbody></table>
 </html>
 """
         )
 
+
+    @staticmethod
+    def _plan_html(state: PreflightState) -> str:
+        plan = state.generation_plan
+        if plan is None:
+            return ""
+        scenario_rows = "".join(
+            "<tr>"
+            f"<td>{html.escape(item.label)}</td>"
+            f"<td>{item.retry_reserve_percent}%</td>"
+            f"<td>{item.characters:,}</td>"
+            f"<td>{item.provider_requests:,}</td>"
+            f"<td>{html.escape(format_duration(item.estimated_duration_seconds))}</td>"
+            + (
+                f"<td>{html.escape(plan.currency)} {item.estimated_cost:.4f}</td>"
+                if plan.cost_available
+                else "<td>Cost unavailable</td>"
+            )
+            + "</tr>"
+            for item in plan.scenarios
+        )
+        reasons = " ".join(plan.reasons)
+        return (
+            f"<h2>Batch plan</h2><p>Risk: <strong>{html.escape(plan.risk_level.title())}</strong> · "
+            f"Confidence: {html.escape(plan.throughput_confidence.title())} · "
+            f"{html.escape(reasons)}</p>"
+            "<table><thead><tr><th>Scenario</th><th>Retry reserve</th><th>Characters</th>"
+            "<th>Requests</th><th>Time</th><th>Cost</th></tr></thead>"
+            f"<tbody>{scenario_rows}</tbody></table>"
+        )
 
     @staticmethod
     def _cost_html(state: PreflightState) -> str:
@@ -609,10 +669,14 @@ class PreflightService:
         )
 
     def _sanitize(self, value: Any) -> Any:
+        if is_dataclass(value) and not isinstance(value, type):
+            return self._sanitize(asdict(value))
         if isinstance(value, dict):
             return {key: self._sanitize(item) for key, item in value.items() if "api_key" not in str(key).lower()}
-        if isinstance(value, list):
+        if isinstance(value, (list, tuple)):
             return [self._sanitize(item) for item in value]
+        if isinstance(value, Path):
+            return str(value)
         if isinstance(value, str):
             return SECRET_VALUE.sub("[REDACTED]", value)
         return value

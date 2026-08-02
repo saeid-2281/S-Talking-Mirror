@@ -3,12 +3,17 @@ from app.services.notification_center_service import NotificationCenterService
 from app.services.workspace_profile_service import WorkspaceProfileService
 from app.services.api_profile_service import ApiProfileService
 from app.services.audio_player_service import AudioPlayerService
-from app.services.generation_confirmation_service import GenerationConfirmationCoordinator
+from app.services.generation_confirmation_service import (
+    GenerationConfirmation,
+    GenerationConfirmationCoordinator,
+    GenerationLaunchCheck,
+)
 from app.services.generation_cost_capacity_service import GenerationCostCapacityService
 from app.services.generation_scope_service import GenerationScopeService
 from app.services.failure_analysis_service import FailureAnalysisService, RetryPolicyService
 from app.services.generation_maintenance_service import GenerationMaintenanceService
 from app.services.generation_monitor_service import GenerationMonitorService
+from app.services.generation_planning_service import GenerationPlanningService
 from app.services.generation_orchestration_service import GenerationOrchestrationService
 from app.services.generation_history_service import GenerationHistoryService
 from app.services.generation_incident_service import GenerationIncidentService
@@ -38,12 +43,15 @@ __all__ = [
     "NotificationCenterService",
     "AudioPlayerService",
     "GenerationScopeService",
+    "GenerationConfirmation",
     "GenerationConfirmationCoordinator",
+    "GenerationLaunchCheck",
     "GenerationCostCapacityService",
     "FailureAnalysisService",
     "RetryPolicyService",
     "GenerationMaintenanceService",
     "GenerationMonitorService",
+    "GenerationPlanningService",
     "GenerationOrchestrationService",
     "GenerationHistoryService",
     "GenerationIncidentService",

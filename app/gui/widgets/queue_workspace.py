@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 
+from app.gui.design_system import density_metrics, normalize_density
 from app.gui.widgets.queue_table_model import QueueDataRole
 
 DEFAULT_QUEUE_COLUMNS = (
@@ -352,9 +353,23 @@ class QueueWorkspace(QFrame):
 
         self.command_host = QFrame()
         self.command_host.setObjectName("queueCommandBar")
-        self.command_layout = QHBoxLayout(self.command_host)
-        self.command_layout.setContentsMargins(8, 4, 8, 4)
+        self.command_root_layout = QVBoxLayout(self.command_host)
+        self.command_root_layout.setContentsMargins(8, 6, 8, 6)
+        self.command_root_layout.setSpacing(6)
+        self.command_layout = QHBoxLayout()
+        self.command_layout.setContentsMargins(0, 0, 0, 0)
         self.command_layout.setSpacing(6)
+        self.planning_host = QFrame()
+        self.planning_host.setObjectName("queuePlanningRow")
+        self.planning_layout = QHBoxLayout(self.planning_host)
+        self.planning_layout.setContentsMargins(0, 0, 0, 0)
+        self.planning_layout.setSpacing(6)
+        self.action_layout = QHBoxLayout()
+        self.action_layout.setContentsMargins(0, 0, 0, 0)
+        self.action_layout.setSpacing(6)
+        self.command_root_layout.addLayout(self.command_layout)
+        self.command_root_layout.addLayout(self.action_layout)
+        self.planning_host.hide()
         root.addWidget(self.command_host)
 
         self.summary = QueueScopeSummary()
@@ -371,6 +386,11 @@ class QueueWorkspace(QFrame):
         root.addWidget(self.footer)
 
         self.column_controller: QueueColumnController | None = None
+        self.bound_table = None
+        self._responsive_mode = "wide"
+        self._command_widgets: dict[str, QWidget] = {}
+        self._range_summary: QWidget | None = None
+        self._quota_summary: QWidget | None = None
 
     def set_compact_mode(self, compact: bool) -> None:
         """Prioritize the table on short desktop screens.
@@ -410,8 +430,202 @@ class QueueWorkspace(QFrame):
         self.body_layout.addLayout(layout)
 
     def bind_table(self, table, settings: QSettings | None = None) -> None:  # noqa: ANN001
+        self.bound_table = table
         self.column_controller = QueueColumnController(table, settings)
         self.columns_button.setMenu(self.column_controller.menu)
+
+    def configure_range_summary(self, summary: QWidget, quota: QWidget) -> None:
+        self._range_summary = summary
+        self._quota_summary = quota
+
+    def configure_command_center(self, **widgets: QWidget) -> None:
+        """Register stable command widgets and enable breakpoint reflow.
+
+        MainWindow retains ownership of every action and controller callback;
+        the workspace only changes presentation and visibility.
+        """
+
+        self._command_widgets = dict(widgets)
+        self.set_responsive_mode(self._responsive_mode, force=True)
+
+    @staticmethod
+    def _clear_layout(layout) -> None:  # noqa: ANN001
+        while layout.count():
+            item = layout.takeAt(0)
+            if item is not None and item.spacerItem() is not None:
+                del item
+
+    def _add(self, layout, name: str, stretch: int = 0) -> None:  # noqa: ANN001
+        widget = self._command_widgets.get(name)
+        if widget is not None:
+            layout.addWidget(widget, stretch)
+            # Apply visibility after the widget has been inserted into its new
+            # layout. This is more reliable on Windows/PySide6 when a widget was
+            # explicitly hidden before being moved between command rows.
+            widget.setVisible(True)
+
+    def _command_visibility_matches(self, value: str) -> bool:
+        """Return whether the current explicit visibility matches a breakpoint.
+
+        Responsive mode can already be ``compact`` while a child was hidden by
+        a previous layout pass or restored window state. Treating the mode value
+        alone as authoritative made the method return early and left the More
+        actions control hidden. ``isHidden`` is intentional here: unlike
+        ``isVisible``, it does not depend on transient ancestor visibility while
+        a window is being shown or tested offscreen.
+        """
+
+        if not self._command_widgets:
+            return True
+        planning_attached = self.command_root_layout.indexOf(self.planning_host) >= 0
+        if planning_attached != (value == "compact"):
+            return False
+        expected = {
+            "wide": {
+                "filter_label", "search", "status", "source", "scope", "order",
+                "use_sort", "action_label", "use_selection", "dry_run", "retry",
+                "skip", "reset", "clear", "output",
+            },
+            "standard": {
+                "filter_label", "search", "status", "source", "planning_label",
+                "scope", "order", "use_sort", "action_label", "use_selection",
+                "dry_run", "retry", "skip", "reset", "clear", "output",
+            },
+            "compact": {"search", "status", "source", "scope", "order", "dry_run", "retry", "more"},
+        }[value]
+        return all(widget.isHidden() == (name not in expected) for name, widget in self._command_widgets.items())
+
+    def set_responsive_mode(self, mode: object, *, force: bool = False) -> None:
+        value = str(getattr(mode, "value", mode) or "standard").casefold()
+        if value not in {"compact", "standard", "wide"}:
+            value = "standard"
+        if not force and value == self._responsive_mode and self._command_visibility_matches(value):
+            return
+        self._responsive_mode = value
+        self.setProperty("responsiveMode", value)
+        self.subtitle_label.setVisible(value != "compact")
+        if self._range_summary is not None:
+            self._range_summary.setVisible(value != "compact")
+        if self._quota_summary is not None:
+            self._quota_summary.setVisible(True)
+
+        if not self._command_widgets:
+            self.style().unpolish(self)
+            self.style().polish(self)
+            return
+
+        for widget in self._command_widgets.values():
+            widget.setVisible(False)
+        self._clear_layout(self.command_layout)
+        self._clear_layout(self.planning_layout)
+        self._clear_layout(self.action_layout)
+
+        planning_attached = self.command_root_layout.indexOf(self.planning_host) >= 0
+        if value == "compact" and not planning_attached:
+            self.command_root_layout.insertWidget(1, self.planning_host)
+            self.planning_host.show()
+        elif value != "compact" and planning_attached:
+            self.command_root_layout.removeWidget(self.planning_host)
+            self.planning_host.hide()
+
+        if value == "wide":
+            for name, stretch in (
+                ("filter_label", 0),
+                ("search", 1),
+                ("status", 0),
+                ("source", 0),
+                ("scope", 0),
+                ("order", 0),
+                ("use_sort", 0),
+            ):
+                self._add(self.command_layout, name, stretch)
+            self.planning_layout.addStretch(1)
+            for name in (
+                "action_label",
+                "use_selection",
+                "dry_run",
+                "retry",
+                "skip",
+                "reset",
+                "clear",
+                "output",
+            ):
+                self._add(self.action_layout, name)
+            self.action_layout.addStretch(1)
+        elif value == "standard":
+            for name, stretch in (
+                ("filter_label", 0),
+                ("search", 1),
+                ("status", 0),
+                ("source", 0),
+                ("planning_label", 0),
+                ("scope", 0),
+                ("order", 0),
+                ("use_sort", 0),
+            ):
+                self._add(self.command_layout, name, stretch)
+            for name in (
+                "action_label",
+                "use_selection",
+                "dry_run",
+                "retry",
+                "skip",
+                "reset",
+                "clear",
+                "output",
+            ):
+                self._add(self.action_layout, name)
+            self.action_layout.addStretch(1)
+        else:
+            self._add(self.command_layout, "search", 1)
+            self._add(self.command_layout, "status")
+            self._add(self.planning_layout, "source", 1)
+            self._add(self.planning_layout, "scope")
+            self._add(self.planning_layout, "order")
+            self._add(self.action_layout, "dry_run")
+            self._add(self.action_layout, "retry")
+            self._add(self.action_layout, "more")
+            self.action_layout.addStretch(1)
+
+        self.command_host.updateGeometry()
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def apply_density(self, density: object) -> None:
+        metrics = density_metrics(density)
+        compact = normalize_density(density).value == "compact"
+        self.root_layout.setSpacing(4 if compact else 6)
+        self.heading.layout().setContentsMargins(
+            8 if compact else 10,
+            4 if compact else 6,
+            8,
+            4 if compact else 6,
+        )
+        self.range_layout.setContentsMargins(7 if compact else 8, 3 if compact else 4, 7 if compact else 8, 3 if compact else 4)
+        self.command_root_layout.setContentsMargins(
+            7 if compact else 8,
+            5 if compact else 6,
+            7 if compact else 8,
+            5 if compact else 6,
+        )
+        self.command_root_layout.setSpacing(4 if compact else 6)
+        self.command_layout.setSpacing(5 if compact else 6)
+        self.action_layout.setSpacing(5 if compact else 6)
+        self.summary.setMaximumHeight(34 if compact else 38)
+        self.summary.setMinimumHeight(30 if compact else 32)
+        self.footer.setMinimumHeight(22 if compact else 26)
+        self.setProperty("density", normalize_density(density).value)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+        # Reapply table metrics after repolishing. On Windows, Qt can restore the
+        # header's style-derived default section size during polish(), which made
+        # compact density visually remain at 32 px instead of the requested 30 px.
+        table = self.bound_table
+        if table is not None and hasattr(table, "verticalHeader"):
+            vertical_header = table.verticalHeader()
+            vertical_header.setMinimumSectionSize(max(24, metrics.row_height - 4))
+            vertical_header.setDefaultSectionSize(metrics.row_height)
 
     def update_footer(self, stats: QueueSelectionStats) -> None:
         selected = f" · {stats.selected_jobs:,} selected" if stats.selected_jobs else ""
@@ -424,6 +638,8 @@ def configure_queue_table(table: QTableWidget) -> None:
     """Apply the shared professional data-grid behavior to the queue table."""
 
     table.setObjectName("queueTable")
+    table.setAccessibleName("Generation queue")
+    table.setAccessibleDescription("Jobs in the current generation scope. Use arrow keys to move and Space to select rows.")
     table.setMinimumHeight(180)
     table.setAlternatingRowColors(True)
     table.setShowGrid(False)

@@ -2,6 +2,7 @@ from __future__ import annotations
 import json,os,sys
 
 import app
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from PySide6.QtCore import QSettings,Qt,QTimer,QUrl,QSize
@@ -12,11 +13,22 @@ from app.csv_loader import diagnose_csv, generate_repaired_preview, load_jobs, w
 from app.gui.command_palette import CommandPalette, PaletteCommand
 from app.gui.connection_test_runner import start_connection_test
 from app.gui.developer_tools import DeveloperTools
+from app.gui.design_system import density_metrics, normalize_density
+from app.gui.interface_preferences import (
+    ContrastMode,
+    FocusStyle,
+    InterfacePreferences,
+)
 from app.gui.icons import action_icon, icon
+from app.gui.responsive_workspace import (
+    ResponsiveWorkspaceCoordinator,
+    ResponsiveWorkspaceState,
+    WorkspaceBreakpoint,
+)
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationCostCapacityDialog,GenerationHistoryDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
-from app.gui.widgets import ControlledSpinBox
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationCostCapacityDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
     ApplicationShell,
@@ -32,10 +44,11 @@ from app.gui.widgets.queue_details_pane import QueueDetailsPane
 from app.gui.widgets.activity_timeline import ActivityTimelineWidget
 from app.gui.widgets.notification_center import NotificationCenterWidget
 from app.gui.widgets.text_studio_workspace import TextStudioWorkspace
+from app.gui.widgets.professional_components import LiveStatusAnnouncer
 from app.models import AppSettings, FailureCategory
 from app.models.product_events import BatchSessionRecord
 from app.models.ui_state import SettingsViewData
-from app.services.monitor_formatting import elide_middle, format_characters_per_minute, format_duration, format_files_per_minute, status_color
+from app.services.monitor_formatting import elide_middle, format_characters_per_minute, format_duration, format_files_per_minute
 from app.services.text_source_service import TextSourceService
 
 COLORS=STATUS_COLORS
@@ -133,13 +146,14 @@ class MainWindow(QMainWindow):
         self.workspace_profiles=context.workspace_profile_service; self.notification_center_service=context.notification_center_service; self.activity_timeline_service=context.activity_timeline_service
         self.setAcceptDrops(True)
         self.theme_manager=ThemeManager()
+        self.interface_preferences=InterfacePreferences.from_settings(QSettings('S Talking','S Talking'))
         self.monitor_service=context.generation_monitor_service; self.preflight_service=context.preflight_service
         self.audio_player_service=context.audio_player_service
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
         self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]; self.palette=None; self.actions_by_name={}; self.job_pronunciation_overrides={}; self.project_sources=[]
         self.autosave_timer=QTimer(self); self.autosave_timer.setInterval(30000); self.autosave_timer.timeout.connect(self.autosave); self.autosave_timer.start()
-        self.build(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.restore_layout_state(); self.run_startup_recovery(); self.restore_previous_session(); self.update_window_title(); self.update_status_bar(); QTimer.singleShot(0,self.offer_generation_recovery)
+        self.build(); self.setup_responsive_workspace(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.apply_interface_preferences(self.interface_preferences,persist=False,announce=False); self.restore_layout_state(); self.run_startup_recovery(); self.restore_previous_session(); self.update_window_title(); self.update_status_bar(); QTimer.singleShot(0,self.offer_generation_recovery)
     def set_initial_geometry(self):
         screen=QApplication.primaryScreen(); available=screen.availableGeometry() if screen else None
         if not available:
@@ -188,6 +202,7 @@ class MainWindow(QMainWindow):
         self.build_project_menu(); self.build_settings_menu(); self.build_view_menu(); self.build_generation_menu(); self.build_reports_menu(); self.build_developer_tools_menu(); self.build_help_menu(); self.build_main_toolbar(); self.statusBar()
         self.report_button=QPushButton('Report: none'); self.report_button.setFlat(True); self.report_button.setVisible(False); self.report_button.clicked.connect(self.view_latest_report_dialog); self.statusBar().addPermanentWidget(self.report_button)
         self.health_button=QPushButton('Health: checking…'); self.health_button.setFlat(True); self.health_button.clicked.connect(self.developer_tools.show_health_center); self.statusBar().addPermanentWidget(self.health_button)
+        self.accessibility_announcer=LiveStatusAnnouncer(self); self.statusBar().addPermanentWidget(self.accessibility_announcer)
         palette_action=QAction('Command Palette',self); palette_action.setShortcut(QKeySequence('Ctrl+K')); palette_action.setShortcutContext(Qt.ApplicationShortcut); palette_action.triggered.connect(self.open_command_palette); self.addAction(palette_action); self.actions_by_name['Command Palette']=palette_action
         self.application_shell=ApplicationShell(); self.setCentralWidget(self.application_shell)
         self.project_context_widget=ProjectContextBar(
@@ -214,12 +229,72 @@ class MainWindow(QMainWindow):
         self.left_dock=WorkspaceDockWidget('Workspace',self); self.left_dock.setObjectName('workspaceLeftDock'); self.left_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea); self.left_dock.setWidget(self.left_tabs); self.left_dock.setMinimumWidth(270); self.left_dock.setMaximumWidth(340); self.addDockWidget(Qt.LeftDockWidgetArea,self.left_dock)
         self.queue_workspace=QueueWorkspace(); mid=self.queue_workspace; ml=self.queue_workspace.body_layout; self.queue_count_labels={}
         rangebar=self.queue_workspace.range_layout; self.range_basis=QComboBox(); self.range_basis.addItem('Original source row','row_range'); self.range_basis.addItem('Current displayed order','display_range'); self.range_from=ControlledSpinBox(); self.range_to=ControlledSpinBox(); self.range_from.setRange(0,999999); self.range_to.setRange(0,999999); self.range_from.setSpecialValueText('First'); self.range_to.setSpecialValueText('Last'); self.range_summary_label=QLabel('Range basis: Original source row · all rows'); self.quota_scope_label=QLabel('Quota unavailable'); self.quota_scope_label.setToolTip('Scoped ElevenLabs quota comparison updates after account refresh and range changes.'); self.range_basis.currentIndexChanged.connect(self.apply_row_range); self.range_from.valueChanged.connect(self.apply_row_range); self.range_to.valueChanged.connect(self.apply_row_range); rangebar.addWidget(QLabel('Range basis')); rangebar.addWidget(self.range_basis); rangebar.addWidget(QLabel('From')); rangebar.addWidget(self.range_from); rangebar.addWidget(QLabel('To')); rangebar.addWidget(self.range_to); rangebar.addWidget(self.range_summary_label,1); rangebar.addWidget(self.quota_scope_label)
-        qbar=self.queue_workspace.command_layout; self.queue_search=QLineEdit(); self.queue_search.setObjectName('queueSearch'); self.queue_search.setPlaceholderText('Search filename, source, text…'); self.queue_search.setClearButtonEnabled(True); self.queue_search.setMaximumWidth(280); self.queue_search.textChanged.connect(self.queue_search_changed); self.queue_filter=QComboBox(); self.queue_filter.addItems(['All','Pending','Running','Completed','Failed','Skipped']); self.source_filter=QComboBox(); self.source_filter.addItem('All sources',None); self.source_filter.currentIndexChanged.connect(self.apply_source_filter); self.scope_selector=QComboBox(); self.scope_selector.addItem('Entire queue','entire_queue'); self.scope_selector.addItem('Current source','current_source'); self.scope_selector.addItem('Current filtered list','filtered'); self.scope_selector.addItem('Selected rows','selected'); self.scope_selector.addItem('Original row range','row_range'); self.scope_selector.addItem('Displayed range','display_range'); self.scope_selector.addItem('Automatic quota batch','quota_batch'); self.scope_selector.setCurrentIndex(4); self.scope_selector.currentIndexChanged.connect(self.apply_generation_scope); self.order_selector=QComboBox(); self.order_selector.addItem('CSV order','csv'); self.order_selector.addItem('Filename A-Z','filename_asc'); self.order_selector.addItem('Filename Z-A','filename_desc'); self.order_selector.addItem('Shortest first','character_shortest'); self.order_selector.addItem('Longest first','character_longest'); self.order_selector.addItem('Status order','status'); self.order_selector.addItem('Custom order','custom'); self.order_selector.currentIndexChanged.connect(self.apply_execution_order); self.use_sort_button=QPushButton('Use table order'); self.use_selection_scope_button=QPushButton('Use selection as scope'); self.use_selection_scope_button.clicked.connect(self.use_selection_as_scope); self.use_sort_button.clicked.connect(self.use_current_sort_as_generation_order); self.dry_run_button=QPushButton('Dry run'); self.dry_run_button.setIcon(action_icon('generation.dry_run')); self.retry_failed_button=QPushButton('Retry Failed'); self.retry_selected_button=QPushButton('Retry Selected'); self.skip_selected_button=QPushButton('Skip Selected'); self.reset_selected_button=QPushButton('Reset Selected'); self.clear_completed_button=QPushButton('Clear Completed'); self.open_output_button=QPushButton('Open Output'); self.retry_menu_button=self.queue_menu_button('Retry',action_icon('generation.retry'),[('Retry all eligible',self.retry_all_eligible),('Retry transient only',self.retry_transient),('Retry selected (policy)',self.retry_selected_policy),('Retry by error category',self.retry_by_category),('Manual override selected',self.manual_retry_selected),('Export failure report',self.export_failure_report)]); self.skip_menu_button=self.queue_menu_button('Skip',action_icon('generation.skip'),[('Skip selected',self.skip_selected)]); self.reset_menu_button=self.queue_menu_button('Reset',action_icon('generation.reset'),[('Reset selected',self.reset_selected)]); self.output_menu_button=self.queue_menu_button('Output',action_icon('project.output_folder'),[('Reveal output',self.open_selected_output),('Open containing folder',self.open_output_folder),('Copy path',self.copy_selected_output_path)])
-        qbar.addWidget(self.queue_search,1); qbar.addWidget(QLabel('Status')); qbar.addWidget(self.queue_filter); qbar.addWidget(QLabel('Source')); qbar.addWidget(self.source_filter); qbar.addWidget(QLabel('Scope')); qbar.addWidget(self.scope_selector); qbar.addWidget(QLabel('Order')); qbar.addWidget(self.order_selector); qbar.addWidget(self.use_sort_button)
-        for b in [self.use_selection_scope_button,self.dry_run_button,self.retry_menu_button,self.skip_menu_button,self.reset_menu_button,self.clear_completed_button,self.output_menu_button]: qbar.addWidget(b)
-        qbar.addStretch()
+        qbar=self.queue_workspace.command_layout; actionbar=self.queue_workspace.action_layout
+        self.queue_search=QLineEdit(); self.queue_search.setObjectName('queueSearch'); self.queue_search.setPlaceholderText('Search filename, source or text…'); self.queue_search.setClearButtonEnabled(True); self.queue_search.setAccessibleName('Search generation queue'); self.queue_search.setAccessibleDescription('Filter jobs by filename, source or text'); self.queue_search.setMinimumWidth(220); self.queue_search.setMaximumWidth(360); self.queue_search.textChanged.connect(self.queue_search_changed)
+        self.queue_filter=QComboBox(); self.queue_filter.setObjectName('queueStatusFilter'); self.queue_filter.setAccessibleName('Queue status filter'); self.queue_filter.addItems(['All','Pending','Running','Completed','Failed','Skipped']); self.queue_filter.setMinimumWidth(105); self.queue_filter.setMaximumWidth(135)
+        self.source_filter=QComboBox(); self.source_filter.setObjectName('queueSourceFilter'); self.source_filter.setAccessibleName('Queue source filter'); self.source_filter.addItem('All sources',None); self.source_filter.setMinimumWidth(130); self.source_filter.setMaximumWidth(220); self.source_filter.currentIndexChanged.connect(self.apply_source_filter)
+        self.scope_selector=QComboBox(); self.scope_selector.setObjectName('queueScopeSelector'); self.scope_selector.setAccessibleName('Generation scope'); self.scope_selector.addItem('Entire queue','entire_queue'); self.scope_selector.addItem('Current source','current_source'); self.scope_selector.addItem('Current filtered list','filtered'); self.scope_selector.addItem('Selected rows','selected'); self.scope_selector.addItem('Original row range','row_range'); self.scope_selector.addItem('Displayed range','display_range'); self.scope_selector.addItem('Automatic quota batch','quota_batch'); self.scope_selector.setCurrentIndex(4); self.scope_selector.setMinimumWidth(135); self.scope_selector.setMaximumWidth(190); self.scope_selector.currentIndexChanged.connect(self.apply_generation_scope)
+        self.order_selector=QComboBox(); self.order_selector.setObjectName('queueOrderSelector'); self.order_selector.setAccessibleName('Generation order'); self.order_selector.addItem('CSV order','csv'); self.order_selector.addItem('Filename A-Z','filename_asc'); self.order_selector.addItem('Filename Z-A','filename_desc'); self.order_selector.addItem('Shortest first','character_shortest'); self.order_selector.addItem('Longest first','character_longest'); self.order_selector.addItem('Status order','status'); self.order_selector.addItem('Custom order','custom'); self.order_selector.setMinimumWidth(120); self.order_selector.setMaximumWidth(175); self.order_selector.currentIndexChanged.connect(self.apply_execution_order)
+        self.use_sort_button=QPushButton('Use table order'); self.use_sort_button.setObjectName('queueSecondaryAction')
+        self.use_selection_scope_button=QPushButton('Use selection'); self.use_selection_scope_button.setObjectName('queueSecondaryAction'); self.use_selection_scope_button.setToolTip('Use selected rows as the generation scope'); self.use_selection_scope_button.clicked.connect(self.use_selection_as_scope); self.use_sort_button.clicked.connect(self.use_current_sort_as_generation_order)
+        self.dry_run_button=QPushButton('Dry run'); self.dry_run_button.setObjectName('queuePrimaryAction'); self.dry_run_button.setIcon(action_icon('generation.dry_run'))
+        self.retry_failed_button=QPushButton('Retry Failed'); self.retry_selected_button=QPushButton('Retry Selected'); self.skip_selected_button=QPushButton('Skip Selected'); self.reset_selected_button=QPushButton('Reset Selected'); self.clear_completed_button=QPushButton('Clear Completed'); self.clear_completed_button.setObjectName('queueSecondaryAction'); self.open_output_button=QPushButton('Open Output')
+        self.retry_menu_button=self.queue_menu_button('Retry',action_icon('generation.retry'),[('Retry all eligible',self.retry_all_eligible),('Retry transient only',self.retry_transient),('Retry selected (policy)',self.retry_selected_policy),('Retry by error category',self.retry_by_category),('Manual override selected',self.manual_retry_selected),('Export failure report',self.export_failure_report)]); self.retry_menu_button.setObjectName('queueActionMenu')
+        self.skip_menu_button=self.queue_menu_button('Skip',action_icon('generation.skip'),[('Skip selected',self.skip_selected)]); self.skip_menu_button.setObjectName('queueActionMenu')
+        self.reset_menu_button=self.queue_menu_button('Reset',action_icon('generation.reset'),[('Reset selected',self.reset_selected)]); self.reset_menu_button.setObjectName('queueActionMenu')
+        self.output_menu_button=self.queue_menu_button('Output',action_icon('project.output_folder'),[('Reveal output',self.open_selected_output),('Open containing folder',self.open_output_folder),('Copy path',self.copy_selected_output_path)]); self.output_menu_button.setObjectName('queueActionMenu')
+        filter_label=QLabel('Filters'); filter_label.setObjectName('queueCommandSectionLabel')
+        planning_label=QLabel('Scope & order'); planning_label.setObjectName('queueCommandSectionLabel')
+        action_label=QLabel('Actions'); action_label.setObjectName('queueCommandSectionLabel')
+        qbar.addWidget(filter_label); qbar.addWidget(self.queue_search,1); qbar.addWidget(self.queue_filter); qbar.addWidget(self.source_filter); qbar.addWidget(self.scope_selector); qbar.addWidget(self.order_selector); qbar.addWidget(self.use_sort_button)
+        actionbar.addWidget(action_label); actionbar.addWidget(self.use_selection_scope_button); actionbar.addWidget(self.dry_run_button); actionbar.addWidget(self.retry_menu_button); actionbar.addWidget(self.skip_menu_button); actionbar.addWidget(self.reset_menu_button); actionbar.addWidget(self.clear_completed_button); actionbar.addWidget(self.output_menu_button); actionbar.addStretch(1)
+        self.queue_more_actions_button=QToolButton(); self.queue_more_actions_button.setObjectName('queueMoreActionsButton'); self.queue_more_actions_button.setText('More'); self.queue_more_actions_button.setIcon(action_icon('general.more')); self.queue_more_actions_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon); self.queue_more_actions_button.setPopupMode(QToolButton.InstantPopup); self.queue_more_actions_button.setAccessibleName('More queue actions')
+        more_menu=QMenu(self.queue_more_actions_button)
+        for label,handler,icon_name in [
+            ('Use selection as scope',self.use_selection_as_scope,'queue'),
+            ('Use current table order',self.use_current_sort_as_generation_order,'sort'),
+            ('Skip selected',self.skip_selected,'generation.skip'),
+            ('Reset selected',self.reset_selected,'generation.reset'),
+            ('Clear completed',self.clear_completed,'general.clear'),
+            ('Open selected output',self.open_selected_output,'project.output_folder'),
+            ('Open output folder',self.open_output_folder,'project.output_folder'),
+            ('Copy selected output path',self.copy_selected_output_path,'general.copy'),
+        ]:
+            action=more_menu.addAction(action_icon(icon_name),label); action.triggered.connect(handler)
+        self.queue_more_actions_button.setMenu(more_menu)
+        self.queue_workspace.configure_range_summary(self.range_summary_label,self.quota_scope_label)
+        self.queue_workspace.configure_command_center(
+            filter_label=filter_label,
+            planning_label=planning_label,
+            action_label=action_label,
+            search=self.queue_search,
+            status=self.queue_filter,
+            source=self.source_filter,
+            scope=self.scope_selector,
+            order=self.order_selector,
+            use_sort=self.use_sort_button,
+            use_selection=self.use_selection_scope_button,
+            dry_run=self.dry_run_button,
+            retry=self.retry_menu_button,
+            skip=self.skip_menu_button,
+            reset=self.reset_menu_button,
+            clear=self.clear_completed_button,
+            output=self.output_menu_button,
+            more=self.queue_more_actions_button,
+        )
         self.queue_scope_summary=self.queue_workspace.summary
-        self.empty_state=QFrame(); self.empty_state.setObjectName('emptyState'); self.empty_state.setMaximumWidth(440); ev=QVBoxLayout(self.empty_state); ev.setContentsMargins(24,24,24,24); ev.setSpacing(10); logo=QLabel(); logo.setPixmap(AboutDialog.app_icon(self.context.container.runtime).pixmap(42,42)); logo.setAlignment(Qt.AlignCenter); title=QLabel('No sources added'); title.setObjectName('emptyTitle'); title.setAlignment(Qt.AlignCenter); helper=QLabel('Add CSV, Excel or text documents, or enter text manually to start generating audio.'); helper.setObjectName('emptyHelper'); helper.setAlignment(Qt.AlignCenter); self.empty_add_source_button=QPushButton('Add source files'); self.empty_add_source_button.setIcon(icon('add')); self.empty_add_text_button=QPushButton('Enter text'); self.empty_add_text_button.setIcon(action_icon('project.add_text_source')); self.empty_open_project_button=QPushButton('Open project'); self.empty_open_project_button.setIcon(icon('open')); self.empty_recent_projects_button=QPushButton('Recent projects'); self.empty_recent_projects_button.setIcon(icon('project')); self.empty_add_source_button.clicked.connect(self.add_source_files); self.empty_add_text_button.clicked.connect(self.add_text_source); self.empty_open_project_button.clicked.connect(self.open_project); self.empty_recent_projects_button.clicked.connect(self.recent_projects); erow=QHBoxLayout(); erow.addStretch(); erow.addWidget(self.empty_add_source_button); erow.addWidget(self.empty_add_text_button); erow.addWidget(self.empty_open_project_button); erow.addWidget(self.empty_recent_projects_button); erow.addStretch(); ev.addWidget(logo); ev.addWidget(title); ev.addWidget(helper); ev.addLayout(erow); empty_wrap=QHBoxLayout(); empty_wrap.addStretch(); empty_wrap.addWidget(self.empty_state); empty_wrap.addStretch(); ml.addLayout(empty_wrap)
+        self.empty_state=EmptyStateCard(
+            'No sources added',
+            'Add CSV, Excel or text documents, or enter text manually to start generating audio.',
+            icon_name='project.add_sources',
+        )
+        self.empty_state.setObjectName('emptyState')
+        self.empty_state.setMaximumWidth(560)
+        self.empty_add_source_button=self.empty_state.add_action('Add source files',self.add_source_files,icon_name='project.add_sources',primary=True)
+        self.empty_add_text_button=self.empty_state.add_action('Enter text',self.add_text_source,icon_name='project.add_text_source')
+        self.empty_open_project_button=self.empty_state.add_action('Open project',self.open_project,icon_name='project.open')
+        self.empty_recent_projects_button=self.empty_state.add_action('Recent projects',self.recent_projects,icon_name='history')
+        empty_wrap=QHBoxLayout(); empty_wrap.addStretch(); empty_wrap.addWidget(self.empty_state); empty_wrap.addStretch(); ml.addLayout(empty_wrap)
         self.queue_model_view_active=self.queue_model_view_enabled()
         if self.queue_model_view_active:
             self.table=QueueTableView(); self.table.setObjectName('queueTable'); self.table.setItemDelegateForColumn(5,QueueStatusDelegate(self.table)); self.queue_adapter=QueueViewAdapter(self.table,parent=self)
@@ -230,11 +305,16 @@ class MainWindow(QMainWindow):
         self.queue_details=QueueDetailsPane(pb,play_output=self.play_selected_output,open_output=self.open_selected_output,stop_playback=self.audio_player_service.stop,copy_output=self.copy_selected_output_path)
         self.pname=self.queue_details.pname; self.pstatus=self.queue_details.pstatus; self.pmeta=self.queue_details.pmeta; self.presolved=self.queue_details.presolved; self.poutput=self.queue_details.poutput; self.pretry=self.queue_details.pretry; self.ptext=self.queue_details.ptext
         self.play_output_button=self.queue_details.play_output_button; self.open_selected_button=self.queue_details.open_selected_button; self.stop_playback_button=self.queue_details.stop_playback_button; self.copy_output_button=self.queue_details.copy_output_button
-        self.right_tabs=DockTabWidget(); self.right_tabs.setObjectName('rightInspectorTabs'); self.right_tabs.setMinimumWidth(0); self.right_tabs.addTab(pb,icon('queue'),'Selected Row'); self.notification_center=NotificationCenterWidget(self.notification_center_service,self); self.right_dock=MonitorDockWidget('Generation Monitor',self); self.right_dock.setObjectName('workspaceRightDock'); self.right_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea); self.right_dock.setWidget(self.right_tabs); self.right_dock.setMinimumWidth(MONITOR_MIN_WIDTH); self.right_dock.setMaximumWidth(self.safe_monitor_width()); pb.set_visibility_proxy(self.right_dock); self.addDockWidget(Qt.RightDockWidgetArea,self.right_dock); self.notification_dock=WorkspaceDockWidget('Notifications',self); self.notification_dock.setObjectName('notificationCenterDock'); self.notification_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea|Qt.BottomDockWidgetArea); self.notification_dock.setWidget(self.notification_center); self.notification_dock.setMinimumWidth(300); self.addDockWidget(Qt.RightDockWidgetArea,self.notification_dock); self.notification_dock.visibilityChanged.connect(self.view_notifications_action.setChecked); self.notification_dock.hide(); self.text_studio=TextStudioWorkspace(TextSourceService(),session_path=self.context.container.runtime.data_dir/'text-studio-session.json',parent=self); self.text_studio.import_requested.connect(self.import_text_studio_entries); self.text_studio_dock=WorkspaceDockWidget('Text Studio',self); self.text_studio_dock.setObjectName('textStudioDock'); self.text_studio_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea|Qt.BottomDockWidgetArea); self.text_studio_dock.setWidget(self.text_studio); self.text_studio_dock.setMinimumWidth(720); self.addDockWidget(Qt.BottomDockWidgetArea,self.text_studio_dock); self.text_studio_dock.visibilityChanged.connect(self.view_text_studio_action.setChecked); self.text_studio_dock.hide(); split.setSizes([980])
+        self.right_tabs=DockTabWidget(); self.right_tabs.setObjectName('rightInspectorTabs'); self.right_tabs.setMinimumWidth(0); self.right_tabs.addTab(pb,icon('queue'),'Selected Row'); self.notification_center=NotificationCenterWidget(self.notification_center_service,self); self.notification_center.action_requested.connect(self.handle_notification_action); self.right_dock=MonitorDockWidget('Generation Monitor',self); self.right_dock.setObjectName('workspaceRightDock'); self.right_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea); self.right_dock.setWidget(self.right_tabs); self.right_dock.setMinimumWidth(MONITOR_MIN_WIDTH); self.right_dock.setMaximumWidth(self.safe_monitor_width()); pb.set_visibility_proxy(self.right_dock); self.addDockWidget(Qt.RightDockWidgetArea,self.right_dock); self.notification_dock=WorkspaceDockWidget('Notifications',self); self.notification_dock.setObjectName('notificationCenterDock'); self.notification_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea|Qt.BottomDockWidgetArea); self.notification_dock.setWidget(self.notification_center); self.notification_dock.setMinimumWidth(360); self.addDockWidget(Qt.RightDockWidgetArea,self.notification_dock); self.notification_dock.visibilityChanged.connect(self.view_notifications_action.setChecked); self.notification_dock.hide(); self.text_studio=TextStudioWorkspace(TextSourceService(),session_path=self.context.container.runtime.data_dir/'text-studio-session.json',parent=self); self.text_studio.import_requested.connect(self.import_text_studio_entries); self.text_studio_dock=WorkspaceDockWidget('Text Studio',self); self.text_studio_dock.setObjectName('textStudioDock'); self.text_studio_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea|Qt.BottomDockWidgetArea); self.text_studio_dock.setWidget(self.text_studio); self.text_studio_dock.setMinimumWidth(720); self.addDockWidget(Qt.BottomDockWidgetArea,self.text_studio_dock); self.text_studio_dock.visibilityChanged.connect(self.view_text_studio_action.setChecked); self.text_studio_dock.hide(); split.setSizes([980])
         self.activity_center=ActivityCenter(); self.activity_tabs=self.activity_center; self.activity_expanded_height=self.activity_center.expanded_height
         self.log=self.activity_center.activity_log; self.output_log=self.activity_center.output_log; self.error_log=self.activity_center.error_log
         self.activity_timeline=ActivityTimelineWidget(self.activity_timeline_service,self); self.activity_center.install_timeline(self.activity_timeline)
+        self.output_workspace=self.activity_center.install_output_workspace(
+            self.audio_player_service,
+            open_path=self.context.desktop_service.open_path,
+        )
         self.generation_status_strip=GenerationStatusStrip(start=self.start,pause=self.pause,stop=self.stop,show_preflight=self.show_latest_preflight)
+        self.generation_status_strip.stateChanged.connect(self.announce_interface_status)
         self.generation_action_bar=self.generation_status_strip
         self.startb=self.generation_status_strip.start_button; self.preflight_status=self.generation_status_strip.preflight_button
         self.pauseb=self.generation_status_strip.pause_button; self.stopb=self.generation_status_strip.stop_button; self.bar=self.generation_status_strip.progress_bar
@@ -291,38 +371,253 @@ class MainWindow(QMainWindow):
         self.view_menu=QMenu('View',self); self.menuBar().addMenu(self.view_menu); theme_menu=self.view_menu.addMenu('Theme'); self.theme_actions={}
         for name in ['Dark','Light','System']:
             action=theme_menu.addAction(name); action.setCheckable(True); action.triggered.connect(lambda _checked,n=name:self.apply_theme(n)); self.theme_actions[name]=action
-        self.view_menu.addSeparator(); self.view_toolbar_action=self.view_menu.addAction(icon('queue'),'Toolbar'); self.view_toolbar_action.setCheckable(True); self.view_toolbar_action.setChecked(True); self.view_toolbar_action.triggered.connect(lambda checked:self.main_toolbar.setVisible(checked)); self.view_provider_dock_action=self.view_menu.addAction(icon('provider'),'Provider/Sources dock'); self.view_provider_dock_action.setCheckable(True); self.view_provider_dock_action.setChecked(True); self.view_provider_dock_action.triggered.connect(lambda checked:self.left_dock.setVisible(checked)); self.view_inspector_dock_action=self.view_menu.addAction(icon('report'),'Inspector/Monitor dock'); self.view_inspector_dock_action.setCheckable(True); self.view_inspector_dock_action.setChecked(True); self.view_inspector_dock_action.triggered.connect(lambda checked:self.right_dock.setVisible(checked)); self.view_activity_action=self.view_menu.addAction(icon('activity'),'Activity panel'); self.view_activity_action.setCheckable(True); self.view_activity_action.setChecked(False); self.view_activity_action.triggered.connect(lambda checked:self.set_activity_expanded(checked)); self.view_notifications_action=self.view_menu.addAction(icon('notification'),'Notification Center'); self.view_notifications_action.setCheckable(True); self.view_notifications_action.setChecked(False); self.view_notifications_action.triggered.connect(lambda checked:self.notification_dock.setVisible(checked)); self.view_text_studio_action=self.view_menu.addAction(action_icon('project.add_text_source'),'Text Studio'); self.view_text_studio_action.setCheckable(True); self.view_text_studio_action.setChecked(False); self.view_text_studio_action.triggered.connect(lambda checked:self.text_studio_dock.setVisible(checked)); self.follow_active_job_action=self.view_menu.addAction(icon('success'),'Follow active job'); self.follow_active_job_action.setCheckable(True); self.follow_active_job_action.setChecked(True)
-        density_menu=self.view_menu.addMenu('Density'); self.density_actions={}
+        self.view_menu.addSeparator(); self.view_toolbar_action=self.view_menu.addAction(icon('queue'),'Toolbar'); self.view_toolbar_action.setCheckable(True); self.view_toolbar_action.setChecked(True); self.view_toolbar_action.triggered.connect(lambda checked:self.main_toolbar.setVisible(checked)); self.view_provider_dock_action=self.view_menu.addAction(icon('provider'),'Provider/Sources dock'); self.view_provider_dock_action.setCheckable(True); self.view_provider_dock_action.setChecked(True); self.view_provider_dock_action.triggered.connect(lambda checked:self.left_dock.setVisible(checked)); self.view_inspector_dock_action=self.view_menu.addAction(icon('report'),'Inspector/Monitor dock'); self.view_inspector_dock_action.setCheckable(True); self.view_inspector_dock_action.setChecked(True); self.view_inspector_dock_action.triggered.connect(lambda checked:self.right_dock.setVisible(checked)); self.view_activity_action=self.view_menu.addAction(icon('activity'),'Activity panel'); self.view_activity_action.setCheckable(True); self.view_activity_action.setChecked(False); self.view_activity_action.triggered.connect(lambda checked:self.set_activity_expanded(checked)); self.view_notifications_action=self.view_menu.addAction(icon('notification'),'Notification Center'); self.view_notifications_action.setCheckable(True); self.view_notifications_action.setChecked(False); self.view_notifications_action.triggered.connect(lambda checked:self.notification_dock.setVisible(checked)); self.view_text_studio_action=self.view_menu.addAction(action_icon('project.add_text_source'),'Text Studio'); self.view_text_studio_action.setCheckable(True); self.view_text_studio_action.setChecked(False); self.view_text_studio_action.setShortcut(QKeySequence('Ctrl+7')); self.view_text_studio_action.triggered.connect(lambda checked:self.text_studio_dock.setVisible(checked)); self.actions_by_name['Text Studio']=self.view_text_studio_action; self.follow_active_job_action=self.view_menu.addAction(icon('success'),'Follow active job'); self.follow_active_job_action.setCheckable(True); self.follow_active_job_action.setChecked(True)
+        self.open_output_workspace_action=self.view_menu.addAction(icon('folder-output'),'Output playback')
+        self.open_output_workspace_action.setShortcut(QKeySequence('Ctrl+6'))
+        self.open_output_workspace_action.triggered.connect(self.show_output_workspace)
+        self.actions_by_name['Output playback']=self.open_output_workspace_action
+        presentation_menu=self.view_menu.addMenu('Workspace presentation')
+        self.focus_queue_action=presentation_menu.addAction(icon('queue'),'Focus queue')
+        self.focus_queue_action.setCheckable(True)
+        self.focus_queue_action.setShortcut(QKeySequence('Ctrl+Shift+F'))
+        self.focus_queue_action.triggered.connect(self.toggle_focus_queue)
+        self.actions_by_name['Focus queue']=self.focus_queue_action
+        self.show_workspace_header_action=presentation_menu.addAction('Show project header')
+        self.show_workspace_header_action.setCheckable(True)
+        self.show_workspace_header_action.setChecked(True)
+        self.show_workspace_header_action.triggered.connect(self.toggle_workspace_header)
+        self.actions_by_name['Show project header']=self.show_workspace_header_action
+        self.show_metrics_action=presentation_menu.addAction('Show queue metrics')
+        self.show_metrics_action.setCheckable(True)
+        self.show_metrics_action.setChecked(True)
+        self.show_metrics_action.triggered.connect(self.toggle_workspace_metrics)
+        self.actions_by_name['Show queue metrics']=self.show_metrics_action
+        density_menu=presentation_menu.addMenu('Density'); self.density_actions={}
+        saved_density=str(QSettings('S Talking','S Talking').value('workspace/density','comfortable'))
         for name in ['Compact','Comfortable']:
-            action=density_menu.addAction(name); action.setCheckable(True); action.setChecked(name=='Compact'); action.triggered.connect(lambda _checked,n=name:self.apply_density(n)); self.density_actions[name]=action
+            action=density_menu.addAction(name); action.setCheckable(True); action.setChecked(name.casefold()==saved_density.casefold()); action.triggered.connect(lambda _checked,n=name:self.apply_density(n,persist=True)); self.density_actions[name]=action
+        accessibility_menu=presentation_menu.addMenu('Interface & accessibility')
+        self.interface_preferences_action=accessibility_menu.addAction('Interface settings…')
+        self.interface_preferences_action.setShortcut(QKeySequence('Ctrl+Alt+I'))
+        self.interface_preferences_action.triggered.connect(self.open_interface_preferences)
+        self.actions_by_name['Interface settings']=self.interface_preferences_action
+        accessibility_menu.addSeparator()
+        self.high_contrast_action=accessibility_menu.addAction('High contrast')
+        self.high_contrast_action.setCheckable(True)
+        self.high_contrast_action.setChecked(self.interface_preferences.contrast is ContrastMode.HIGH)
+        self.high_contrast_action.triggered.connect(self.toggle_high_contrast)
+        self.actions_by_name['High contrast']=self.high_contrast_action
+        self.enhanced_focus_action=accessibility_menu.addAction('Enhanced keyboard focus')
+        self.enhanced_focus_action.setCheckable(True)
+        self.enhanced_focus_action.setChecked(self.interface_preferences.focus_style is FocusStyle.ENHANCED)
+        self.enhanced_focus_action.triggered.connect(self.toggle_enhanced_focus)
+        self.actions_by_name['Enhanced keyboard focus']=self.enhanced_focus_action
+        self.status_announcements_action=accessibility_menu.addAction('Status announcements')
+        self.status_announcements_action.setCheckable(True)
+        self.status_announcements_action.setChecked(self.interface_preferences.announce_status)
+        self.status_announcements_action.triggered.connect(self.toggle_status_announcements)
+        self.actions_by_name['Status announcements']=self.status_announcements_action
+        navigation_menu=self.view_menu.addMenu('Keyboard navigation')
+        for label,region,shortcut in [
+            ('Focus provider panel','provider','Ctrl+1'),
+            ('Focus generation queue','queue','Ctrl+2'),
+            ('Focus inspector panel','inspector','Ctrl+3'),
+            ('Focus activity panel','activity','Ctrl+4'),
+            ('Focus generation controls','generation','Ctrl+5'),
+            ('Focus output playback','output','Ctrl+6'),
+            ('Focus Text Studio','text-studio','Ctrl+7'),
+        ]:
+            action=navigation_menu.addAction(label); action.setShortcut(QKeySequence(shortcut)); action.triggered.connect(lambda _checked=False,r=region:self.focus_workspace_region(r)); self.actions_by_name[label]=action
+        next_region=navigation_menu.addAction('Focus next workspace region'); next_region.setShortcut(QKeySequence('F6')); next_region.triggered.connect(self.cycle_major_panel); self.actions_by_name['Focus next workspace region']=next_region
         self.view_menu.addSeparator(); layout_menu=self.view_menu.addMenu(icon('queue'),'Workspace Layout'); self.layout_actions={}
         for name in self.workspace_profiles.names():
             action=layout_menu.addAction(name); action.setCheckable(True); action.triggered.connect(lambda _checked,n=name:self.apply_workspace_preset(n,save=True)); self.layout_actions[name]=action
         restore=layout_menu.addAction(icon('reset'),'Restore Default Layout'); restore.triggered.connect(self.restore_default_layout); self.actions_by_name['Restore Default Layout']=restore
     def apply_theme(self,name):
-        self.theme_manager.save(name); self.setStyleSheet(self.theme_manager.stylesheet(name))
+        self.theme_manager.save(name)
+        application=QApplication.instance()
+        if application is not None:
+            application.setPalette(self.theme_manager.palette(name))
+        self.setPalette(self.theme_manager.palette(name))
+        self.setStyleSheet(self.theme_manager.stylesheet(name))
         if hasattr(self,'theme_actions'):
             for key,action in self.theme_actions.items(): action.setChecked(key==name)
-    def apply_density(self,name):
-        compact=name=='Compact'
-        height=34 if compact else 38
+    def setup_responsive_workspace(self):
+        self.responsive_workspace=ResponsiveWorkspaceCoordinator(
+            self,
+            self.queue_workspace,
+            self.apply_responsive_workspace,
+        )
+    def apply_responsive_workspace(self,state:ResponsiveWorkspaceState):
+        if getattr(self,'_applying_responsive_workspace',False): return
+        self._applying_responsive_workspace=True
+        try:
+            self._apply_responsive_workspace(state)
+        finally:
+            self._applying_responsive_workspace=False
+    def _apply_responsive_workspace(self,state:ResponsiveWorkspaceState):
+        mode=state.mode
+        mode_value=mode.value
+        self.setProperty('responsiveMode',mode_value)
+        self.application_shell.set_responsive_mode(mode)
+        self.queue_workspace.set_responsive_mode(mode)
+        self.main_toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly if state.toolbar_icon_only else Qt.ToolButtonTextBesideIcon)
+        self.main_toolbar.setProperty('responsiveMode',mode_value)
+
+        self.left_dock.setMinimumWidth(270 if mode is WorkspaceBreakpoint.COMPACT else 280)
+        self.left_dock.setMaximumWidth(320 if mode is WorkspaceBreakpoint.COMPACT else (340 if mode is WorkspaceBreakpoint.STANDARD else 360))
+        self.right_dock.setMinimumWidth(MONITOR_MIN_WIDTH)
+        self.right_dock.setMaximumWidth(340)
+        if hasattr(self,'monitor_dock'):
+            self.monitor_dock.setMinimumWidth(MONITOR_MIN_WIDTH)
+            self.monitor_dock.setMaximumWidth(340)
+
+        if getattr(self,'_last_responsive_mode',None)!=mode_value:
+            visible_docks=[]; widths=[]
+            if self.left_dock.isVisible(): visible_docks.append(self.left_dock); widths.append(state.left_dock_width)
+            if self.right_dock.isVisible(): visible_docks.append(self.right_dock); widths.append(state.right_dock_width)
+            if visible_docks: self.resizeDocks(visible_docks,widths,Qt.Horizontal)
+            self._last_responsive_mode=mode_value
+
+        self.reflow_source_actions(state.source_action_columns)
+        self.queue_details.set_responsive_mode(mode)
+        if hasattr(self,'monitor_sections'):
+            self.monitor_sections.tabBar().setUsesScrollButtons(True)
+            self.monitor_sections.setProperty('responsiveMode',mode_value)
+        if hasattr(self,'monitor_more_details'):
+            self.monitor_more_details.setText('Extended details' if mode is WorkspaceBreakpoint.COMPACT else 'Show extended details')
+        self.update()
+    def reflow_source_actions(self,columns):
+        if not hasattr(self,'sources_action_layout'): return
+        count=max(2,min(3,int(columns)))
+        layout=self.sources_action_layout
+        while layout.count(): layout.takeAt(0)
+        for index,button in enumerate(self.source_action_buttons): layout.addWidget(button,index//count,index%count)
+        for column in range(3): layout.setColumnStretch(column,1 if column<count else 0)
+        self.sources_action_card.setProperty('columns',str(count))
+        self.sources_action_card.style().unpolish(self.sources_action_card); self.sources_action_card.style().polish(self.sources_action_card)
+    def open_interface_preferences(self):
+        dialog=InterfacePreferencesDialog(self.interface_preferences,self)
+        if dialog.exec()==QDialog.Accepted:
+            self.apply_interface_preferences(dialog.preferences(),persist=True)
+    def apply_interface_preferences(self,preferences,persist=False,announce=True):
+        value=preferences.normalized() if isinstance(preferences,InterfacePreferences) else InterfacePreferences.defaults()
+        self.interface_preferences=value
+        for key,property_value in value.stylesheet_properties().items(): self.setProperty(key,property_value)
+        if hasattr(self,'application_shell'):
+            for key,property_value in value.stylesheet_properties().items(): self.application_shell.setProperty(key,property_value)
+        for action_name,checked in [
+            ('high_contrast_action',value.contrast is ContrastMode.HIGH),
+            ('enhanced_focus_action',value.focus_style is FocusStyle.ENHANCED),
+            ('status_announcements_action',value.announce_status),
+        ]:
+            action=getattr(self,action_name,None)
+            if action is not None:
+                previous=action.blockSignals(True); action.setChecked(checked); action.blockSignals(previous)
+        if hasattr(self,'table'):
+            scroll_mode=QAbstractItemView.ScrollPerItem if value.reduce_motion else QAbstractItemView.ScrollPerPixel
+            self.table.setVerticalScrollMode(scroll_mode); self.table.setHorizontalScrollMode(scroll_mode)
+        if persist: value.save(QSettings('S Talking','S Talking'))
+        # Reapplying the active theme reliably refreshes descendant selectors
+        # after changing dynamic properties on the main window.
+        self.setStyleSheet(self.theme_manager.stylesheet(self.theme_manager.current()))
+        if announce: self.announce_interface_status('Interface updated',value.summary())
+    def toggle_high_contrast(self,checked):
+        self.apply_interface_preferences(replace(self.interface_preferences,contrast=ContrastMode.HIGH if checked else ContrastMode.STANDARD),persist=True)
+    def toggle_enhanced_focus(self,checked):
+        self.apply_interface_preferences(replace(self.interface_preferences,focus_style=FocusStyle.ENHANCED if checked else FocusStyle.STANDARD),persist=True)
+    def toggle_status_announcements(self,checked):
+        self.apply_interface_preferences(replace(self.interface_preferences,announce_status=bool(checked)),persist=True,announce=False)
+    def announce_interface_status(self,state,detail=''):
+        if not getattr(self,'interface_preferences',InterfacePreferences.defaults()).announce_status: return
+        message=' · '.join(part for part in (str(state or '').strip(),str(detail or '').strip()) if part)
+        if not message: return
+        if hasattr(self,'accessibility_announcer'): self.accessibility_announcer.announce(message,category='status')
+        self.statusBar().showMessage(message,4000)
+    def focus_workspace_region(self,region):
+        target=None; label='Workspace'
+        if region=='provider':
+            if hasattr(self,'left_dock'): self.left_dock.show()
+            if hasattr(self,'left_tabs'): self.left_tabs.setCurrentIndex(0)
+            target=getattr(self,'provider',None); label='Provider panel'
+        elif region=='queue':
+            target=getattr(self,'queue_search',None)
+            if target is None: target=getattr(self,'table',None)
+            label='Generation queue'
+        elif region=='inspector':
+            if hasattr(self,'right_dock'): self.right_dock.show()
+            target=getattr(self,'ptext',None)
+            if target is None: target=getattr(self,'right_tabs',None)
+            label='Inspector panel'
+        elif region=='activity':
+            self.set_activity_expanded(True); target=getattr(self,'activity_tabs',None); label='Activity panel'
+        elif region=='generation':
+            target=getattr(self,'startb',None); label='Generation controls'
+        elif region=='output':
+            self.show_output_workspace(); target=getattr(getattr(self,'output_workspace',None),'player',None); label='Output playback'
+        elif region=='text-studio':
+            self.open_text_studio(); target=getattr(getattr(self,'text_studio',None),'search',None); label='Text Studio'
+        if target is not None:
+            target.setFocus(Qt.ShortcutFocusReason)
+            self.announce_interface_status('Focus moved',label)
+            return True
+        return False
+    def apply_density(self,name,persist=False):
+        density=normalize_density(name)
+        metrics=density_metrics(density)
         for cls in [QComboBox,QAbstractSpinBox,QLineEdit]:
-            for widget in self.findChildren(cls): widget.setMinimumHeight(height)
-        self.metrics_strip.setMaximumHeight(42 if compact else 48)
+            for widget in self.findChildren(cls): widget.setMinimumHeight(metrics.control_height)
+        if hasattr(self,'application_shell'): self.application_shell.apply_density(density)
+        if hasattr(self,'queue_workspace'): self.queue_workspace.apply_density(density)
+        if hasattr(self,'main_toolbar'):
+            # Density changes padding and control rhythm, but the shared toolbar
+            # keeps its established 38–42 px shell contract.
+            self.main_toolbar.setMinimumHeight(36 if density.value=='compact' else 38)
+            self.main_toolbar.setMaximumHeight(40 if density.value=='compact' else 42)
+        if hasattr(self,'metrics_strip'): self.metrics_strip.setMaximumHeight(42)
         if hasattr(self,'density_actions'):
-            for key,action in self.density_actions.items(): action.setChecked(key==name)
+            for key,action in self.density_actions.items(): action.setChecked(key.casefold()==density.value)
+        if persist: QSettings('S Talking','S Talking').setValue('workspace/density',density.value)
+
+    def toggle_focus_queue(self,checked):
+        if checked:
+            current=next((name for name,action in self.layout_actions.items() if action.isChecked()),'Standard') if hasattr(self,'layout_actions') else 'Standard'
+            if current!='Focus Mode': self._profile_before_focus=current
+            self.apply_workspace_preset('Focus Mode',save=True)
+        else:
+            self.apply_workspace_preset(getattr(self,'_profile_before_focus','Standard'),save=True)
+
+    def toggle_workspace_header(self,visible):
+        if hasattr(self,'project_context_widget'):
+            self.project_context_widget.setVisible(bool(visible))
+        QSettings('S Talking','S Talking').setValue('workspace/header_visible',bool(visible))
+
+    def toggle_workspace_metrics(self,visible):
+        if hasattr(self,'metrics_strip'): self.metrics_strip.setVisible(bool(visible))
+        QSettings('S Talking','S Talking').setValue('workspace/metrics_visible',bool(visible))
     def set_activity_expanded(self,expanded):
         if not hasattr(self,'activity_center'): return
         self.activity_center.expanded_height=self.activity_expanded_height
         self.activity_center.set_expanded(expanded)
         if hasattr(self,'view_activity_action'): self.view_activity_action.setChecked(expanded)
+    def show_output_workspace(self,path=None,autoplay=False):
+        if not hasattr(self,'activity_center'): return None
+        workspace=getattr(self,'output_workspace',None)
+        if workspace is not None and path:
+            workspace.load_output(Path(path),autoplay=bool(autoplay))
+        self.activity_center.show_output_workspace()
+        if hasattr(self,'view_activity_action'): self.view_activity_action.setChecked(True)
+        return workspace
     def apply_workspace_preset(self,name,save=False):
         if not hasattr(self,'main_splitter'): return
         profile=self.workspace_profiles.select(name) if save else self.workspace_profiles.get(name)
         if save: QSettings('S Talking','S Talking').setValue('main_window/layout_preset',profile.name)
         self.main_splitter.setSizes([1200])
+        self.apply_density(profile.density,persist=save)
+        if hasattr(self,'application_shell'):
+            self.application_shell.set_header_mode(profile.header_mode,metrics_visible=profile.metrics_visible)
         if hasattr(self,'queue_workspace'):
-            self.queue_workspace.set_compact_mode(profile.name == 'Compact')
+            self.queue_workspace.set_compact_mode(profile.density=='compact' or profile.name=='Focus Mode')
         if hasattr(self,'left_dock'): self.left_dock.setVisible(profile.left_dock_visible)
         if hasattr(self,'right_dock'): self.right_dock.setVisible(profile.right_dock_visible)
         if hasattr(self,'main_toolbar'): self.main_toolbar.setVisible(profile.toolbar_visible)
@@ -336,6 +631,11 @@ class MainWindow(QMainWindow):
         if hasattr(self,'view_toolbar_action'): self.view_toolbar_action.setChecked(profile.toolbar_visible)
         if hasattr(self,'view_provider_dock_action'): self.view_provider_dock_action.setChecked(profile.left_dock_visible)
         if hasattr(self,'view_inspector_dock_action'): self.view_inspector_dock_action.setChecked(profile.right_dock_visible)
+        if hasattr(self,'focus_queue_action'): self.focus_queue_action.setChecked(profile.name=='Focus Mode')
+        if hasattr(self,'show_workspace_header_action'):
+            self.show_workspace_header_action.setChecked(profile.header_mode!='hidden')
+        if hasattr(self,'show_metrics_action'):
+            self.show_metrics_action.setChecked(profile.metrics_visible and profile.header_mode!='hidden')
         if hasattr(self,'layout_actions'):
             for key,action in self.layout_actions.items(): action.setChecked(key==profile.name)
 
@@ -364,18 +664,42 @@ class MainWindow(QMainWindow):
         if dialog.exec()==QDialog.Accepted:
             settings=dialog.selected_settings(); self.provider.setCurrentText(settings.provider); self.set_model_value(settings.model_id); self.voice.setText(settings.voice_id); self.set_language_value(settings.language_code); self.save_global_preferences(settings); self.settings_changed()
     def show_shortcut_reference(self):
-        self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Shift+T Add text source\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nF6 Cycle major panels')
+        self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Shift+T Add text source\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nCtrl+Shift+F Focus queue\nCtrl+Alt+I Interface settings\nCtrl+1 Provider panel\nCtrl+2 Generation queue\nCtrl+3 Inspector panel\nCtrl+4 Activity panel\nCtrl+5 Generation controls\nCtrl+6 Output playback\nCtrl+7 Text Studio\nF6 Cycle major panels')
     def open_about_dialog(self):
         dialog=AboutDialog(self.context.container.runtime,open_diagnostics=self.export_diagnostics,parent=self); dialog.exec()
     def build_project_sources_panel(self):
-        panel=QWidget(); panel.setObjectName('sourcesWorkspacePanel'); layout=QVBoxLayout(panel); actions=QHBoxLayout()
-        for text,handler in [('Add',self.add_source_files),('Text',self.add_text_source),('Remove',self.remove_selected_source),('Replace',self.replace_selected_source),('Refresh',self.refresh_project_sources),('Up',lambda:self.move_selected_source(-1)),('Down',lambda:self.move_selected_source(1)),('Folder',self.open_selected_source_folder),('Report',self.view_selected_source_report)]:
-            button=QPushButton(text); button.setMinimumWidth(0); button.clicked.connect(handler); actions.addWidget(button)
-            if text=='Text': button.setIcon(action_icon('project.add_text_source')); button.setToolTip('Enter text manually or import text documents')
-            if text=='Up': self.source_move_up_button=button; button.setIcon(icon('up')); button.setShortcut(QKeySequence('Alt+Up'))
-            if text=='Down': self.source_move_down_button=button; button.setIcon(icon('down')); button.setShortcut(QKeySequence('Alt+Down'))
-        layout.addLayout(actions)
-        self.sources_table=QTableWidget(0,8); self.sources_table.setHorizontalHeaderLabels(['Enabled','Source','Type','Worksheet','Rows','Valid','Rejected','Status']); self.sources_table.horizontalHeader().setStretchLastSection(True); self.sources_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); self.sources_table.setSelectionBehavior(QTableWidget.SelectRows); self.sources_table.setDragDropMode(QAbstractItemView.InternalMove); self.sources_table.itemSelectionChanged.connect(self.update_source_reorder_actions); layout.addWidget(self.sources_table)
+        panel=QWidget(); panel.setObjectName('sourcesWorkspacePanel'); layout=QVBoxLayout(panel); layout.setContentsMargins(0,0,0,0); layout.setSpacing(8)
+
+        header=QFrame(); header.setObjectName('sourcesWorkspaceHeader'); header_layout=QVBoxLayout(header); header_layout.setContentsMargins(10,8,10,8); header_layout.setSpacing(2)
+        title=QLabel('Project sources'); title.setObjectName('sourcesWorkspaceTitle')
+        subtitle=QLabel('Import, organize and validate every CSV, spreadsheet or text source that feeds the queue.'); subtitle.setObjectName('sourcesWorkspaceSubtitle'); subtitle.setWordWrap(True)
+        helper=QLabel('Actions are arranged in a readable grid so they remain fully visible even in the narrow workspace dock.'); helper.setObjectName('sourcesWorkspaceHelper'); helper.setWordWrap(True)
+        header_layout.addWidget(title); header_layout.addWidget(subtitle); header_layout.addWidget(helper)
+        layout.addWidget(header)
+
+        action_card=QFrame(); action_card.setObjectName('sourcesActionBar'); actions=QGridLayout(action_card); actions.setContentsMargins(10,10,10,10); actions.setHorizontalSpacing(8); actions.setVerticalSpacing(8)
+        self.sources_action_card=action_card; self.sources_action_layout=actions; self.source_action_buttons=[]
+        button_specs=[
+            ('Add files',self.add_source_files,'project.add_sources','Choose CSV, TSV or spreadsheet files',True),
+            ('Add text',self.add_text_source,'project.add_text_source','Enter text manually or import text documents',True),
+            ('Refresh',self.refresh_project_sources,'general.refresh','Re-scan imported sources for changes',False),
+            ('Replace',self.replace_selected_source,'open','Replace the selected source with a new file',False),
+            ('Remove',self.remove_selected_source,'general.remove','Remove the selected source from the project',False),
+            ('Open folder',self.open_selected_source_folder,'project.output_folder','Open the folder that contains the selected source',False),
+            ('Move up',lambda:self.move_selected_source(-1),'up','Move the selected source up',False),
+            ('Move down',lambda:self.move_selected_source(1),'down','Move the selected source down',False),
+            ('View report',self.view_selected_source_report,'report','Open the import and validation report for the selected source',False),
+        ]
+        for index,(text,handler,icon_name,tooltip,primary) in enumerate(button_specs):
+            button=QPushButton(text); button.setObjectName('sourcesActionButton'); button.setProperty('primary',primary); button.setIcon(action_icon(icon_name)); button.setToolTip(tooltip); button.setMinimumWidth(0); button.setMinimumHeight(34); button.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); button.clicked.connect(handler)
+            if text=='Move up': self.source_move_up_button=button; button.setShortcut(QKeySequence('Alt+Up'))
+            if text=='Move down': self.source_move_down_button=button; button.setShortcut(QKeySequence('Alt+Down'))
+            self.source_action_buttons.append(button)
+            actions.addWidget(button,index//3,index%3)
+        for column in range(3): actions.setColumnStretch(column,1)
+        layout.addWidget(action_card)
+
+        self.sources_table=QTableWidget(0,8); self.sources_table.setObjectName('sourcesTable'); self.sources_table.setHorizontalHeaderLabels(['Enabled','Source','Type','Worksheet','Rows','Valid','Rejected','Status']); self.sources_table.horizontalHeader().setStretchLastSection(True); self.sources_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); self.sources_table.setSelectionBehavior(QTableWidget.SelectRows); self.sources_table.setAlternatingRowColors(True); self.sources_table.setShowGrid(False); self.sources_table.setDragDropMode(QAbstractItemView.InternalMove); self.sources_table.itemSelectionChanged.connect(self.update_source_reorder_actions); layout.addWidget(self.sources_table,1)
         if hasattr(self,'left_tabs'):
             self.left_tabs.addTab(panel,icon('open'),'Sources'); self.sources_dock=self.left_dock
         else:
@@ -488,42 +812,210 @@ class MainWindow(QMainWindow):
         project=self.project_controller.current_project
         if project: self.context.source_repository.upsert_sources(project.project_id,self.project_sources)
     def build_generation_monitor(self):
-        self.monitor_dock=self.right_dock if hasattr(self,'right_dock') else MonitorDockWidget('Generation Monitor',self); self.monitor_dock.setObjectName('generationMonitorDock'); self.monitor_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea|Qt.BottomDockWidgetArea)
-        self.monitor_dock.setMinimumWidth(MONITOR_MIN_WIDTH); self.monitor_dock.setMaximumWidth(self.safe_monitor_width()); self.monitor_dock.resize(self.safe_monitor_width(MONITOR_DEFAULT_WIDTH),self.monitor_dock.height())
-        scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setObjectName('monitorScroll'); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        panel=QWidget(); root=QVBoxLayout(panel); self.monitor_labels={}
-        self.monitor_status=QLabel('Ready'); self.monitor_status.setObjectName('monitorStatus'); root.addWidget(self.monitor_status)
-        self.monitor_progress=QProgressBar(); self.monitor_progress.setRange(0,100); self.monitor_progress.setTextVisible(False); self.monitor_percent=QLabel('0 / 0 · 0%'); root.addWidget(self.monitor_progress); root.addWidget(self.monitor_percent)
+        self.monitor_dock=self.right_dock if hasattr(self,'right_dock') else MonitorDockWidget('Generation Monitor',self)
+        self.monitor_dock.setObjectName('generationMonitorDock')
+        self.monitor_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea|Qt.BottomDockWidgetArea)
+        self.monitor_dock.setMinimumWidth(MONITOR_MIN_WIDTH)
+        self.monitor_dock.setMaximumWidth(self.safe_monitor_width())
+        self.monitor_dock.resize(self.safe_monitor_width(MONITOR_DEFAULT_WIDTH),self.monitor_dock.height())
+
+        scroll=QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setObjectName('monitorScroll')
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        panel=QWidget()
+        panel.setObjectName('generationMonitorPanel')
+        root=QVBoxLayout(panel)
+        root.setContentsMargins(8,8,8,8)
+        root.setSpacing(8)
+        self.monitor_labels={}
+
+        hero=QFrame()
+        hero.setObjectName('monitorHero')
+        hero_layout=QVBoxLayout(hero)
+        hero_layout.setContentsMargins(12,10,12,10)
+        hero_layout.setSpacing(5)
+        heading=QHBoxLayout()
+        title=QLabel('Live generation')
+        title.setObjectName('monitorTitle')
+        self.monitor_status=QLabel('Ready')
+        self.monitor_status.setObjectName('monitorStatusBadge')
+        self.monitor_status.setAlignment(Qt.AlignCenter)
+        self.monitor_status.setProperty('tone','success')
+        heading.addWidget(title)
+        heading.addStretch(1)
+        heading.addWidget(self.monitor_status)
+        subtitle=QLabel('Current progress, throughput, timing and recovery information.')
+        subtitle.setObjectName('monitorSubtitle')
+        subtitle.setWordWrap(True)
+        hero_layout.addLayout(heading)
+        hero_layout.addWidget(subtitle)
+        root.addWidget(hero)
+
+        progress_card=QFrame()
+        progress_card.setObjectName('monitorProgressCard')
+        progress_layout=QVBoxLayout(progress_card)
+        progress_layout.setContentsMargins(12,9,12,9)
+        progress_layout.setSpacing(6)
+        progress_heading=QHBoxLayout()
+        progress_title=QLabel('Queue progress')
+        progress_title.setObjectName('monitorSectionTitle')
+        self.monitor_percent=QLabel('0 / 0 · 0%')
+        self.monitor_percent.setObjectName('monitorPercent')
+        progress_heading.addWidget(progress_title)
+        progress_heading.addStretch(1)
+        progress_heading.addWidget(self.monitor_percent)
+        self.monitor_progress=QProgressBar()
+        self.monitor_progress.setObjectName('monitorProgress')
+        self.monitor_progress.setRange(0,100)
+        self.monitor_progress.setTextVisible(False)
+        progress_layout.addLayout(progress_heading)
+        progress_layout.addWidget(self.monitor_progress)
+        root.addWidget(progress_card)
+
         self.monitor_detail_rows={}
-        for title,rows in [('Current job',[('current_filename','File'),('current_row_number','Row'),('current_provider','Provider'),('current_attempt','Attempt'),('current_job_elapsed_seconds','Elapsed'),('current_job_characters','Characters'),('next_filename','Next')]),('Queue',[('pending','Pending'),('running','Running'),('completed','Completed'),('failed','Failed'),('skipped','Skipped')]),('Performance',[('average_seconds_per_completed_job','Average job'),('jobs_per_minute','Jobs/min'),('characters_per_second','Chars/sec'),('retries','Retries'),('worker_state','Worker'),('resource_usage','Resources')]),('Timing',[('remaining_eta_seconds','ETA'),('retry_countdown_seconds','Retry countdown'),('generation_start_time','Started'),('total_elapsed_seconds','Total elapsed'),('paused_seconds','Paused')])]:
-            box=QGroupBox(title); form=QFormLayout(box); form.setLabelAlignment(Qt.AlignLeft); form.setFormAlignment(Qt.AlignTop); form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow); form.setRowWrapPolicy(QFormLayout.DontWrapRows)
-            for key,label in rows:
-                value=QLabel('—'); value.setWordWrap(False); value.setMinimumWidth(0); value.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred); value.setTextInteractionFlags(Qt.TextSelectableByMouse); self.monitor_labels[key]=value; form.addRow(label,value); self.monitor_detail_rows[key]=(box,form,value)
-            root.addWidget(box)
-        self.monitor_more_details=LogicalVisibilityButton('More details'); self.monitor_more_details.setCheckable(True); self.monitor_more_details.toggled.connect(lambda _checked:self.apply_monitor_compact_mode()); root.addWidget(self.monitor_more_details)
-        outbox=QGroupBox('Output'); out=QVBoxLayout(outbox); self.monitor_output=QLabel('—'); self.monitor_output.setWordWrap(False); self.monitor_output.setMinimumWidth(0); self.monitor_output.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred); self.monitor_output.setTextInteractionFlags(Qt.TextSelectableByMouse); out.addWidget(self.monitor_output)
-        for buttons in [('Copy path','Open'),('Play current','Play latest'),('Stop audio',)]:
-            row=QHBoxLayout()
-            for text in buttons:
-                button=MonitorActionButton(text); button.setMinimumWidth(0); button.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred); row.addWidget(button)
-                if text=='Copy path': self.monitor_copy_path=button; button.clicked.connect(self.copy_monitor_output_path)
-                elif text=='Open': self.monitor_open_output=button; button.clicked.connect(self.open_monitor_output_path)
-                elif text=='Play current': self.monitor_play_output=button; button.clicked.connect(self.play_monitor_output_path)
-                elif text=='Play latest': self.monitor_play_latest=button; button.clicked.connect(self.play_latest_completed_output)
-                elif text=='Stop audio': self.monitor_stop_audio=button; button.clicked.connect(self.audio_player_service.stop)
-            out.addLayout(row)
-        self.monitor_error=QPlainTextEdit(); self.monitor_error.setReadOnly(True); self.monitor_error.setLineWrapMode(QPlainTextEdit.WidgetWidth); self.monitor_error.setMaximumHeight(110); self.monitor_error.hide(); out.addWidget(self.monitor_error); root.addWidget(outbox)
-        failure_box=QGroupBox('Failure analysis'); failure_layout=QVBoxLayout(failure_box); self.failure_summary_label=QLabel('No failed jobs.'); self.failure_summary_label.setWordWrap(True); self.failure_category_label=QLabel('Categories: —'); self.failure_category_label.setWordWrap(True); self.failure_fingerprint_label=QLabel('Top fingerprint: —'); self.failure_fingerprint_label.setWordWrap(True); failure_layout.addWidget(self.failure_summary_label); failure_layout.addWidget(self.failure_category_label); failure_layout.addWidget(self.failure_fingerprint_label); failure_actions=QHBoxLayout(); self.failure_retry_transient_button=QPushButton('Retry transient'); self.failure_export_button=QPushButton('Export'); self.failure_retry_transient_button.clicked.connect(self.retry_transient); self.failure_export_button.clicked.connect(self.export_failure_report); failure_actions.addWidget(self.failure_retry_transient_button); failure_actions.addWidget(self.failure_export_button); failure_layout.addLayout(failure_actions); self.failure_summary_box=failure_box; root.addWidget(failure_box); root.addStretch()
-        scroll.setWidget(panel); self.monitor_scroll=scroll
+        self.monitor_sections=QTabWidget()
+        self.monitor_sections.setObjectName('monitorSectionTabs')
+        section_specs=[
+            ('Current job',[('current_filename','File'),('current_row_number','Row'),('current_provider','Provider'),('current_attempt','Attempt'),('current_job_elapsed_seconds','Elapsed'),('current_job_characters','Characters'),('next_filename','Next')]),
+            ('Queue',[('pending','Pending'),('running','Running'),('completed','Completed'),('failed','Failed'),('skipped','Skipped')]),
+            ('Performance',[('average_seconds_per_completed_job','Average job'),('jobs_per_minute','Jobs/min'),('characters_per_second','Chars/sec'),('retries','Retries'),('worker_state','Worker'),('resource_usage','Resources')]),
+            ('Timing',[('remaining_eta_seconds','ETA'),('retry_countdown_seconds','Retry countdown'),('generation_start_time','Started'),('total_elapsed_seconds','Total elapsed'),('paused_seconds','Paused')]),
+        ]
+        for title_text,rows in section_specs:
+            page=QWidget()
+            page.setObjectName('monitorSectionPage')
+            form=QFormLayout(page)
+            form.setContentsMargins(10,10,10,10)
+            form.setHorizontalSpacing(10)
+            form.setVerticalSpacing(7)
+            form.setLabelAlignment(Qt.AlignLeft|Qt.AlignVCenter)
+            form.setFormAlignment(Qt.AlignTop)
+            form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+            form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+            for key,label_text in rows:
+                caption=QLabel(label_text)
+                caption.setObjectName('monitorMetricLabel')
+                value=QLabel('—')
+                value.setObjectName('monitorMetricValue')
+                value.setWordWrap(True)
+                value.setMinimumWidth(0)
+                value.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Preferred)
+                value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                self.monitor_labels[key]=value
+                form.addRow(caption,value)
+                self.monitor_detail_rows[key]=(page,form,value)
+            self.monitor_sections.addTab(page,title_text)
+        root.addWidget(self.monitor_sections)
+
+        self.monitor_more_details=LogicalVisibilityButton('Show extended details')
+        self.monitor_more_details.setObjectName('monitorMoreDetails')
+        self.monitor_more_details.setCheckable(True)
+        self.monitor_more_details.toggled.connect(lambda _checked:self.apply_monitor_compact_mode())
+        root.addWidget(self.monitor_more_details)
+
+        outbox=QFrame()
+        outbox.setObjectName('monitorOutputCard')
+        out=QVBoxLayout(outbox)
+        out.setContentsMargins(12,10,12,10)
+        out.setSpacing(7)
+        output_title=QLabel('Output')
+        output_title.setObjectName('monitorSectionTitle')
+        self.monitor_output=QLabel('—')
+        self.monitor_output.setObjectName('monitorOutputPath')
+        self.monitor_output.setWordWrap(True)
+        self.monitor_output.setMinimumWidth(0)
+        self.monitor_output.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Preferred)
+        self.monitor_output.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        out.addWidget(output_title)
+        out.addWidget(self.monitor_output)
+        action_grid=QGridLayout()
+        action_grid.setHorizontalSpacing(7)
+        action_grid.setVerticalSpacing(7)
+        action_specs=[
+            ('Copy path',self.copy_monitor_output_path),
+            ('Open',self.open_monitor_output_path),
+            ('Play current',self.play_monitor_output_path),
+            ('Play latest',self.play_latest_completed_output),
+            ('Stop audio',self.audio_player_service.stop),
+        ]
+        for index,(button_text,handler) in enumerate(action_specs):
+            button=MonitorActionButton(button_text)
+            button.setObjectName('monitorActionButton')
+            button.setMinimumWidth(0)
+            button.setMinimumHeight(32)
+            button.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
+            button.clicked.connect(handler)
+            row=index//2
+            column=index%2
+            if button_text=='Stop audio':
+                row=2; column=0; action_grid.addWidget(button,row,column,1,2)
+            else:
+                action_grid.addWidget(button,row,column)
+            if button_text=='Copy path': self.monitor_copy_path=button
+            elif button_text=='Open': self.monitor_open_output=button
+            elif button_text=='Play current': self.monitor_play_output=button
+            elif button_text=='Play latest': self.monitor_play_latest=button
+            elif button_text=='Stop audio': self.monitor_stop_audio=button
+        action_grid.setColumnStretch(0,1)
+        action_grid.setColumnStretch(1,1)
+        out.addLayout(action_grid)
+        self.monitor_error=QPlainTextEdit()
+        self.monitor_error.setObjectName('monitorErrorDetails')
+        self.monitor_error.setReadOnly(True)
+        self.monitor_error.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.monitor_error.setMaximumHeight(110)
+        self.monitor_error.hide()
+        out.addWidget(self.monitor_error)
+        root.addWidget(outbox)
+
+        failure_box=QFrame()
+        failure_box.setObjectName('monitorFailureCard')
+        failure_layout=QVBoxLayout(failure_box)
+        failure_layout.setContentsMargins(12,10,12,10)
+        failure_layout.setSpacing(6)
+        failure_title=QLabel('Failure analysis')
+        failure_title.setObjectName('monitorSectionTitle')
+        self.failure_summary_label=QLabel('No failed jobs.')
+        self.failure_summary_label.setWordWrap(True)
+        self.failure_category_label=QLabel('Categories: —')
+        self.failure_category_label.setWordWrap(True)
+        self.failure_fingerprint_label=QLabel('Top fingerprint: —')
+        self.failure_fingerprint_label.setWordWrap(True)
+        failure_layout.addWidget(failure_title)
+        failure_layout.addWidget(self.failure_summary_label)
+        failure_layout.addWidget(self.failure_category_label)
+        failure_layout.addWidget(self.failure_fingerprint_label)
+        failure_actions=QHBoxLayout()
+        self.failure_retry_transient_button=QPushButton('Retry transient')
+        self.failure_retry_transient_button.setObjectName('monitorPrimaryAction')
+        self.failure_export_button=QPushButton('Export report')
+        self.failure_retry_transient_button.clicked.connect(self.retry_transient)
+        self.failure_export_button.clicked.connect(self.export_failure_report)
+        failure_actions.addWidget(self.failure_retry_transient_button)
+        failure_actions.addWidget(self.failure_export_button)
+        failure_layout.addLayout(failure_actions)
+        self.failure_summary_box=failure_box
+        root.addWidget(failure_box)
+        root.addStretch(1)
+
+        scroll.setWidget(panel)
+        self.monitor_scroll=scroll
         if hasattr(self,'right_tabs'):
             self.right_tabs.addTab(scroll,icon('report'),'Generation Monitor')
         else:
-            self.monitor_dock.setWidget(scroll); self.addDockWidget(Qt.RightDockWidgetArea,self.monitor_dock)
-        self.monitor_dock.visibilityChanged.connect(self.show_monitor_action.setChecked); self.resizeDocks([self.monitor_dock],[self.safe_monitor_width(MONITOR_DEFAULT_WIDTH)],Qt.Horizontal); self.apply_monitor_compact_mode(); self.render_monitor(self.monitor_service.state)
+            self.monitor_dock.setWidget(scroll)
+            self.addDockWidget(Qt.RightDockWidgetArea,self.monitor_dock)
+        self.monitor_dock.visibilityChanged.connect(self.show_monitor_action.setChecked)
+        self.resizeDocks([self.monitor_dock],[self.safe_monitor_width(MONITOR_DEFAULT_WIDTH)],Qt.Horizontal)
+        self.apply_monitor_compact_mode()
+        self.render_monitor(self.monitor_service.state)
     def toggle_generation_monitor(self,visible):
         self.monitor_dock.setVisible(bool(visible))
     def safe_monitor_width(self,requested=None):
-        main_width=max(self.width(),900); maximum=max(MONITOR_MIN_WIDTH,int(main_width*MONITOR_MAX_FRACTION)); preferred=requested or MONITOR_DEFAULT_WIDTH
+        main_width=max(self.width(),900); maximum=min(340,max(MONITOR_MIN_WIDTH,int(main_width*MONITOR_MAX_FRACTION))); preferred=requested or MONITOR_DEFAULT_WIDTH
         return max(MONITOR_MIN_WIDTH,min(preferred,maximum))
     def clamp_monitor_width(self):
         if not hasattr(self,'monitor_dock'): return
@@ -539,6 +1031,7 @@ class MainWindow(QMainWindow):
         self.monitor_more_details.setVisible(self.monitor_compact_mode())
     def resizeEvent(self,event):
         super().resizeEvent(event); self.clamp_monitor_width(); self.apply_monitor_compact_mode()
+        if hasattr(self,'responsive_workspace'): self.responsive_workspace.schedule()
     def render_monitor(self,state):
         if not hasattr(self,'monitor_labels'): return
         data=state.__dict__
@@ -553,9 +1046,29 @@ class MainWindow(QMainWindow):
                 full=str(value) if value else '—'; label.setToolTip(full); value=elide_middle(full,38)
             elif value is None: value='—'
             label.setText(str(value) if str(value) else '—')
-        percent=int((state.processed/state.total)*100) if state.total else 0; self.monitor_progress.setValue(percent); self.monitor_percent.setText(f'{state.processed:,} / {state.total:,} · {percent}%')
-        self.monitor_status.setText(state.current_status); color=status_color(state.current_status); self.monitor_status.setStyleSheet(f'color:{color};font-weight:700;border:1px solid {color};border-radius:6px;padding:6px;')
-        output=state.current_output_path; latest=self.latest_completed_output_path(); self.monitor_output.setText(elide_middle(output,46) if output else '—'); self.monitor_output.setToolTip(output); self.monitor_copy_path.setEnabled(bool(output)); self.monitor_open_output.setEnabled(bool(output and Path(output).exists())); self.monitor_play_output.setEnabled(bool(output and Path(output).exists())); self.monitor_play_latest.setEnabled(bool(latest and latest.exists()))
+        percent=int((state.processed/state.total)*100) if state.total else 0
+        self.monitor_progress.setValue(percent)
+        self.monitor_percent.setText(f'{state.processed:,} / {state.total:,} · {percent}%')
+        status_text=str(state.current_status or 'Ready')
+        lowered=status_text.casefold()
+        if any(token in lowered for token in ('fail','error','stalled')): tone='error'
+        elif any(token in lowered for token in ('pause','retry','waiting','stop')): tone='warning'
+        elif any(token in lowered for token in ('run','generat','active')): tone='running'
+        elif any(token in lowered for token in ('complete','ready','success','idle')): tone='success'
+        else: tone='info'
+        self.monitor_status.setText(status_text)
+        self.monitor_status.setProperty('tone',tone)
+        self.monitor_status.setAccessibleName(f'Generation status: {status_text}')
+        self.monitor_status.style().unpolish(self.monitor_status)
+        self.monitor_status.style().polish(self.monitor_status)
+        output=state.current_output_path
+        latest=self.latest_completed_output_path()
+        self.monitor_output.setText(elide_middle(output,68) if output else '—')
+        self.monitor_output.setToolTip(output)
+        self.monitor_copy_path.setEnabled(bool(output))
+        self.monitor_open_output.setEnabled(bool(output and Path(output).exists()))
+        self.monitor_play_output.setEnabled(bool(output and Path(output).exists()))
+        self.monitor_play_latest.setEnabled(bool(latest and latest.exists()))
         self.monitor_error.setPlainText(state.last_provider_error); self.monitor_error.setVisible(bool(state.last_provider_error)); self.render_failure_summary()
     def render_failure_summary(self):
         if not hasattr(self,'failure_summary_label'): return
@@ -573,10 +1086,10 @@ class MainWindow(QMainWindow):
         if path.exists(): self.context.desktop_service.open_path(path)
     def play_monitor_output_path(self):
         path=Path(self.monitor_service.state.current_output_path)
-        if path.exists(): self.audio_player_service.load(path); self.audio_player_service.play()
+        if path.exists(): self.show_output_workspace(path,autoplay=True)
     def play_latest_completed_output(self):
         path=self.latest_completed_output_path()
-        if path and path.exists(): self.audio_player_service.load(path); self.audio_player_service.play()
+        if path and path.exists(): self.show_output_workspace(path,autoplay=True)
     def monitor_event(self,line):
         self.run_logs.append(line); self.log.appendPlainText(line)
     def refresh_monitor_queue(self):
@@ -592,6 +1105,15 @@ class MainWindow(QMainWindow):
         if hasattr(self,'monitor_dock'):
             self.monitor_dock.setVisible(visible); self.resizeDocks([self.monitor_dock],[self.safe_monitor_width(width)],Qt.Horizontal); self.apply_monitor_compact_mode()
         self.apply_workspace_preset(preset,save=False)
+        profile=self.workspace_profiles.get(preset)
+        if profile.name!='Focus Mode':
+            self.apply_density(settings.value('workspace/density',profile.density),persist=False)
+            header_visible=settings.value('workspace/header_visible',True,type=bool)
+            metrics_visible=settings.value('workspace/metrics_visible',profile.metrics_visible,type=bool)
+            self.project_context_widget.setVisible(header_visible)
+            self.metrics_strip.setVisible(metrics_visible)
+            if hasattr(self,'show_workspace_header_action'): self.show_workspace_header_action.setChecked(header_visible)
+            if hasattr(self,'show_metrics_action'): self.show_metrics_action.setChecked(metrics_visible)
     def save_layout_state(self):
         settings=QSettings('S Talking','S Talking'); settings.setValue('main_window/layout_version','v0181'); settings.setValue('main_window/state',self.saveState())
         if hasattr(self,'layout_actions'):
@@ -708,8 +1230,13 @@ class MainWindow(QMainWindow):
         self.output_summary.setText(f'Output: {elide_middle(out_path or "output",54)}'); self.output_summary.setToolTip(out_path or 'output')
     def update_status_bar(self):
         project=self.project_controller.project_name; provider_id=self.provider.currentText() if hasattr(self,'provider') else 'mock'; provider=self.provider_display_name(provider_id); queue=f'{len(self.generation_controller.jobs)} jobs'; report=self.report_service.latest_report_dir(); report_text=str(report) if report else 'No report yet'; self.statusBar().showMessage(f'Project: {project} | Provider: {provider} | Queue: {queue} | Latest report: {report_text}')
-        if hasattr(self,'project_context_bar'):
-            source=Path(self.csv.text()).name if hasattr(self,'csv') and self.csv.text().strip() else 'none'; out=Path(self.out.text()).name if hasattr(self,'out') and self.out.text().strip() else 'output'; preflight=getattr(self.preflight_service.latest,'status','not checked') if hasattr(self,'preflight_service') and self.preflight_service.latest else 'not checked'; model=self.current_model_id() if hasattr(self,'model') else '—'; voice=elide_middle(self.voice.text(),24) if hasattr(self,'voice') and self.voice.text() else '—'; self.project_context_bar.setText(f'Project: {project} · Source: {source} · Output: {out} · Provider: {provider} · Model: {model or "—"} · Voice: {voice} · Preflight: {preflight}'); self.project_context_bar.setToolTip(f'Output: {self.out.text() if hasattr(self,"out") else ""}')
+        if hasattr(self,'project_context_widget'):
+            source=Path(self.csv.text()).name if hasattr(self,'csv') and self.csv.text().strip() else 'none'
+            out=Path(self.out.text()).name if hasattr(self,'out') and self.out.text().strip() else 'output'
+            preflight=getattr(self.preflight_service.latest,'status','not checked') if hasattr(self,'preflight_service') and self.preflight_service.latest else 'not checked'
+            model=self.current_model_id() if hasattr(self,'model') else '—'
+            voice=elide_middle(self.voice.text(),24) if hasattr(self,'voice') and self.voice.text() else '—'
+            self.project_context_widget.update_context(project=project,source=source,output=out,provider=provider,model=model or '—',voice=voice,preflight=preflight,output_path=self.out.text() if hasattr(self,'out') else '')
         if hasattr(self,'health_button'):
             health=self.context.health_service.snapshot(project=self.project_controller.current_project,dashboard=self.current_dashboard_state())
             color={'healthy':'#22C55E','warning':'#F59E0B','error':'#EF4444'}[health.level]
@@ -730,6 +1257,7 @@ class MainWindow(QMainWindow):
             active=self.context.api_profile_service.active_profile('elevenlabs')
             index=self.api_profile.findData(active.profile_id) if active else -1
         self.api_profile.setCurrentIndex(index if index>=0 else 0); self.api_profile.blockSignals(False)
+        if hasattr(self,'provider_overview') and hasattr(self,'connection_status'): self.refresh_provider_workspace_summary()
     def api_profile_changed(self):
         profile_id=self.api_profile.currentData() if hasattr(self,'api_profile') else None
         if profile_id and self.generation_controller.is_active:
@@ -816,6 +1344,7 @@ class MainWindow(QMainWindow):
         if hasattr(self,'monitor_service'): self.refresh_monitor_queue()
         if hasattr(self,'preflight_service'): self.invalidate_preflight()
         if hasattr(self,'project_controller') and not self.settings_controller.is_loading: self.project_controller.update_provider(n); self.update_window_title()
+        if hasattr(self,'provider_overview'): self.refresh_provider_workspace_summary()
     def update_provider_controls(self,provider_id):
         capabilities=self.context.provider_catalog_service.capabilities_for(provider_id,self.settings())
         self.key.setEnabled(capabilities.requires_credential and provider_id in {'elevenlabs','openai'})
@@ -827,6 +1356,95 @@ class MainWindow(QMainWindow):
         self.language.setEnabled(capabilities.supports_language_code)
         self.stability.setVisible(provider_id=='elevenlabs'); self.similarity.setVisible(provider_id=='elevenlabs'); self.style.setVisible(capabilities.supports_styles or provider_id=='elevenlabs'); self.boost.setVisible(provider_id=='elevenlabs')
         self.piper.setEnabled(provider_id=='piper')
+        field_rows=getattr(self,'provider_field_rows',{})
+        visibility={
+            'api_profile': capabilities.requires_credential and provider_id in {'elevenlabs','openai','azure','google','aws_polly'},
+            'api_key': capabilities.requires_credential and provider_id in {'elevenlabs','openai'},
+            'language': capabilities.supports_language_code,
+            'piper': provider_id=='piper',
+            'stability': provider_id=='elevenlabs',
+            'similarity': provider_id=='elevenlabs',
+            'style': capabilities.supports_styles or provider_id=='elevenlabs',
+            'failover': provider_id=='elevenlabs',
+            'boost': provider_id=='elevenlabs',
+        }
+        for key,visible in visibility.items():
+            field=field_rows.get(key)
+            if field is not None: field.setVisible(bool(visible))
+        self.refresh_provider_workspace_summary(capabilities=capabilities)
+
+    def refresh_provider_workspace_summary(self,capabilities=None):
+        overview=getattr(self,'provider_overview',None)
+        if overview is None or not hasattr(self,'provider'): return
+        provider_id=self.provider.currentText() or 'mock'
+        if capabilities is None:
+            try: capabilities=self.context.provider_catalog_service.capabilities_for(provider_id,self.settings())
+            except Exception: capabilities=None
+        display_name=getattr(capabilities,'display_name',None) or self.provider_display_name(provider_id)
+        remote=bool(getattr(capabilities,'remote',provider_id not in {'mock','piper','kokoro'}))
+        provider_mode='Cloud provider' if remote else 'Local / offline provider'
+
+        status=self.connection_status.text().strip() if hasattr(self,'connection_status') else 'Not tested'
+        lowered=status.casefold()
+        if any(token in lowered for token in ('invalid','error','unavailable','missing','failed')): tone='error'
+        elif any(token in lowered for token in ('quota','unknown','warning','exhausted')): tone='warning'
+        elif any(token in lowered for token in ('connected','ready')): tone='success'
+        elif any(token in lowered for token in ('testing','checking','refreshing')): tone='running'
+        else: tone='neutral'
+
+        requires_credential=bool(getattr(capabilities,'requires_credential',False))
+        profile_id=self.api_profile.currentData() if requires_credential and hasattr(self,'api_profile') else None
+        profile=None
+        if profile_id:
+            try: profile=self.context.api_profile_service.get_profile(str(profile_id))
+            except (ValueError,AttributeError): profile=None
+        if profile is not None:
+            profile_text=profile.display_name
+            if profile.account_tier: profile_text=f'{profile_text} · {profile.account_tier}'
+        elif requires_credential and hasattr(self,'key') and self.key.text().strip(): profile_text='Temporary API key'
+        elif requires_credential: profile_text='Temporary key / no profile'
+        else: profile_text='No credential required'
+
+        remaining=profile.remaining_characters if profile is not None else None
+        if remaining is None:
+            try:
+                catalog=self.context.voice_service.cached_catalog(self.settings())
+                remaining=catalog.account.remaining_characters if catalog and catalog.account else None
+            except Exception: remaining=None
+        if remaining is not None: quota_text=f'{remaining:,} characters remaining'
+        elif bool(getattr(capabilities,'supports_quota_lookup',False)): quota_text='Not checked yet'
+        else: quota_text='Not reported by provider'
+
+        badges=['Cloud' if remote else 'Local']
+        if not remote: badges.append('Offline')
+        if bool(getattr(capabilities,'supports_voice_listing',False)): badges.append('Voice catalog')
+        if bool(getattr(capabilities,'supports_model_listing',False)): badges.append('Models')
+        if bool(getattr(capabilities,'supports_language_code',False)): badges.append('Language')
+        if bool(getattr(capabilities,'supports_pronunciation_dictionary',False)): badges.append('Dictionary')
+        if bool(getattr(capabilities,'supports_quota_lookup',False)): badges.append('Quota')
+        badges=tuple(dict.fromkeys(badges))[:overview.MAX_BADGES]
+
+        has_key=bool(getattr(self,'key',None) and self.key.text().strip())
+        has_voice=bool(getattr(self,'voice',None) and self.voice.text().strip())
+        can_test_connection=requires_credential or provider_id in {'piper','kokoro'}
+        if requires_credential and not (profile_id or has_key): next_step='Add a provider profile or API key to continue.'
+        elif tone=='error': next_step='Review the credential or local dependency, then test the connection again.'
+        elif can_test_connection and tone in {'neutral','warning'} and status.casefold()=='not tested': next_step='Test the provider connection before running preflight.'
+        elif not has_voice: next_step='Choose or enter a voice to complete the synthesis setup.'
+        else: next_step='Provider configuration is ready for preflight review.'
+
+        overview.update_summary(display_name=display_name,provider_mode=provider_mode,status=status,tone=tone,profile=profile_text,quota=quota_text,capabilities=badges,next_step=next_step)
+        sections=getattr(self,'provider_sections',{})
+        account=sections.get('Provider & Account')
+        voice_section=sections.get('Voice & Model')
+        if account is not None:
+            account.summary=profile_text
+            if not account.header.isChecked(): account.set_expanded(False)
+        if voice_section is not None:
+            voice_text=self.voice.text().strip() if hasattr(self,'voice') else ''
+            model_text=self.model.currentText().strip() if hasattr(self,'model') else ''
+            voice_section.summary=' · '.join(part for part in (voice_text or 'Voice not set',model_text or 'Model not set') if part)
+            if not voice_section.header.isChecked(): voice_section.set_expanded(False)
     def api_profile_display_name(self, profile_id: str) -> str:
         if not profile_id:
             return "Temporary key"
@@ -1003,6 +1621,7 @@ class MainWindow(QMainWindow):
             concise = elide_middle(concise,54)
         self.connection_status.setText(concise)
         self.connection_status.setAccessibleName(f'Provider connection status: {text}')
+        if hasattr(self,'provider_overview'): self.refresh_provider_workspace_summary()
     def open_account_details(self):
         profile_id=self.active_api_profile_id() if hasattr(self,'api_profile') else None
         profile=None
@@ -1164,7 +1783,9 @@ class MainWindow(QMainWindow):
     def invalidate_preflight(self):
         self.preflight_service.invalidate()
         if hasattr(self,'preflight_status'):
-            self.preflight_status.setText('Preflight: Not checked'); self.preflight_status.setStyleSheet('color:#94A3B8;font-weight:700;')
+            self.generation_status_strip.set_preflight_text('Preflight: Not checked'); self.preflight_status.setStyleSheet('color:#94A3B8;font-weight:700;')
+            if hasattr(self,'project_context_widget'): self.project_context_widget.set_preflight_state('not checked')
+            if hasattr(self,'generation_status_strip'): self.generation_status_strip.set_generation_state('Ready','Preflight has not been checked')
             self.startb.setEnabled(not self.generation_controller.is_active)
     def run_preflight(self,write_report=False):
         self.refresh_quota_snapshot()
@@ -1173,7 +1794,11 @@ class MainWindow(QMainWindow):
         color={'Ready':'#22C55E','Ready with warnings':'#F59E0B','Blocked by errors':'#EF4444','No pending jobs':'#94A3B8','Not checked':'#94A3B8'}[state.status]
         errors=sum(1 for issue in state.issues if issue.severity in {'hard_error','overridable_error','error'} and not (issue.overridable and issue.overridden)); warnings=sum(1 for issue in state.issues if issue.severity=='warning'); pending=len(self.generation_controller.generation_jobs())
         first=next((issue.message for issue in state.issues if issue.severity in {'error','warning'}),'No issues found.')
-        self.preflight_status.setText(f'Preflight: {state.status} · {errors} errors · {warnings} warnings'); self.preflight_status.setToolTip(f'Pending files: {pending:,}\nEstimated requests: {pending:,}\n{first}\nClick to view issues.'); self.preflight_status.setStyleSheet(f'color:{color};font-weight:700;')
+        self.generation_status_strip.set_preflight_text(f'Preflight: {state.status} · {errors} errors · {warnings} warnings'); self.preflight_status.setToolTip(f'Pending files: {pending:,}\nEstimated requests: {pending:,}\n{first}\nClick to view issues.'); self.preflight_status.setStyleSheet(f'color:{color};font-weight:700;')
+        if hasattr(self,'project_context_widget'): self.project_context_widget.set_preflight_state(state.status)
+        if hasattr(self,'generation_status_strip'):
+            detail=f'{pending:,} pending · {errors} errors · {warnings} warnings'
+            self.generation_status_strip.set_generation_state(state.status,detail)
         self.startb.setEnabled(state.status!='Blocked by errors' and not self.generation_controller.is_active)
         return state
     def show_preflight_dialog(self,state):
@@ -1198,6 +1823,16 @@ class MainWindow(QMainWindow):
     def dry_run(self):
         if not self.generation_controller.has_jobs(): self.load_csv()
         state=self.run_preflight(write_report=True); self.show_preflight_dialog(state); self.log.appendPlainText(f'Dry run complete: {state.status}.')
+    def review_generation_launch(self,confirmation,state):
+        if not confirmation.requires_user_confirmation: return ()
+        app=QApplication.instance(); platform=app.platformName().casefold() if app is not None else ''
+        if platform in {'offscreen','minimal'} or not self.isVisible():
+            if self.notifications.confirmation(confirmation.title,confirmation.message):
+                return confirmation.required_acknowledgements
+            return None
+        launch_dialog=GenerationLaunchDialog(confirmation,state,parent=self)
+        if launch_dialog.exec()!=QDialog.Accepted: return None
+        return launch_dialog.acknowledged_codes()
     def start(self):
         if not self.generation_controller.has_jobs():self.load_csv()
         if not self.generation_controller.has_jobs():return
@@ -1207,25 +1842,41 @@ class MainWindow(QMainWindow):
         confirmation=self.context.generation_confirmation_service.evaluate(state,s)
         if not confirmation.allowed:
             self.show_preflight_dialog(state); return
-        if confirmation.requires_user_confirmation and not self.notifications.confirmation(confirmation.title,confirmation.message):
+        acknowledged_codes=self.review_generation_launch(confirmation,state)
+        if acknowledged_codes is None:
             self.show_preflight_dialog(state); return
         self.generation_started_at=datetime.now(timezone.utc); self.run_logs=[]; self.dashboard()
         if self.generation_controller.start(self,s,project.output_path,project.project_key):
-            self.monitor_service.start_run(self.generation_controller.generation_jobs(),provider=s.provider,output_dir=project.output_path,settings=s,project_key=project.project_key); self.set_generation_controls(active=True); self.update_status_bar()
+            try:
+                receipt=self.context.generation_confirmation_service.write_receipt(
+                    confirmation,
+                    state,
+                    s,
+                    reports_dir=self.context.container.runtime.reports_dir,
+                    project_name=self.project_controller.project_name,
+                    output_dir=project.output_path,
+                    acknowledged_codes=acknowledged_codes,
+                )
+                self.last_launch_receipt=receipt
+                self.log.appendPlainText(f'Generation launch receipt: {receipt}')
+            except Exception as exc:
+                self.log.appendPlainText(f'Generation launch receipt failed: {exc}')
+            self.monitor_service.start_run(self.generation_controller.generation_jobs(),provider=s.provider,output_dir=project.output_path,settings=s,project_key=project.project_key); self.set_generation_controls(active=True); self.generation_status_strip.set_generation_state('Running',f'{len(self.generation_controller.generation_jobs()):,} jobs queued'); self.update_status_bar()
             current=self.project_controller.current_project; self.context.product_activity_service.activity('generation','Generation started',f'{len(self.generation_controller.generation_jobs()):,} job(s) queued.',project_id=current.project_id if current else None)
     def generation_failover(self,payload):
         source=str(payload.get('from_profile_name') or 'Current provider'); target=str(payload.get('to_profile_name') or 'No backup'); outcome=str(payload.get('outcome') or 'unknown'); filename=str(payload.get('filename') or 'job'); category=str(payload.get('failure_category') or 'unknown'); code=str(payload.get('error_code') or 'unknown'); message=f'Orchestration {outcome}: {filename} · {source} → {target} · {category}/{code}'; self.log.appendPlainText(message); self.statusBar().showMessage(message,8000); self.notification_center.refresh() if hasattr(self,'notification_center') else None; self.activity_timeline.refresh() if hasattr(self,'activity_timeline') else None
     def pause(self):
         if not self.generation_controller.is_paused:
-            if self.generation_controller.pause(): self.pauseb.setText('Resume'); self.monitor_service.pause(); self.dashboard(); self.context.product_activity_service.activity('generation','Generation paused','The active batch was paused.')
+            if self.generation_controller.pause(): self.pauseb.setText('Resume'); self.monitor_service.pause(); self.generation_status_strip.set_generation_state('Paused','Generation is paused'); self.dashboard(); self.context.product_activity_service.activity('generation','Generation paused','The active batch was paused.')
         else:
-            if self.generation_controller.resume(): self.pauseb.setText('Pause'); self.monitor_service.resume(); self.dashboard(); self.context.product_activity_service.activity('generation','Generation resumed','The active batch resumed.')
+            if self.generation_controller.resume(): self.pauseb.setText('Pause'); self.monitor_service.resume(); self.generation_status_strip.set_generation_state('Running','Generation resumed'); self.dashboard(); self.context.product_activity_service.activity('generation','Generation resumed','The active batch resumed.')
     def stop(self):
         if self.generation_controller.stop():
             self.stopb.setText('Stopping…')
             self.stopb.setEnabled(False)
             self.pauseb.setEnabled(False)
             self.monitor_service.stop_requested()
+            self.generation_status_strip.set_generation_state('Stopping','Waiting for the current provider request')
             self.statusBar().showMessage('Stopping after the current provider request…')
             self.context.product_activity_service.activity('generation','Stop requested','Stopping after the current provider request.')
     def resume_generation(self):
@@ -1343,7 +1994,9 @@ class MainWindow(QMainWindow):
         values={'pending':metrics.pending,'running':metrics.running,'completed':metrics.completed,'failed':metrics.failed,'skipped':metrics.skipped}
         for key,value in values.items():
             card=self.cards.get('done' if key=='completed' else key)
-            if card: card.value.setText(f'{value:,}'); card.set_active(getattr(card,'filter_text','')==self.queue_filter.currentText())
+            if card:
+                tone={'running':'running','completed':'success','failed':'error','pending':'info','skipped':'neutral'}.get(key,'neutral')
+                card.set_value(f'{value:,}',tone=tone); card.set_active(getattr(card,'filter_text','')==self.queue_filter.currentText())
     def update_quota_scope_label(self,jobs=None):
         if not hasattr(self,'quota_scope_label'): return
         self.refresh_quota_snapshot()
@@ -1388,8 +2041,9 @@ class MainWindow(QMainWindow):
     def play_selected_output(self):
         path=self.selected_output_path()
         if path and path.exists():
-            self.audio_player_service.load(path); self.audio_player_service.play(); self.statusBar().showMessage(f'Playing: {path.name}',5000)
+            self.show_output_workspace(path,autoplay=True); self.statusBar().showMessage(f'Playing: {path.name}',5000)
         elif path:
+            if hasattr(self,'output_workspace'): self.output_workspace.set_output_context(path)
             self.statusBar().showMessage(f'Output file missing: {path}',7000)
     def copy_selected_output_path(self):
         path=self.selected_output_path()
@@ -1479,11 +2133,13 @@ class MainWindow(QMainWindow):
         self.update_queue_summary_strip(); self.update_queue_scope_summary(jobs); self.update_selection_scope_summary(); self.update_queue_actions()
 
     def progress(self,i,total,name,status,duration,retry,error):
-        self.bar.setMaximum(total); self.bar.setValue(i); self.monitor_service.handle_progress(self.generation_controller.jobs,status=status,name=name,duration=duration,retry=retry,error=error); self.refresh_queue_progress(name,status)
+        self.bar.setMaximum(total); self.bar.setValue(i); self.generation_status_strip.set_progress_detail(i,total,status=status,filename=Path(name).name if name else ''); self.monitor_service.handle_progress(self.generation_controller.jobs,status=status,name=name,duration=duration,retry=retry,error=error); self.refresh_queue_progress(name,status)
         display_name=Path(name).name if name else ''
         line=f'[{i}/{total}] {status}: {display_name}'+(f' — {error}' if error else ''); self.run_logs.append(line); self.log.appendPlainText(line); self.dashboard(); self.update_status_bar()
     def set_generation_controls(self, *, active: bool) -> None:
         self.startb.setEnabled(not active)
+        if hasattr(self,'generation_status_strip') and not active:
+            self.generation_status_strip.set_generation_state('Ready','Queue is ready')
         self.pauseb.setEnabled(active)
         self.stopb.setEnabled(active)
         if 'Start Generation' in self.actions_by_name: self.actions_by_name['Start Generation'].setEnabled(not active)
@@ -1494,11 +2150,15 @@ class MainWindow(QMainWindow):
         self.update_queue_actions()
 
     def finished(self,s):
-        self.monitor_service.finish(s); self.set_generation_controls(active=False); self.dashboard(); self.log.appendPlainText(f'Finished: {json.dumps(s,indent=2)}')
+        self.monitor_service.finish(s); self.set_generation_controls(active=False); self.generation_status_strip.set_generation_state('Completed',f"{int(s.get('completed',0)):,} jobs completed"); self.dashboard(); self.log.appendPlainText(f'Finished: {json.dumps(s,indent=2)}')
+        latest=self.latest_completed_output_path()
+        if latest and hasattr(self,'output_workspace'):
+            self.output_workspace.set_output_context(latest)
+            self.output_log.appendPlainText(f'Latest completed output: {latest}')
         if self.provider.currentText()=='elevenlabs': self.context.voice_service.invalidate_provider_cache(self.settings()); self.test_elevenlabs_connection()
         report=self.create_report(s); self.context.health_service.invalidate(); self.notify_report_created(report,s); self.update_status_bar()
     def failed(self,e):
-        self.monitor_service.finish({'stopped':True}); self.set_generation_controls(active=False); self.dashboard(); self.run_logs.append(f'FAILED: {e}'); report=self.create_report({'total':len(self.generation_controller.generation_jobs()),'completed':0,'skipped':0,'failed':1,'stopped':True,'error':e}); self.context.product_activity_service.notify('error','Generation failed',str(e)); self.context.product_activity_service.activity('generation','Generation failed',str(e)); self.notify_report_created(report,{'completed':0,'skipped':0,'failed':1}); self.notifications.error('Error',e); self.update_status_bar()
+        self.monitor_service.finish({'stopped':True}); self.set_generation_controls(active=False); self.generation_status_strip.set_generation_state('Failed',str(e)); self.dashboard(); self.run_logs.append(f'FAILED: {e}'); report=self.create_report({'total':len(self.generation_controller.generation_jobs()),'completed':0,'skipped':0,'failed':1,'stopped':True,'error':e}); self.context.product_activity_service.notify('error','Generation failed',str(e)); self.context.product_activity_service.activity('generation','Generation failed',str(e)); self.notify_report_created(report,{'completed':0,'skipped':0,'failed':1}); self.notifications.error('Error',e); self.update_status_bar()
     def closeEvent(self,event):
         for dialog in list(self.report_dialogs): dialog.close()
         self.audio_player_service.stop()
@@ -1528,11 +2188,21 @@ class MainWindow(QMainWindow):
         if sources: self.import_source_paths(sources)
         event.acceptProposedAction()
     def cycle_major_panel(self):
-        widgets=[self.provider,self.table,self.ptext,self.log]
-        current=self.focusWidget()
-        try: index=widgets.index(current)
-        except ValueError: index=-1
-        widgets[(index+1)%len(widgets)].setFocus()
+        regions=[
+            ('provider',getattr(self,'provider',None)),
+            ('queue',getattr(self,'queue_search',None) if getattr(self,'queue_search',None) is not None else getattr(self,'table',None)),
+            ('inspector',getattr(self,'ptext',None) if getattr(self,'ptext',None) is not None else getattr(self,'right_tabs',None)),
+            ('activity',getattr(self,'activity_tabs',None)),
+            ('output',getattr(getattr(self,'output_workspace',None),'player',None)),
+            ('text-studio',getattr(getattr(self,'text_studio',None),'search',None)),
+            ('generation',getattr(self,'startb',None)),
+        ]
+        regions=[item for item in regions if item[1] is not None]
+        current=self.focusWidget(); index=-1
+        for position,(_name,widget) in enumerate(regions):
+            if current is widget or (hasattr(widget,'isAncestorOf') and current is not None and widget.isAncestorOf(current)):
+                index=position; break
+        if regions: self.focus_workspace_region(regions[(index+1)%len(regions)][0])
     def paint(self,r,status):
         if self.queue_adapter.is_model_view: return
         it=self.table.item(r,5)
@@ -1540,13 +2210,68 @@ class MainWindow(QMainWindow):
     def preview(self):
         selected=self.queue_adapter.selected_jobs() if hasattr(self,'queue_adapter') else []
         if selected:
-            j=selected[0]; out=self.generation_controller.output_path_for(j,Path(self.out.text() or self.project_controller.default_output_path),self.settings()); color=COLORS.get(j.status.value,'#94A3B8'); self.pname.setText(j.filename); self.pstatus.setText(j.status.value.title()); self.pstatus.setStyleSheet(f'background:{color};color:white;border-radius:6px;padding:3px 7px;font-weight:700;'); failure_meta=f' • Error {(j.failure_category or FailureCategory.UNKNOWN).value} • FP {j.error_fingerprint or "—"} • Retry {j.retry_count}/{self.settings().max_retries}' if j.status.value=='failed' else ''; self.pmeta.setText(f'Row {j.row_number} • {len(j.text):,} characters • {self.provider_display_name()} • Voice {self.voice.text() or "—"}{failure_meta}'); resolved=self.resolved_request_summary(j,out); history=f'\nRetry history: {len(j.retry_history)} event(s)' if j.retry_history else ''; self.presolved.setText(resolved+history); self.presolved.setToolTip(resolved+history); self.poutput.setText(f'Output: {elide_middle(str(out),54)}'); self.poutput.setToolTip(str(out)); history_lines=[f'{entry.timestamp} · {entry.event} · attempt {entry.attempt} · {entry.category.value}'+(f' · {entry.delay_seconds:.0f}s' if entry.delay_seconds else '') for entry in j.retry_history]; self.pretry.setPlainText('\n'.join(history_lines)); self.pretry.setVisible(bool(history_lines)); self.ptext.setPlainText(j.text)
+            job=selected[0]
+            output=self.generation_controller.output_path_for(
+                job,
+                Path(self.out.text() or self.project_controller.default_output_path),
+                self.settings(),
+            )
+            self.pname.setText(job.filename)
+            self.pstatus.setText(job.status.value.title())
+            self.pstatus.setProperty('tone',job.status.value)
+            self.pstatus.setAccessibleName(f'Queue status: {job.status.value.title()}')
+            self.pstatus.style().unpolish(self.pstatus)
+            self.pstatus.style().polish(self.pstatus)
+            failure_meta=(
+                f' • Error {(job.failure_category or FailureCategory.UNKNOWN).value}'
+                f' • FP {job.error_fingerprint or "—"}'
+                f' • Retry {job.retry_count}/{self.settings().max_retries}'
+                if job.status.value=='failed'
+                else ''
+            )
+            self.pmeta.setText(
+                f'Row {job.row_number} • {len(job.text):,} characters • '
+                f'{self.provider_display_name()} • Voice {self.voice.text() or "—"}{failure_meta}'
+            )
+            resolved=self.resolved_request_summary(job,output)
+            history=f'\nRetry history: {len(job.retry_history)} event(s)' if job.retry_history else ''
+            self.presolved.setText(resolved+history)
+            self.presolved.setToolTip(resolved+history)
+            self.poutput.setText(elide_middle(str(output),72))
+            self.poutput.setToolTip(str(output))
+            if hasattr(self,'output_workspace'): self.output_workspace.set_output_context(output)
+            history_lines=[
+                f'{entry.timestamp} · {entry.event} · attempt {entry.attempt} · {entry.category.value}'
+                +(f' · {entry.delay_seconds:.0f}s' if entry.delay_seconds else '')
+                for entry in job.retry_history
+            ]
+            self.pretry.setPlainText('\n'.join(history_lines))
+            self.pretry.setVisible(bool(history_lines))
+            self.ptext.setPlainText(job.text)
         else:
-            self.pname.setText('No row selected'); self.pstatus.clear(); self.pmeta.setText('Load a CSV and select a row to inspect it.'); self.presolved.setText('Resolved request: —'); self.poutput.clear(); self.pretry.clear(); self.pretry.hide(); self.ptext.setPlainText('The selected row preview will appear here after a CSV is loaded.')
+            self.pname.setText('No row selected')
+            self.pstatus.clear()
+            self.pstatus.setProperty('tone','neutral')
+            self.pstatus.style().unpolish(self.pstatus)
+            self.pstatus.style().polish(self.pstatus)
+            self.pmeta.setText('Load a source and select a row to inspect it.')
+            self.presolved.setText('Resolved request: —')
+            self.poutput.clear()
+            self.pretry.clear()
+            self.pretry.hide()
+            self.ptext.setPlainText('The selected row preview will appear here after a source is loaded.')
     def dashboard(self):
         self.refresh_quota_snapshot()
         scoped_jobs=self.generation_controller.generation_jobs(); metrics=self.generation_controller.scoped_metrics()
-        self.cards['files'].value.setText(f'{metrics.total:,}'); self.cards['chars'].value.setText(f'{sum(len(job.text) for job in scoped_jobs):,}'); self.cards['pending'].value.setText(f'{metrics.pending:,}'); self.cards['running'].value.setText(f'{metrics.running:,}'); self.cards['done'].value.setText(f'{metrics.completed:,}'); self.cards['failed'].value.setText(f'{metrics.failed:,}'); self.cards['skipped'].value.setText(f'{metrics.skipped:,}'); self.cards['quota'].value.setText('Ready' if self.provider.currentText()!='elevenlabs' else 'Check'); self.cards['eta'].value.setText(f'{metrics.eta_seconds/60:.1f} min')
+        self.cards['files'].set_value(f'{metrics.total:,}')
+        self.cards['chars'].set_value(f'{sum(len(job.text) for job in scoped_jobs):,}')
+        self.cards['pending'].set_value(f'{metrics.pending:,}',tone='info')
+        self.cards['running'].set_value(f'{metrics.running:,}',tone='running')
+        self.cards['done'].set_value(f'{metrics.completed:,}',tone='success')
+        self.cards['failed'].set_value(f'{metrics.failed:,}',tone='error' if metrics.failed else 'neutral')
+        self.cards['skipped'].set_value(f'{metrics.skipped:,}')
+        self.cards['quota'].set_value('Ready' if self.provider.currentText()!='elevenlabs' else 'Check',tone='success' if self.provider.currentText()!='elevenlabs' else 'warning')
+        self.cards['eta'].set_value(f'{metrics.eta_seconds/60:.1f} min')
         current=self.queue_filter.currentText() if hasattr(self,'queue_filter') else ''
         for card in self.cards.values(): card.set_active(bool(getattr(card,'filter_text','')) and card.filter_text==current)
         self.update_source_output_strip()
@@ -1572,6 +2297,27 @@ class MainWindow(QMainWindow):
         report=getattr(self,'latest_report_notification',None) or self.report_service.latest_report
         if report: self.show_report_dialog(report)
     def open_path(self,path): QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+    def handle_notification_action(self,payload):
+        target=str(payload or '').strip()
+        handlers={
+            'generation-orchestration':self.open_generation_orchestration,
+            'generation-maintenance':self.open_generation_maintenance,
+            'generation-cost-capacity':self.open_generation_cost_capacity,
+            'generation-reliability-dashboard':self.open_generation_reliability,
+            'generation-history':self.open_generation_history,
+            'generation-incident-center':self.open_generation_incidents,
+            'generation-problem-center':self.open_generation_problems,
+            'latest-report':self.open_latest_report,
+        }
+        handler=handlers.get(target)
+        if handler is not None:
+            handler(); self.statusBar().showMessage('Notification action opened.',4000); return True
+        if target:
+            path=Path(target).expanduser()
+            if path.exists():
+                self.open_path(path); self.statusBar().showMessage(f'Opened: {path.name}',4000); return True
+        self.statusBar().showMessage('This notification action is no longer available.',5000)
+        return False
     def open_latest_report(self):
         path=self.report_service.latest_report_dir()
         if path: self.open_path(path/'report.html')

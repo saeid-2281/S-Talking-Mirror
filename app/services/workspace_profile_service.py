@@ -8,16 +8,104 @@ from app.models.workspace_profile import WorkspaceProfile
 
 
 class WorkspaceProfileService:
-    """Owns built-in workspace profiles and the last selected profile."""
+    """Own built-in workspace profiles and the last selected profile.
+
+    Profiles now describe presentation density and header emphasis in addition
+    to dock placement. Existing state files remain compatible because the
+    service always resolves profiles from the current built-ins.
+    """
 
     BUILT_INS = (
-        WorkspaceProfile("Compact", False, False, False, 96, 0, 0, description="Queue-first compact workspace."),
-        WorkspaceProfile("Standard", True, True, False, 144, 290, 330, 0, description="Balanced everyday workspace."),
-        WorkspaceProfile("Generation", True, True, True, 176, 300, 340, 1, description="Monitor-focused generation workspace."),
-        WorkspaceProfile("Wide", True, True, True, 176, 320, 340, 1, description="Expanded three-panel workspace."),
-        WorkspaceProfile("Review", False, True, True, 176, 0, 360, 0, description="Queue and selected-row review workspace."),
-        WorkspaceProfile("Debug", True, True, True, 220, 320, 360, 1, description="Expanded diagnostics and activity workspace."),
-        WorkspaceProfile("Focus Mode", False, False, False, 96, 0, 0, description="Queue and generation controls only."),
+        WorkspaceProfile(
+            "Compact",
+            False,
+            False,
+            False,
+            96,
+            0,
+            0,
+            description="Dense queue-first workspace for smaller screens.",
+            density="compact",
+            header_mode="compact",
+        ),
+        WorkspaceProfile(
+            "Standard",
+            True,
+            True,
+            False,
+            144,
+            290,
+            330,
+            0,
+            description="Balanced professional workspace.",
+            density="comfortable",
+            header_mode="expanded",
+        ),
+        WorkspaceProfile(
+            "Generation",
+            True,
+            True,
+            True,
+            176,
+            300,
+            340,
+            1,
+            description="Monitor-focused generation workspace.",
+            density="compact",
+            header_mode="compact",
+        ),
+        WorkspaceProfile(
+            "Wide",
+            True,
+            True,
+            True,
+            176,
+            320,
+            340,
+            1,
+            description="Expanded three-panel studio workspace.",
+            density="comfortable",
+            header_mode="expanded",
+        ),
+        WorkspaceProfile(
+            "Review",
+            False,
+            True,
+            True,
+            176,
+            0,
+            360,
+            0,
+            description="Queue and selected-row review workspace.",
+            density="comfortable",
+            header_mode="compact",
+        ),
+        WorkspaceProfile(
+            "Debug",
+            True,
+            True,
+            True,
+            220,
+            320,
+            360,
+            1,
+            description="Expanded diagnostics and activity workspace.",
+            density="compact",
+            header_mode="compact",
+        ),
+        WorkspaceProfile(
+            "Focus Mode",
+            False,
+            False,
+            False,
+            96,
+            0,
+            0,
+            description="Distraction-free queue and generation controls.",
+            density="compact",
+            header_mode="hidden",
+            metrics_visible=False,
+        ),
     )
 
     def __init__(self, state_path: Path) -> None:
@@ -63,5 +151,8 @@ class WorkspaceProfileService:
             "profiles": [asdict(profile) for profile in self.BUILT_INS],
         }
         temporary = self.state_path.with_suffix(self.state_path.suffix + ".tmp")
-        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         temporary.replace(self.state_path)

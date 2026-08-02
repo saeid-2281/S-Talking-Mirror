@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app.models.generation_planning import BatchGenerationPlan
+
 
 @dataclass(frozen=True)
 class PreflightIssue:
@@ -42,6 +44,7 @@ class PreflightState:
     estimated_duration_seconds: float = 0.0
     estimated_provider_requests: int = 0
     estimated_cost: float | None = None
+    generation_plan: BatchGenerationPlan | None = None
     provider_ready: bool = False
     output_directory_ready: bool = False
     can_start: bool = False
