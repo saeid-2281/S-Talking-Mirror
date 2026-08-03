@@ -137,6 +137,8 @@ def test_double_click_completed_output_and_close_stops_playback(qt_app, tmp_path
     assert context.audio_player_service.current_path == output
     window.close()
     assert context.audio_player_service.playback_state == "stopped"
+    assert context.audio_player_service.current_path is None
+    assert context.audio_player_service.state.loaded is False
 
 
 def test_reports_preserve_output_paths(tmp_path: Path) -> None:

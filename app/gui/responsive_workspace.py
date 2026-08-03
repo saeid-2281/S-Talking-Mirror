@@ -83,7 +83,9 @@ def resolve_workspace_state(
         left_dock_width=270,
         right_dock_width=290,
         source_action_columns=2,
-        toolbar_icon_only=True,
+        # A narrow center pane may need compact queue controls even on a wide
+        # desktop. Keep toolbar labels unless the whole window is truly narrow.
+        toolbar_icon_only=width < 1180,
         metrics_compact=True,
     )
 

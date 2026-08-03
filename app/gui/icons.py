@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QByteArray, Qt
-from PySide6.QtGui import QIcon, QPainter, QPixmap
+from PySide6.QtCore import QByteArray, QObject, Qt
+from PySide6.QtGui import QAction, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QAbstractButton, QApplication, QWidget
 
 ICON_REGISTRY: dict[str, str] = {
     "add": "M12 5v14M5 12h14",
@@ -136,28 +136,142 @@ ACTION_ICONS: dict[str, str] = {
 }
 
 
-def icon(name: str, *, size: int = 20, color: str | None = None) -> QIcon:
+_ICON_METADATA: dict[int, tuple[str, int, str | None]] = {}
+_ICON_CACHE: dict[tuple[str, int, str, bool], QIcon] = {}
+
+
+def _render_icon(name: str, *, size: int, color: str | None = None) -> QIcon:
     app = QApplication.instance()
     if app is None:
         return QIcon()
-    path = ICON_REGISTRY.get(name) or ICON_REGISTRY.get(ALIASES.get(name, ""), ICON_REGISTRY["project"])
+    resolved = name if name in ICON_REGISTRY else ALIASES.get(name, "project")
+    path = ICON_REGISTRY.get(resolved, ICON_REGISTRY["project"])
     stroke = color or app.palette().buttonText().color().name()
-    fill = stroke if name == "favorite-filled" else "none"
+    cache_key = (resolved, int(size), stroke.casefold(), color is not None)
+    cached = _ICON_CACHE.get(cache_key)
+    if cached is not None:
+        result = QIcon(cached)
+        _ICON_METADATA[result.cacheKey()] = (resolved, size, color)
+        return result
+
+    fill = stroke if resolved == "favorite-filled" else "none"
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
-        f'<path d="{path}" fill="{fill}" stroke="{stroke}" stroke-width="1.8" '
+        f'<path d="{path}" fill="{fill}" stroke="{stroke}" stroke-width="1.9" '
         f'stroke-linecap="round" stroke-linejoin="round"/></svg>'
     )
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     QSvgRenderer(QByteArray(svg.encode("utf-8"))).render(painter)
     painter.end()
-    return QIcon(pixmap)
+    result = QIcon(pixmap)
+    _ICON_CACHE[cache_key] = QIcon(result)
+    _ICON_METADATA[result.cacheKey()] = (resolved, size, color)
+    return result
+
+
+def icon(name: str, *, size: int = 20, color: str | None = None) -> QIcon:
+    """Return a monochrome icon using the active application palette.
+
+    Icons are tagged with their source metadata so ``refresh_icons`` can
+    recolor already-created actions and buttons after a runtime theme switch.
+    """
+
+    return _render_icon(name, size=size, color=color)
 
 
 def action_icon(action: str, *, size: int = 20, color: str | None = None) -> QIcon:
     return icon(ACTION_ICONS.get(action, action), size=size, color=color)
+
+
+def _refresh_owner(owner: object) -> bool:
+    getter = getattr(owner, "icon", None)
+    setter = getattr(owner, "setIcon", None)
+    if not callable(getter) or not callable(setter):
+        return False
+    try:
+        current = getter()
+    except RuntimeError:
+        return False
+    if current is None or current.isNull():
+        return False
+    metadata = _ICON_METADATA.get(current.cacheKey())
+    if metadata is None:
+        return False
+    name, size, color = metadata
+    if color is not None:
+        return False
+    setter(_render_icon(name, size=size, color=None))
+    return True
+
+
+def _actions_for_widget(widget: QWidget) -> tuple[QAction, ...]:
+    """Return actions without assuming ``QWidget.actions`` is callable."""
+
+    actions_attr = getattr(widget, "actions", None)
+    if callable(actions_attr):
+        try:
+            return tuple(actions_attr())
+        except (RuntimeError, TypeError):
+            return ()
+    if isinstance(actions_attr, (list, tuple, set)):
+        return tuple(action for action in actions_attr if isinstance(action, QAction))
+    return ()
+
+
+def refresh_icons(root: QObject | None = None) -> int:
+    """Recolor registered icons inside one live object tree.
+
+    Runtime theme changes normally pass the active ``MainWindow`` as ``root``.
+    This avoids rescanning and rerendering every stale widget retained by a
+    long-lived ``QApplication`` (notably the shared offscreen test session).
+    Calling without a root remains supported for standalone controls.
+    """
+
+    app = QApplication.instance()
+    if app is None:
+        return 0
+
+    roots: tuple[QObject, ...]
+    if root is not None:
+        roots = (root,)
+    else:
+        roots = tuple(app.topLevelWidgets())
+
+    seen: set[int] = set()
+    refreshed = 0
+
+    def refresh(owner: object) -> None:
+        nonlocal refreshed
+        identity = id(owner)
+        if identity in seen:
+            return
+        seen.add(identity)
+        if _refresh_owner(owner):
+            refreshed += 1
+
+    for scope in roots:
+        if isinstance(scope, QAbstractButton):
+            refresh(scope)
+        if isinstance(scope, QAction):
+            refresh(scope)
+
+        widgets: list[QWidget] = []
+        if isinstance(scope, QWidget):
+            widgets.append(scope)
+        widgets.extend(scope.findChildren(QWidget))
+        for widget in widgets:
+            if isinstance(widget, QAbstractButton):
+                refresh(widget)
+            for action in _actions_for_widget(widget):
+                refresh(action)
+
+        for action in scope.findChildren(QAction):
+            refresh(action)
+
+    return refreshed
 
 
 def required_icon_names() -> set[str]:

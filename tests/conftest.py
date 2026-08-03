@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import gc
 import os
+import sys
 
 import pytest
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QCoreApplication, QEvent, QSettings
 from PySide6.QtWidgets import QApplication
 
 
@@ -36,5 +38,31 @@ def isolate_qsettings_between_tests(tmp_path):
     settings.clear()
     settings.sync()
     yield
+
+    # Keep the session-scoped QApplication fast and deterministic. Closing and
+    # deleting top-level widgets prevents stale windows, timers, styles and
+    # media backends from accumulating across hundreds of GUI tests.
+    app = QApplication.instance()
+    if app is not None:
+        for widget in list(app.topLevelWidgets()):
+            try:
+                widget.close()
+                widget.deleteLater()
+            except RuntimeError:
+                pass
+        player_module = sys.modules.get("app.services.audio_player_service")
+        player_type = getattr(player_module, "AudioPlayerService", None)
+        shared_player = getattr(player_type, "_shared_instance", None)
+        if shared_player is not None:
+            try:
+                shared_player.unload()
+            except RuntimeError:
+                pass
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        app.processEvents()
+        gc.collect()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        app.processEvents()
+
     settings.clear()
     settings.sync()

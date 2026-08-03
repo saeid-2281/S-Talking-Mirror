@@ -19,7 +19,7 @@ from app.gui.interface_preferences import (
     FocusStyle,
     InterfacePreferences,
 )
-from app.gui.icons import action_icon, icon
+from app.gui.icons import action_icon, icon, refresh_icons
 from app.gui.responsive_workspace import (
     ResponsiveWorkspaceCoordinator,
     ResponsiveWorkspaceState,
@@ -63,12 +63,12 @@ class LegacyCollapsibleSection(QFrame):
     def __init__(self,title,summary='',expanded=True):
         super().__init__(); self.setObjectName('collapsibleSection'); self.summary=summary
         root=QVBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(4)
-        self.header=QToolButton(); self.header.setObjectName('sectionHeader'); self.header.setToolButtonStyle(Qt.ToolButtonTextBesideIcon); self.header.setCheckable(True); self.header.setChecked(expanded); self.header.setText(title); self.header.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow); self.header.clicked.connect(self.set_expanded)
+        self.header=QToolButton(); self.header.setObjectName('sectionHeader'); self.header.setToolButtonStyle(Qt.ToolButtonTextBesideIcon); self.header.setCheckable(True); self.header.setChecked(expanded); self.header.setText(title); self.header.setArrowType(Qt.NoArrow); self.header.setIconSize(QSize(14,14)); self.header.setIcon(action_icon('chevron-down' if expanded else 'chevron-right',size=14)); self.header.clicked.connect(self.set_expanded)
         self.content=QWidget(); self.content.setObjectName('sectionContent')
         self.form=QVBoxLayout(self.content); self.form.setContentsMargins(10,4,10,10); self.form.setSpacing(8)
         root.addWidget(self.header); root.addWidget(self.content); self.set_expanded(expanded)
     def set_expanded(self,expanded):
-        self.header.setChecked(expanded); self.header.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow); self.content.setVisible(expanded)
+        self.header.setChecked(expanded); self.header.setArrowType(Qt.NoArrow); self.header.setIcon(action_icon('chevron-down' if expanded else 'chevron-right',size=14)); self.content.setVisible(expanded)
         base=self.header.text().split(' · ')[0]
         if not expanded and self.summary: self.header.setText(f'{base} · {self.summary}')
         else: self.header.setText(base)
@@ -370,7 +370,7 @@ class MainWindow(QMainWindow):
         self.actions_by_name['Pronunciation dictionaries'].setShortcut(QKeySequence('Ctrl+Shift+D'))
     def build_view_menu(self):
         self.view_menu=QMenu('View',self); self.menuBar().addMenu(self.view_menu); theme_menu=self.view_menu.addMenu('Theme'); self.theme_actions={}
-        for name in ['Dark','Light','System']:
+        for name in self.theme_manager.available_themes():
             action=theme_menu.addAction(name); action.setCheckable(True); action.triggered.connect(lambda _checked,n=name:self.apply_theme(n)); self.theme_actions[name]=action
         self.view_menu.addSeparator(); self.view_toolbar_action=self.view_menu.addAction(icon('queue'),'Toolbar'); self.view_toolbar_action.setCheckable(True); self.view_toolbar_action.setChecked(True); self.view_toolbar_action.triggered.connect(lambda checked:self.main_toolbar.setVisible(checked)); self.view_provider_dock_action=self.view_menu.addAction(icon('provider'),'Provider/Sources dock'); self.view_provider_dock_action.setCheckable(True); self.view_provider_dock_action.setChecked(True); self.view_provider_dock_action.triggered.connect(lambda checked:self.left_dock.setVisible(checked)); self.view_inspector_dock_action=self.view_menu.addAction(icon('report'),'Inspector/Monitor dock'); self.view_inspector_dock_action.setCheckable(True); self.view_inspector_dock_action.setChecked(True); self.view_inspector_dock_action.triggered.connect(lambda checked:self.right_dock.setVisible(checked)); self.view_activity_action=self.view_menu.addAction(icon('activity'),'Activity panel'); self.view_activity_action.setCheckable(True); self.view_activity_action.setChecked(False); self.view_activity_action.triggered.connect(lambda checked:self.set_activity_expanded(checked)); self.view_notifications_action=self.view_menu.addAction(icon('notification'),'Notification Center'); self.view_notifications_action.setCheckable(True); self.view_notifications_action.setChecked(False); self.view_notifications_action.triggered.connect(lambda checked:self.notification_dock.setVisible(checked)); self.view_text_studio_action=self.view_menu.addAction(action_icon('project.add_text_source'),'Text Studio'); self.view_text_studio_action.setCheckable(True); self.view_text_studio_action.setChecked(False); self.view_text_studio_action.setShortcut(QKeySequence('Ctrl+7')); self.view_text_studio_action.triggered.connect(lambda checked:self.text_studio_dock.setVisible(checked)); self.actions_by_name['Text Studio']=self.view_text_studio_action; self.follow_active_job_action=self.view_menu.addAction(icon('success'),'Follow active job'); self.follow_active_job_action.setCheckable(True); self.follow_active_job_action.setChecked(True)
         self.open_output_workspace_action=self.view_menu.addAction(icon('folder-output'),'Output playback')
@@ -437,10 +437,19 @@ class MainWindow(QMainWindow):
     def apply_theme(self,name):
         self.theme_manager.save(name)
         application=QApplication.instance()
+        palette=self.theme_manager.palette(name)
+        stylesheet=self.theme_manager.stylesheet(name)
         if application is not None:
-            application.setPalette(self.theme_manager.palette(name))
-        self.setPalette(self.theme_manager.palette(name))
-        self.setStyleSheet(self.theme_manager.stylesheet(name))
+            application.setPalette(palette)
+            # Reapplying the full application stylesheet repolishes every live
+            # widget. During long-lived sessions (and the shared Qt test app)
+            # that becomes quadratic, so only mutate it when the theme differs.
+            if application.styleSheet()!=stylesheet:
+                application.setStyleSheet(stylesheet)
+        self.setPalette(palette)
+        if self.styleSheet()!=stylesheet:
+            self.setStyleSheet(stylesheet)
+        refresh_icons(self)
         if hasattr(self,'theme_actions'):
             for key,action in self.theme_actions.items(): action.setChecked(key==name)
     def setup_responsive_workspace(self):
@@ -2399,7 +2408,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self,event):
         self.qt_runtime_health_service.close_all()
         self.report_dialogs.clear()
-        self.audio_player_service.stop()
+        self.audio_player_service.unload()
         self.developer_tools.close()
         self.monitor_service.persist_recovery()
         self.save_layout_state()

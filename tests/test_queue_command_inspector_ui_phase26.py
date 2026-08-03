@@ -22,9 +22,23 @@ def test_phase26_queue_command_center_uses_two_readable_rows(qt_app, tmp_path: P
     qt_app.processEvents()
 
     workspace = window.queue_workspace
+
+    # The responsive coordinator is intentionally debounced. In a busy full
+    # suite its timer may fire before this assertion and select the compact
+    # three-row layout, while an isolated run can still be on the initial
+    # two-row layout. Pin the presentation under test instead of depending on
+    # event-loop timing, then verify the compact reflow explicitly.
+    workspace.set_responsive_mode("standard", force=True)
     assert workspace.command_root_layout.count() == 2
     assert workspace.command_layout.count() >= 7
     assert workspace.action_layout.count() >= 8
+
+    workspace.set_responsive_mode("compact", force=True)
+    assert workspace.command_root_layout.count() == 3
+    assert workspace.command_root_layout.indexOf(workspace.planning_host) == 1
+
+    workspace.set_responsive_mode("standard", force=True)
+    assert workspace.command_root_layout.count() == 2
     assert window.queue_search.minimumWidth() >= 220
     assert window.dry_run_button.objectName() == "queuePrimaryAction"
     assert window.retry_menu_button.objectName() == "queueActionMenu"

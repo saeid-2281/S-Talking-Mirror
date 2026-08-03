@@ -113,6 +113,15 @@ class AudioPlayerService(QObject):
         self.player.stop()
         return self._publish(self._copy(playback_state="stopped", position=0, status="Stopped"))
 
+    def unload(self) -> AudioPlayerState:
+        """Stop playback and release the native media source/file handle."""
+
+        volume = self._state.volume
+        if self.available:
+            self.player.stop()
+            self.player.setSource(QUrl())
+        return self._publish(AudioPlayerState(volume=volume))
+
     def seek(self, milliseconds: int) -> AudioPlayerState:
         position = max(0, int(milliseconds))
         if not self.available:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -213,6 +213,8 @@ class ProviderSection(QFrame):
         self.header.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.header.setCheckable(True)
         self.header.setChecked(expanded)
+        self.header.setArrowType(Qt.NoArrow)
+        self.header.setIconSize(QSize(14, 14))
         self.header.clicked.connect(self.set_expanded)
         root.addWidget(self.header)
 
@@ -231,7 +233,8 @@ class ProviderSection(QFrame):
 
     def set_expanded(self, expanded: bool) -> None:
         self.header.setChecked(expanded)
-        self.header.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
+        self.header.setArrowType(Qt.NoArrow)
+        self.header.setIcon(action_icon("chevron-down" if expanded else "chevron-right", size=14))
         text = self._title
         if not expanded and self.summary:
             text = f"{text} · {self.summary}"

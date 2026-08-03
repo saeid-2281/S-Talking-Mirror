@@ -199,7 +199,7 @@ class ReleaseCandidateService:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         candidate_dir = self.candidate_root / f"S-Talking-{self.version}-{stamp}"
         candidate_dir.mkdir(parents=True, exist_ok=True)
-        copied_package = candidate_dir / package.name
+        copied_package = candidate_dir / f"S-Talking-{self.version}-portable.zip"
         shutil.copy2(package, copied_package)
         audited = self.snapshot(copied_package)
         manifest_path, checksum_path, notes_path = self.create_manifest(audited, candidate_dir)
@@ -377,7 +377,7 @@ class ReleaseCandidateService:
     def _latest_release_check(self) -> dict[str, Any]:
         path = self.runtime.artifacts_dir / "release-check" / "latest" / "result.json"
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload = json.loads(path.read_text(encoding="utf-8-sig"))
             return payload if isinstance(payload, dict) else {}
         except (OSError, json.JSONDecodeError):
             return {}

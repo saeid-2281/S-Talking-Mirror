@@ -68,7 +68,7 @@ DARK_TOKENS = {
     "text_secondary": "#D3DDEB",
     "text_muted": "#9FB0C7",
     "text_disabled": "#62748F",
-    "text_inverse": "#08101F",
+    "text_inverse": "#FFFFFF",
     "primary": "#3B82F6",
     "primary_hover": "#60A5FA",
     "primary_pressed": "#2563EB",
@@ -82,7 +82,8 @@ DARK_TOKENS = {
     "running": "#2DD4BF",
     "skipped": "#94A3B8",
     "favorite": "#FBBF24",
-    "selected_row": "#1F3B63",
+    "selected_row": "#254D78",
+    "selected_text": "#FFFFFF",
 }
 DARK_TOKENS.update(
     {
@@ -124,7 +125,8 @@ LIGHT_TOKENS = {
     "running": "#0F9488",
     "skipped": "#64748B",
     "favorite": "#B7791F",
-    "selected_row": "#DCEAFE",
+    "selected_row": "#CFE2FF",
+    "selected_text": "#10233F",
 }
 LIGHT_TOKENS.update(
     {
@@ -134,6 +136,49 @@ LIGHT_TOKENS.update(
         "hover": LIGHT_TOKENS["secondary_hover"],
         "accent_gold": LIGHT_TOKENS["favorite"],
         "accent_teal": LIGHT_TOKENS["running"],
+    }
+)
+
+GRAPHITE_TOKENS = {
+    "canvas": "#16181C",
+    "surface": "#202329",
+    "surface_raised": "#292D34",
+    "surface_soft": "#30353D",
+    "input": "#1B1E23",
+    "overlay": "#202329F2",
+    "border_subtle": "#3B414B",
+    "border": "#4A5260",
+    "border_strong": "#687384",
+    "focus": "#7AA2F7",
+    "text_primary": "#F3F4F6",
+    "text_secondary": "#D1D5DB",
+    "text_muted": "#A7AFBC",
+    "text_disabled": "#737B87",
+    "text_inverse": "#FFFFFF",
+    "primary": "#4F7FEA",
+    "primary_hover": "#6C95F2",
+    "primary_pressed": "#3E67C7",
+    "secondary_hover": "#373C45",
+    "destructive": "#F05252",
+    "success": "#34C778",
+    "info": "#55B6E8",
+    "warning": "#E6A23C",
+    "error": "#F47676",
+    "pending": "#7AA2F7",
+    "running": "#3CC8B4",
+    "skipped": "#9AA3AF",
+    "favorite": "#E6B85C",
+    "selected_row": "#3B4F6B",
+    "selected_text": "#FFFFFF",
+}
+GRAPHITE_TOKENS.update(
+    {
+        "app": "#191C21",
+        "panel": GRAPHITE_TOKENS["surface"],
+        "elevated": GRAPHITE_TOKENS["surface_raised"],
+        "hover": GRAPHITE_TOKENS["secondary_hover"],
+        "accent_gold": GRAPHITE_TOKENS["favorite"],
+        "accent_teal": GRAPHITE_TOKENS["running"],
     }
 )
 
@@ -165,8 +210,10 @@ def _build_palette(tokens: dict[str, str]) -> QPalette:
     text = QColor(tokens["text_primary"])
     secondary = QColor(tokens["text_secondary"])
     disabled = QColor(tokens["text_disabled"])
-    highlight = QColor(tokens["primary"])
+    primary = QColor(tokens["primary"])
+    highlight = QColor(tokens["selected_row"])
     inverse = QColor(tokens["text_inverse"])
+    selected_text = QColor(tokens["selected_text"])
     border = QColor(tokens["border"])
     border_subtle = QColor(tokens["border_subtle"])
 
@@ -181,14 +228,14 @@ def _build_palette(tokens: dict[str, str]) -> QPalette:
     palette.setColor(QPalette.ButtonText, text)
     palette.setColor(QPalette.BrightText, inverse)
     palette.setColor(QPalette.Highlight, highlight)
-    palette.setColor(QPalette.HighlightedText, inverse)
+    palette.setColor(QPalette.HighlightedText, selected_text)
     palette.setColor(QPalette.PlaceholderText, QColor(tokens["text_muted"]))
     palette.setColor(QPalette.Light, soft.lighter(108))
     palette.setColor(QPalette.Midlight, border_subtle)
     palette.setColor(QPalette.Mid, secondary)
     palette.setColor(QPalette.Dark, border.darker(130))
     palette.setColor(QPalette.Shadow, window.darker(160))
-    palette.setColor(QPalette.Link, highlight)
+    palette.setColor(QPalette.Link, primary)
     palette.setColor(QPalette.LinkVisited, QColor(tokens["primary_pressed"]))
     palette.setColor(QPalette.Active, QPalette.Button, elevated)
     palette.setColor(QPalette.Active, QPalette.Base, input_color)
@@ -198,13 +245,13 @@ def _build_palette(tokens: dict[str, str]) -> QPalette:
     palette.setColor(QPalette.Disabled, QPalette.WindowText, disabled)
     palette.setColor(QPalette.Disabled, QPalette.ButtonText, disabled)
     palette.setColor(QPalette.Disabled, QPalette.Highlight, border_subtle)
-    palette.setColor(QPalette.Disabled, QPalette.HighlightedText, inverse)
+    palette.setColor(QPalette.Disabled, QPalette.HighlightedText, selected_text)
     return palette
 
 
 def _stylesheet(tokens: dict[str, str]) -> str:
     return f"""
-QWidget{{background:{tokens['app']};color:{tokens['text_primary']};font-size:13px;font-family:Segoe UI;selection-background-color:{tokens['selected_row']};}}
+QWidget{{background:{tokens['app']};color:{tokens['text_primary']};font-size:13px;font-family:Segoe UI;selection-background-color:{tokens['selected_row']};selection-color:{tokens['selected_text']};}}
 QWidget:focus{{outline:1px solid {tokens['focus']};}}
 QToolTip{{background:{tokens['elevated']};color:{tokens['text_primary']};border:1px solid {tokens['border']};padding:5px;}}
 QGroupBox{{background:{tokens['panel']};border:1px solid {tokens['border']};border-radius:8px;margin-top:10px;padding:10px 8px 8px 8px;font-weight:600;}}
@@ -302,7 +349,7 @@ QLabel#statusBadge{{border-radius:6px;padding:3px 7px;font-weight:700;}}
 QLineEdit,QComboBox,QPlainTextEdit,QTableWidget,QAbstractSpinBox{{background:{tokens['input']};color:{tokens['text_primary']};border:1px solid {tokens['border']};border-radius:6px;padding:6px 8px;min-height:22px;}}
 QComboBox{{padding-right:28px;}}
 QComboBox::drop-down{{subcontrol-origin:padding;subcontrol-position:top right;width:24px;border-left:1px solid {tokens['border_subtle']};}}
-QComboBox QAbstractItemView{{background:{tokens['overlay']};color:{tokens['text_primary']};selection-background-color:{tokens['selected_row']};border:1px solid {tokens['border']};padding:4px;}}
+QComboBox QAbstractItemView{{background:{tokens['overlay']};color:{tokens['text_primary']};selection-background-color:{tokens['selected_row']};selection-color:{tokens['selected_text']};border:1px solid {tokens['border']};padding:4px;}}
 QComboBox QAbstractItemView::item{{min-height:30px;padding:4px 8px;}}
 QLineEdit:disabled,QComboBox:disabled,QPlainTextEdit:disabled,QAbstractSpinBox:disabled{{color:{tokens['text_disabled']};background:{tokens['panel']};}}
 QPushButton,QToolButton{{background:{tokens['elevated']};color:{tokens['text_primary']};border:1px solid {tokens['border']};border-radius:6px;padding:6px 10px;font-weight:600;min-height:22px;}}
@@ -313,7 +360,7 @@ QPushButton#destructiveButton{{background:{tokens['destructive']};color:{tokens[
 QPushButton:disabled,QToolButton:disabled{{color:{tokens['text_disabled']};background:{tokens['panel']};border-color:{tokens['border']};}}
 QHeaderView::section{{background:{tokens['elevated']};color:{tokens['text_secondary']};padding:7px;border:0;border-right:1px solid {tokens['border']};}}
 QTableWidget{{gridline-color:{tokens['border']};alternate-background-color:{tokens['panel']};}}
-QTableWidget::item:selected{{background:{tokens['selected_row']};color:{tokens['text_primary']};}}
+QTableWidget::item:selected,QTableView::item:selected{{background:{tokens['selected_row']};color:{tokens['selected_text']};}}
 QProgressBar{{background:{tokens['input']};border:1px solid {tokens['border']};border-radius:6px;text-align:center;}}
 QProgressBar::chunk{{background:{tokens['accent_teal']};border-radius:5px;}}
 QSlider::groove:horizontal{{height:4px;background:{tokens['border']};border-radius:2px;}}
@@ -340,6 +387,7 @@ QMenu::icon{{padding-left:6px;}}
 
 DARK_STYLE = _stylesheet(DARK_TOKENS)
 LIGHT_STYLE = _stylesheet(LIGHT_TOKENS)
+GRAPHITE_STYLE = _stylesheet(GRAPHITE_TOKENS)
 
 
 class ThemeManager:
@@ -352,22 +400,36 @@ class ThemeManager:
     def save(self, name: str) -> None:
         self.settings.setValue("theme/name", name)
 
+    @staticmethod
+    def available_themes() -> tuple[str, ...]:
+        return ("Dark", "Graphite", "Light", "System")
+
     def tokens(self, name: str | None = None) -> dict[str, str]:
         selected = self.effective_name(name or self.current())
-        return DARK_TOKENS if selected == "Dark" else LIGHT_TOKENS
+        return {
+            "Dark": DARK_TOKENS,
+            "Graphite": GRAPHITE_TOKENS,
+            "Light": LIGHT_TOKENS,
+        }[selected]
 
     def palette(self, name: str | None = None) -> QPalette:
         return _build_palette(self.tokens(name))
 
     def stylesheet(self, name: str | None = None) -> str:
-        return DARK_STYLE if self.effective_name(name or self.current()) == "Dark" else LIGHT_STYLE
+        selected = self.effective_name(name or self.current())
+        return {
+            "Dark": DARK_STYLE,
+            "Graphite": GRAPHITE_STYLE,
+            "Light": LIGHT_STYLE,
+        }[selected]
 
     @staticmethod
     def effective_name(name: str) -> str:
         if name == "System":
-            palette = QApplication.palette()
+            application = QApplication.instance()
+            palette = application.style().standardPalette() if application is not None else QApplication.palette()
             return "Dark" if palette.window().color().lightness() < 128 else "Light"
-        return "Dark" if name == "Dark" else "Light"
+        return name if name in {"Dark", "Graphite", "Light"} else "Dark"
 
 # v0.19 product UI foundation additions are appended to both generated themes.
 _PROVIDER_WORKSPACE_STYLE = r"""
@@ -394,6 +456,7 @@ QFrame#providerPanel QPushButton#connectionStatus {
 """
 DARK_STYLE += _PROVIDER_WORKSPACE_STYLE
 LIGHT_STYLE += _PROVIDER_WORKSPACE_STYLE
+GRAPHITE_STYLE += _PROVIDER_WORKSPACE_STYLE
 DARK_STYLE += r"""
 QDialog#voiceBrowserDialog,QDialog#pronunciationDictionaryDialog {
     background: palette(window);
@@ -432,6 +495,44 @@ QGroupBox#voiceAudioSettings {
 }
 """
 LIGHT_STYLE += r"""
+QDialog#voiceBrowserDialog,QDialog#pronunciationDictionaryDialog {
+    background: palette(window);
+}
+QFrame#voiceContextCard,QFrame#voiceFilterCard,QFrame#dictionaryHeaderCard,QFrame#dictionaryActionCard {
+    background: palette(base);
+    border: 1px solid palette(midlight);
+    border-radius: 9px;
+}
+QLabel#voiceDetailsTitle {
+    font-size: 18px;
+    font-weight: 800;
+}
+QPushButton#favoriteButton {
+    font-size: 18px;
+    min-width: 36px;
+    max-width: 44px;
+    padding: 3px;
+}
+QPushButton#primaryQuietButton {
+    font-weight: 700;
+}
+QLabel#dictionaryCompatibility {
+    padding: 7px 10px;
+    border: 1px solid palette(midlight);
+    border-radius: 7px;
+    background: palette(base);
+}
+QFrame#dictionaryActionCard QPushButton {
+    min-width: 120px;
+}
+QGroupBox#voiceAudioSettings {
+    margin-top: 12px;
+    padding-top: 10px;
+    font-weight: 700;
+}
+"""
+
+GRAPHITE_STYLE += r"""
 QDialog#voiceBrowserDialog,QDialog#pronunciationDictionaryDialog {
     background: palette(window);
 }
@@ -521,6 +622,7 @@ QHeaderView#queueHeader::section:hover {
 """
 DARK_STYLE += _QUEUE_WORKSPACE_STYLE
 LIGHT_STYLE += _QUEUE_WORKSPACE_STYLE
+GRAPHITE_STYLE += _QUEUE_WORKSPACE_STYLE
 
 _QUEUE_PRO_STYLE = r"""
 QFrame#queueWorkspace {
@@ -557,6 +659,7 @@ QLabel#queueWorkspaceFooter {
 """
 DARK_STYLE += _QUEUE_PRO_STYLE
 LIGHT_STYLE += _QUEUE_PRO_STYLE
+GRAPHITE_STYLE += _QUEUE_PRO_STYLE
 
 # Provider Accounts 2.0 catalog state styles are injected by apply_theme.
 CATALOG_STATE_QSS = r"""
@@ -582,6 +685,7 @@ QLabel#catalogStateBadge[state="missing"] {
 
 DARK_STYLE += CATALOG_STATE_QSS
 LIGHT_STYLE += CATALOG_STATE_QSS
+GRAPHITE_STYLE += CATALOG_STATE_QSS
 
 _VOICE_BROWSER_PRO_STYLE = r"""
 QLabel#voiceResultsCount {
@@ -614,6 +718,7 @@ QTableView#voiceCatalogTable QHeaderView::section {
 """
 DARK_STYLE += _VOICE_BROWSER_PRO_STYLE
 LIGHT_STYLE += _VOICE_BROWSER_PRO_STYLE
+GRAPHITE_STYLE += _VOICE_BROWSER_PRO_STYLE
 
 # Phase 23 professional workspace shell. Appended after legacy rules so the
 # modern shell can evolve without destabilizing dialogs that still depend on
@@ -774,6 +879,7 @@ QFrame#queueWorkspace[density="compact"] QLabel#queueWorkspaceSubtitle {
 """
 DARK_STYLE += _PROFESSIONAL_WORKSPACE_STYLE
 LIGHT_STYLE += _PROFESSIONAL_WORKSPACE_STYLE
+GRAPHITE_STYLE += _PROFESSIONAL_WORKSPACE_STYLE
 
 # Phase 24 unified professional interface and accessibility contract.
 _INTERFACE_ACCESSIBILITY_STYLE = r"""
@@ -875,6 +981,7 @@ QLabel#accessibilityAnnouncer {
 """
 DARK_STYLE += _INTERFACE_ACCESSIBILITY_STYLE
 LIGHT_STYLE += _INTERFACE_ACCESSIBILITY_STYLE
+GRAPHITE_STYLE += _INTERFACE_ACCESSIBILITY_STYLE
 
 # Phase 25 professional visual refresh focused on readability and clipped
 # controls discovered in screenshot review.
@@ -1026,6 +1133,7 @@ QMainWindow[contrastMode="high"] QTableWidget#sourcesTable {
 """
 DARK_STYLE += _PHASE25_PRO_REFRESH_STYLE
 LIGHT_STYLE += _PHASE25_PRO_REFRESH_STYLE
+GRAPHITE_STYLE += _PHASE25_PRO_REFRESH_STYLE
 
 # Phase 26 queue command center, inspector and generation monitor refresh.
 _PHASE26_OPERATIONAL_UI_STYLE = r"""
@@ -1247,6 +1355,7 @@ QMainWindow[contrastMode="high"] QFrame#queueCommandBar {
 """
 DARK_STYLE += _PHASE26_OPERATIONAL_UI_STYLE
 LIGHT_STYLE += _PHASE26_OPERATIONAL_UI_STYLE
+GRAPHITE_STYLE += _PHASE26_OPERATIONAL_UI_STYLE
 
 # Phase 27 responsive workspace hierarchy. These selectors only change
 # presentation at resolved breakpoints; all business controls remain available.
@@ -1318,6 +1427,7 @@ QMainWindow[responsiveMode="compact"] QDockWidget::title {
 """
 DARK_STYLE += _PHASE27_RESPONSIVE_WORKSPACE_STYLE
 LIGHT_STYLE += _PHASE27_RESPONSIVE_WORKSPACE_STYLE
+GRAPHITE_STYLE += _PHASE27_RESPONSIVE_WORKSPACE_STYLE
 
 # Phase 28 dialog and settings UX. Dialog content scrolls independently while
 # primary actions remain in a stable footer outside the scroll area.
@@ -1447,6 +1557,7 @@ QDialog[contrastMode="high"] QFrame#setupStepRail {
 """
 DARK_STYLE += _PHASE28_DIALOG_WORKSPACE_STYLE
 LIGHT_STYLE += _PHASE28_DIALOG_WORKSPACE_STYLE
+GRAPHITE_STYLE += _PHASE28_DIALOG_WORKSPACE_STYLE
 
 _PHASE28_SOURCE_IMPORT_STYLE = r"""
 QPushButton#sourceImportToolAction {
@@ -1473,6 +1584,7 @@ QTableWidget#sourceImportTable::item {
 """
 DARK_STYLE += _PHASE28_SOURCE_IMPORT_STYLE
 LIGHT_STYLE += _PHASE28_SOURCE_IMPORT_STYLE
+GRAPHITE_STYLE += _PHASE28_SOURCE_IMPORT_STYLE
 
 # Phase 29 notification, empty-state and feedback experience.
 _PHASE29_FEEDBACK_UX_STYLE = r"""
@@ -1652,6 +1764,7 @@ QMainWindow[contrastMode="high"] QFrame#notificationEmptyState {
 """
 DARK_STYLE += _PHASE29_FEEDBACK_UX_STYLE
 LIGHT_STYLE += _PHASE29_FEEDBACK_UX_STYLE
+GRAPHITE_STYLE += _PHASE29_FEEDBACK_UX_STYLE
 
 # Phase 30 operational history, reports and activity timeline experience.
 _PHASE30_OPERATIONAL_HISTORY_STYLE = r"""
@@ -1823,6 +1936,7 @@ QDialog[contrastMode="high"] QFrame#reportMetricCard {
 """
 DARK_STYLE += _PHASE30_OPERATIONAL_HISTORY_STYLE
 LIGHT_STYLE += _PHASE30_OPERATIONAL_HISTORY_STYLE
+GRAPHITE_STYLE += _PHASE30_OPERATIONAL_HISTORY_STYLE
 
 # Phase 31 provider workspace and voice configuration UX.
 _PHASE31_PROVIDER_WORKSPACE_STYLE = r"""
@@ -1944,6 +2058,7 @@ QMainWindow[contrastMode="high"] QLabel#providerNextStep {
 """
 DARK_STYLE += _PHASE31_PROVIDER_WORKSPACE_STYLE
 LIGHT_STYLE += _PHASE31_PROVIDER_WORKSPACE_STYLE
+GRAPHITE_STYLE += _PHASE31_PROVIDER_WORKSPACE_STYLE
 
 # Phase 32 audio output, playback and file handoff UX.
 _PHASE32_OUTPUT_PLAYBACK_STYLE = r"""
@@ -2085,6 +2200,7 @@ QMainWindow[contrastMode="high"] QPlainTextEdit#outputActivityLog {
 """
 DARK_STYLE += _PHASE32_OUTPUT_PLAYBACK_STYLE
 LIGHT_STYLE += _PHASE32_OUTPUT_PLAYBACK_STYLE
+GRAPHITE_STYLE += _PHASE32_OUTPUT_PLAYBACK_STYLE
 
 # Phase 33 Text Studio preparation and batch-editing workspace.
 _TEXT_STUDIO_PREPARATION_STYLE = r"""
@@ -2182,6 +2298,7 @@ QMainWindow[contrastMode="high"] QFrame#textStudioEditorPanel {
 """
 DARK_STYLE += _TEXT_STUDIO_PREPARATION_STYLE
 LIGHT_STYLE += _TEXT_STUDIO_PREPARATION_STYLE
+GRAPHITE_STYLE += _TEXT_STUDIO_PREPARATION_STYLE
 
 # Phase 34 batch planning and preflight decision surface.
 _BATCH_GENERATION_PLANNING_STYLE = r"""
@@ -2253,6 +2370,7 @@ QMainWindow[contrastMode="high"] QTableWidget#batchPlanScenarioTable {
 """
 DARK_STYLE += _BATCH_GENERATION_PLANNING_STYLE
 LIGHT_STYLE += _BATCH_GENERATION_PLANNING_STYLE
+GRAPHITE_STYLE += _BATCH_GENERATION_PLANNING_STYLE
 
 # Phase 35 safe launch review and explicit risk acknowledgement.
 _GENERATION_LAUNCH_REVIEW_STYLE = r"""
@@ -2302,3 +2420,122 @@ QMainWindow[contrastMode="high"] QTableWidget#generationLaunchExistingOutputs {
 """
 DARK_STYLE += _GENERATION_LAUNCH_REVIEW_STYLE
 LIGHT_STYLE += _GENERATION_LAUNCH_REVIEW_STYLE
+GRAPHITE_STYLE += _GENERATION_LAUNCH_REVIEW_STYLE
+
+
+# Phase 51 visual-system hardening: selected-row contrast, balanced controls,
+# consistent disclosure affordances, and modern cross-theme surfaces.
+_PHASE51_VISUAL_SYSTEM_STYLE = r"""
+QAbstractItemView {
+    background: palette(base);
+    color: palette(text);
+    alternate-background-color: palette(alternate-base);
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+    outline: 0;
+}
+QAbstractItemView::item:selected,
+QAbstractItemView::item:selected:active,
+QAbstractItemView::item:selected:!active,
+QTableWidget::item:selected,
+QTableView::item:selected,
+QTreeView::item:selected,
+QListView::item:selected {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+}
+QAbstractItemView::item:hover:!selected {
+    background: palette(midlight);
+    color: palette(text);
+}
+QTableView#voiceCatalogTable::item:selected,
+QTableView#queueTable::item:selected,
+QTableWidget#queueTable::item:selected,
+QTableWidget#sourcesTable::item:selected,
+QTableWidget#providerProfilesTable::item:selected {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+    font-weight: 650;
+}
+QHeaderView::section {
+    color: palette(window-text);
+}
+QPushButton,
+QToolButton {
+    icon-size: 16px;
+}
+QPushButton:disabled,
+QToolButton:disabled {
+    color: palette(mid);
+}
+QToolButton#providerSectionHeader,
+QToolButton#sectionHeader {
+    min-height: 32px;
+    padding: 4px 10px;
+    border: 0;
+    border-radius: 8px;
+    text-align: left;
+    icon-size: 14px;
+}
+QToolButton#providerSectionHeader:hover,
+QToolButton#sectionHeader:hover {
+    background: palette(alternate-base);
+}
+QToolButton#providerSectionHeader:checked,
+QToolButton#sectionHeader:checked {
+    background: palette(base);
+}
+QFrame#generationActionBar QPushButton {
+    min-height: 28px;
+    max-height: 30px;
+    padding: 3px 11px;
+    margin: 0;
+}
+QFrame#generationActionBar QPushButton#generationPrimaryAction {
+    padding: 3px 14px;
+}
+QFrame#generationActionBar QLabel#workspaceStatusBadge {
+    min-height: 26px;
+    max-height: 28px;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+QToolButton::menu-indicator {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    right: 5px;
+}
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 26px;
+}
+QComboBox::down-arrow {
+    width: 10px;
+    height: 10px;
+}
+QFrame#voiceContextCard,
+QFrame#voiceFilterCard,
+QFrame#providerSection,
+QFrame#queueWorkspaceHeading,
+QFrame#queueRangeBar,
+QFrame#queueCommandBar,
+QFrame#generationActionBar,
+QFrame#workspaceHero,
+QFrame#projectContextStrip {
+    border-color: palette(midlight);
+}
+QFrame#voiceContextCard,
+QFrame#voiceFilterCard {
+    border-radius: 10px;
+}
+QDialog#voiceBrowserDialog QLineEdit,
+QDialog#voiceBrowserDialog QComboBox,
+QDialog#voiceBrowserDialog QPushButton,
+QDialog#voiceBrowserDialog QToolButton {
+    min-height: 26px;
+}
+"""
+DARK_STYLE += _PHASE51_VISUAL_SYSTEM_STYLE
+LIGHT_STYLE += _PHASE51_VISUAL_SYSTEM_STYLE
+GRAPHITE_STYLE += _PHASE51_VISUAL_SYSTEM_STYLE

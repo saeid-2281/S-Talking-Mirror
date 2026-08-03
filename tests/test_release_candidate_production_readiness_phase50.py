@@ -53,7 +53,7 @@ def _release_check(runtime: RuntimeConfig, *, passed: int = 757) -> None:
             "release_smoke": {"success": True, "exit_code": 0},
         },
     }
-    (folder / "result.json").write_text(json.dumps(payload), encoding="utf-8")
+    (folder / "result.json").write_text(json.dumps(payload), encoding="utf-8-sig")
 
 
 def _package(path: Path, *, forbidden: bool = False) -> Path:
@@ -99,6 +99,7 @@ def test_phase50_version_normalization_matches_pyproject_rc_syntax() -> None:
     assert "& $Python -c $code" not in script
     assert "[System.IO.File]::WriteAllText($tempScript, $code, $utf8NoBom)" in script
     assert "& $Python $tempScript" in script
+    assert 'print("Failed release gates:")' in script
     assert "Remove-Item" in script
 
 
@@ -130,6 +131,8 @@ def test_phase50_build_writes_manifest_checksums_notes_and_latest(tmp_path: Path
     service = _service(tmp_path, package=package)
     snapshot = service.build_candidate()
     assert snapshot.status == "ready"
+    assert snapshot.package_path is not None
+    assert snapshot.package_path.name == "S-Talking-0.18.2-rc1-portable.zip"
     assert snapshot.manifest_path and snapshot.manifest_path.exists()
     assert snapshot.checksum_path and snapshot.checksum_path.exists()
     assert snapshot.notes_path and snapshot.notes_path.exists()

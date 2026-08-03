@@ -32,6 +32,12 @@ print(f"Package:  {snapshot.package_path}")
 print(f"Manifest: {snapshot.manifest_path}")
 print(f"SHA file: {snapshot.checksum_path}")
 if snapshot.status != "ready":
+    print("Failed release gates:")
+    for gate in snapshot.gates:
+        if not gate.passed:
+            print(f" - {gate.label} [{gate.severity}]: {gate.detail}")
+            if gate.remediation:
+                print(f"   Action: {gate.remediation}")
     raise SystemExit(2)
 '@
 

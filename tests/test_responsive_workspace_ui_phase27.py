@@ -22,12 +22,14 @@ def _window(tmp_path: Path) -> MainWindow:
 
 def test_phase27_responsive_state_uses_window_and_queue_width() -> None:
     compact = resolve_workspace_state(window_width=1600, window_height=900, queue_width=500)
+    narrow = resolve_workspace_state(window_width=1024, window_height=720, queue_width=500)
     standard = resolve_workspace_state(window_width=1366, window_height=768, queue_width=760)
     wide = resolve_workspace_state(window_width=1920, window_height=1080, queue_width=1100)
 
     assert compact.mode is WorkspaceBreakpoint.COMPACT
     assert compact.source_action_columns == 2
-    assert compact.toolbar_icon_only is True
+    assert compact.toolbar_icon_only is False
+    assert narrow.toolbar_icon_only is True
     assert standard.mode is WorkspaceBreakpoint.STANDARD
     assert standard.right_dock_width == 310
     assert wide.mode is WorkspaceBreakpoint.WIDE

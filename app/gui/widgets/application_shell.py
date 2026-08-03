@@ -463,6 +463,15 @@ class GenerationStatusStrip(QFrame):
         self.stop_button.setAccessibleName("Stop generation")
         self.pause_button.setEnabled(False)
         self.stop_button.setEnabled(False)
+        for button in (
+            self.start_button,
+            self.preflight_button,
+            self.pause_button,
+            self.stop_button,
+        ):
+            button.setMinimumHeight(30)
+            button.setMaximumHeight(30)
+            button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
         self.progress_context = QFrame()
         self.progress_context.setObjectName("generationProgressContext")
@@ -483,10 +492,10 @@ class GenerationStatusStrip(QFrame):
         self.stop_button.clicked.connect(stop)
         self.preflight_button.clicked.connect(show_preflight)
 
-        layout.addWidget(self.start_button)
-        layout.addWidget(self.preflight_button)
-        layout.addWidget(self.pause_button)
-        layout.addWidget(self.stop_button)
+        layout.addWidget(self.start_button, 0, Qt.AlignVCenter)
+        layout.addWidget(self.preflight_button, 0, Qt.AlignVCenter)
+        layout.addWidget(self.pause_button, 0, Qt.AlignVCenter)
+        layout.addWidget(self.stop_button, 0, Qt.AlignVCenter)
         layout.addStretch(1)
         layout.addWidget(self.progress_context)
 

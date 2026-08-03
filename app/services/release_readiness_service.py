@@ -181,7 +181,7 @@ class ReleaseReadinessService:
             else:
                 shutil.copy2(path, target)
         (dist / "RUN-S-TALKING.bat").write_text("@echo off\r\npy -m app.gui.main\r\n", encoding="utf-8")
-        zip_path = dist.with_suffix(".zip")
+        zip_path = dist.parent / f"{dist.name}.zip"
         if zip_path.exists():
             zip_path.unlink()
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -195,7 +195,7 @@ class ReleaseReadinessService:
             path = root / "result.json"
             if path.exists():
                 try:
-                    return json.loads(path.read_text(encoding="utf-8"))
+                    return json.loads(path.read_text(encoding="utf-8-sig"))
                 except Exception:
                     return {}
         return {}
