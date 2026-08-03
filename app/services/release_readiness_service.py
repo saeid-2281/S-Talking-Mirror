@@ -152,14 +152,32 @@ class ReleaseReadinessService:
         if dist.exists():
             shutil.rmtree(dist)
         dist.mkdir(parents=True, exist_ok=True)
+        excluded_names = {
+            ".git",
+            ".venv",
+            ".pytest-tmp",
+            ".pytest_cache",
+            ".ruff_cache",
+            ".mypy_cache",
+            "artifacts",
+            "reports",
+            "output",
+            "outputs",
+            "logs",
+            "cache",
+            "data",
+            "credentials",
+            "__pycache__",
+            "settings.json",
+            "api-profiles.json",
+            "workspace-profiles.json",
+        }
         for path in self.runtime.app_root.iterdir():
-            if path.name in {".git", ".venv", ".pytest-tmp", "artifacts", "reports", "output", "logs", "cache", "data", "__pycache__"}:
-                continue
-            if path.name in {"settings.json"}:
+            if path.name in excluded_names:
                 continue
             target = dist / path.name
             if path.is_dir():
-                shutil.copytree(path, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".ruff_cache", "*.egg-info"))
+                shutil.copytree(path, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo", ".ruff_cache", ".pytest_cache", ".mypy_cache", "*.egg-info", "*.db", "*.sqlite", "*.sqlite3", "*.mp3", "*.wav"))
             else:
                 shutil.copy2(path, target)
         (dist / "RUN-S-TALKING.bat").write_text("@echo off\r\npy -m app.gui.main\r\n", encoding="utf-8")

@@ -27,7 +27,7 @@ from app.gui.responsive_workspace import (
 )
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -655,7 +655,7 @@ class MainWindow(QMainWindow):
             action=self.generation_menu.addAction(action_icon(ic),text); action.triggered.connect(handler); action.setShortcut(QKeySequence(shortcut)); self.actions_by_name[text]=action
     def build_reports_menu(self):
         self.reports_menu=QMenu('Reports',self); self.menuBar().addMenu(self.reports_menu)
-        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Artifact Retention',self.open_generation_artifact_retention,'report'),('UI Runtime Health',self.open_qt_runtime_health,'health'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Budget & Quota Guard',self.open_generation_budget_guard,'warning'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Estimate vs Actual',self.open_generation_estimate_actual,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
+        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Artifact Retention',self.open_generation_artifact_retention,'report'),('UI Runtime Health',self.open_qt_runtime_health,'health'),('Release Candidate',self.open_release_candidate,'health'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Budget & Quota Guard',self.open_generation_budget_guard,'warning'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Estimate vs Actual',self.open_generation_estimate_actual,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
     def build_developer_tools_menu(self):
         self.developer_menu=QMenu('Developer Tools',self); self.menuBar().addMenu(self.developer_menu); self.actions_by_name.update(self.developer_tools.populate_menu(self.developer_menu))
     def build_help_menu(self):
@@ -2543,6 +2543,7 @@ class MainWindow(QMainWindow):
             'generation-maintenance':self.open_generation_maintenance,
             'generation-artifact-retention':self.open_generation_artifact_retention,
             'qt-runtime-health':self.open_qt_runtime_health,
+            'release-candidate':self.open_release_candidate,
             'generation-cost-capacity':self.open_generation_cost_capacity,
             'generation-budget-guard':self.open_generation_budget_guard,
             'generation-reliability-dashboard':self.open_generation_reliability,
@@ -2585,6 +2586,9 @@ class MainWindow(QMainWindow):
     def open_qt_runtime_health(self):
         dialog=QtRuntimeHealthDialog(self.qt_runtime_health_service,self,export_dir=self.context.container.runtime.reports_dir/'qt-runtime-health',open_path=self.open_path)
         return self._show_report_dialog(dialog,category='runtime-health')
+    def open_release_candidate(self):
+        dialog=ReleaseCandidateDialog(self.context.release_candidate_service,self,open_path=self.open_path,copy_path=self.copy_path)
+        return self._show_report_dialog(dialog,category='release-candidate')
     def open_generation_orchestration(self):
         project=self.project_controller.current_project; dialog=GenerationOrchestrationDialog(self.context.generation_orchestration_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',settings_provider=self.settings,export_dir=self.context.container.runtime.reports_dir/'orchestration'); self._show_report_dialog(dialog)
     def open_generation_maintenance(self):
@@ -2702,6 +2706,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Reports: Generation History',act('Generation History')),
             PaletteCommand('Reports: Artifact Retention',act('Artifact Retention')),
             PaletteCommand('Reports: UI Runtime Health',act('UI Runtime Health')),
+            PaletteCommand('Reports: Release Candidate',act('Release Candidate')),
             PaletteCommand('Reports: Execution Sessions',act('Execution Sessions')),
             PaletteCommand('Reports: Execution Receipts',act('Execution Receipts')),
             PaletteCommand('Reports: Estimate vs Actual',act('Estimate vs Actual')),

@@ -41,6 +41,7 @@ from app.services.project_manager import ProjectManager
 from app.services.queue_service import QueueService
 from app.services.qt_runtime_health_service import QtRuntimeHealthService
 from app.services.release_readiness_service import ReleaseReadinessService
+from app.services.release_candidate_service import ReleaseCandidateService
 from app.services.startup_recovery_service import SessionRestoreService, StartupRecoveryService
 from app.services.voice_library_store import VoiceLibraryStore
 
@@ -87,6 +88,7 @@ __all__ = [
     "QueueService",
     "QtRuntimeHealthService",
     "ReleaseReadinessService",
+    "ReleaseCandidateService",
     "SessionRestoreService",
     "StartupRecoveryService",
     "VoiceLibraryStore",

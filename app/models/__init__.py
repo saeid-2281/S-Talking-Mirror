@@ -138,6 +138,7 @@ from app.models.project_source import (
 )
 from app.models.product_events import ActivityEvent, BatchSessionRecord, NotificationRecord
 from app.models.release_state import ProviderStatusState, ReleaseReadinessState
+from app.models.release_candidate import ReleaseCandidateArtifact, ReleaseCandidateGate, ReleaseCandidateSnapshot
 from app.models.startup_state import SessionRestoreState, StartupRecoveryState
 from app.models.ui_state import GenerationContext, GenerationUiState, SettingsViewData
 from app.models.workspace_profile import WorkspaceProfile
@@ -328,6 +329,9 @@ __all__ = [
     "PronunciationDictionarySummary",
     "PronunciationRule",
     "ReleaseReadinessState",
+    "ReleaseCandidateArtifact",
+    "ReleaseCandidateGate",
+    "ReleaseCandidateSnapshot",
     "ReportJob",
     "SessionRestoreState",
     "SourceCollectionImportResult",
