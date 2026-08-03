@@ -12,6 +12,7 @@ from app.services.audio_player_service import AudioPlayerService
 from app.services.api_profile_service import ApiProfileService
 from app.services.git_service import GitService
 from app.services.generation_confirmation_service import GenerationConfirmationCoordinator
+from app.services.generation_artifact_retention_service import GenerationArtifactRetentionService
 from app.services.generation_execution_receipt_service import GenerationExecutionReceiptService
 from app.services.generation_estimate_actual_service import GenerationEstimateActualService
 from app.services.generation_execution_session_service import GenerationExecutionSessionService
@@ -72,6 +73,7 @@ class ApplicationContext:
     health_service: HealthService
     voice_service: VoiceService
     generation_maintenance_service: GenerationMaintenanceService
+    generation_artifact_retention_service: GenerationArtifactRetentionService
     generation_monitor_service: GenerationMonitorService
     generation_history_service: GenerationHistoryService
     generation_cost_capacity_service: GenerationCostCapacityService
@@ -127,6 +129,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         health_service=services.health_service,
         voice_service=services.voice_service,
         generation_maintenance_service=services.generation_maintenance_service,
+        generation_artifact_retention_service=services.generation_artifact_retention_service,
         generation_monitor_service=services.generation_monitor_service,
         generation_history_service=services.generation_history_service,
         generation_cost_capacity_service=services.generation_cost_capacity_service,

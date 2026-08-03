@@ -24,6 +24,7 @@ from app.services.audio_player_service import AudioPlayerService
 from app.services.api_profile_service import ApiProfileService
 from app.services.git_service import GitService
 from app.services.generation_confirmation_service import GenerationConfirmationCoordinator
+from app.services.generation_artifact_retention_service import GenerationArtifactRetentionService
 from app.services.generation_execution_receipt_service import GenerationExecutionReceiptService
 from app.services.generation_estimate_actual_service import GenerationEstimateActualService
 from app.services.generation_execution_session_service import GenerationExecutionSessionService
@@ -98,6 +99,7 @@ class ServiceContainer:
     health_service: HealthService
     voice_service: VoiceService
     generation_maintenance_service: GenerationMaintenanceService
+    generation_artifact_retention_service: GenerationArtifactRetentionService
     generation_monitor_service: GenerationMonitorService
     generation_orchestration_service: GenerationOrchestrationService
     generation_history_service: GenerationHistoryService
@@ -200,6 +202,7 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
         product_event_repository,
         job_repository,
     )
+    generation_artifact_retention_service = GenerationArtifactRetentionService(config.reports_dir)
     generation_budget_guard_service = GenerationBudgetGuardService(
         config.reports_dir,
         generation_cost_capacity_service,
@@ -280,6 +283,7 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
         health_service=HealthService(config, git_service, report_service, diagnostics_service),
         voice_service=voice_service,
         generation_maintenance_service=generation_maintenance_service,
+        generation_artifact_retention_service=generation_artifact_retention_service,
         generation_monitor_service=GenerationMonitorService(recovery_service=generation_recovery_service),
         generation_orchestration_service=generation_orchestration_service,
         generation_history_service=generation_history_service,

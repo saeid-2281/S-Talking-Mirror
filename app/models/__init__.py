@@ -29,6 +29,12 @@ from app.models.generation_execution_receipt import (
     GenerationExecutionReceiptSummary,
     GenerationOutputManifestEntry,
 )
+from app.models.generation_artifact_retention import (
+    GenerationArtifactRetentionCandidate,
+    GenerationArtifactRetentionPolicy,
+    GenerationArtifactRetentionPreview,
+    GenerationArtifactRetentionRun,
+)
 from app.models.generation_budget_guard import (
     GenerationBudgetGuardApproval,
     GenerationBudgetGuardDecision,
@@ -229,6 +235,10 @@ __all__ = [
     "GenerationExecutionReceipt",
     "GenerationExecutionReceiptSummary",
     "GenerationOutputManifestEntry",
+    "GenerationArtifactRetentionCandidate",
+    "GenerationArtifactRetentionPolicy",
+    "GenerationArtifactRetentionPreview",
+    "GenerationArtifactRetentionRun",
     "GenerationBudgetGuardApproval",
     "GenerationBudgetGuardDecision",
     "GenerationBudgetGuardExport",

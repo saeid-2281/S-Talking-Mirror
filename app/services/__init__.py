@@ -8,6 +8,7 @@ from app.services.generation_confirmation_service import (
     GenerationConfirmationCoordinator,
     GenerationLaunchCheck,
 )
+from app.services.generation_artifact_retention_service import GenerationArtifactRetentionService
 from app.services.generation_cost_capacity_service import GenerationCostCapacityService
 from app.services.generation_budget_guard_service import GenerationBudgetGuardService
 from app.services.generation_scope_service import GenerationScopeService
@@ -53,6 +54,7 @@ __all__ = [
     "GenerationConfirmation",
     "GenerationConfirmationCoordinator",
     "GenerationLaunchCheck",
+    "GenerationArtifactRetentionService",
     "GenerationCostCapacityService",
     "GenerationBudgetGuardService",
     "FailureAnalysisService",
