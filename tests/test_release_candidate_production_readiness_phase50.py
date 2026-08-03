@@ -93,6 +93,14 @@ def test_phase50_version_normalization_matches_pyproject_rc_syntax() -> None:
     assert ReleaseCandidateService.normalize_version("0.18.2-rc1") == "0.18.2rc1"
     assert ReleaseCandidateService.normalize_version("0.18.2rc1") == "0.18.2rc1"
 
+    script = (Path(__file__).resolve().parents[1] / "scripts" / "release-candidate.ps1").read_text(
+        encoding="utf-8-sig"
+    )
+    assert "& $Python -c $code" not in script
+    assert "[System.IO.File]::WriteAllText($tempScript, $code, $utf8NoBom)" in script
+    assert "& $Python $tempScript" in script
+    assert "Remove-Item" in script
+
 
 def test_phase50_snapshot_blocks_when_package_is_missing(tmp_path: Path) -> None:
     service = _service(tmp_path)
