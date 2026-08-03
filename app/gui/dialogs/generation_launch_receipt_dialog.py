@@ -24,6 +24,9 @@ from PySide6.QtWidgets import (
 )
 
 from app.gui.icons import action_icon
+from app.gui.dialogs.generation_launch_guard_approval_dialog import (
+    GenerationLaunchGuardApprovalDialog,
+)
 from app.gui.dialogs.generation_launch_guard_policy_dialog import (
     GenerationLaunchGuardPolicyDialog,
 )
@@ -56,6 +59,7 @@ class GenerationLaunchReceiptDialog(QDialog):
         self.filtered_receipts: list[GenerationLaunchReceipt] = []
         self.drift_dialogs: list[GenerationLaunchReceiptDriftDialog] = []
         self.guard_policy_dialogs: list[GenerationLaunchGuardPolicyDialog] = []
+        self.guard_approval_dialogs: list[GenerationLaunchGuardApprovalDialog] = []
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setObjectName("generationLaunchReceiptDialog")
         self.setWindowTitle("Generation launch receipts")
@@ -208,6 +212,10 @@ class GenerationLaunchReceiptDialog(QDialog):
         self.guard_policy_label.setObjectName("historySummaryText")
         self.guard_policy_label.setWordWrap(True)
         actions_section.add_widget(self.guard_policy_label)
+        self.guard_approval_label = QLabel("No exception approvals loaded.")
+        self.guard_approval_label.setObjectName("historySummaryText")
+        self.guard_approval_label.setWordWrap(True)
+        actions_section.add_widget(self.guard_approval_label)
 
         actions = QGridLayout()
         actions.setContentsMargins(0, 0, 0, 0)
@@ -217,6 +225,7 @@ class GenerationLaunchReceiptDialog(QDialog):
         self.clear_baseline_button = QPushButton("Clear project baseline")
         self.compare_baseline_button = QPushButton("Compare to baseline")
         self.guard_policy_button = QPushButton("Baseline guard policy")
+        self.guard_approval_button = QPushButton("Exception approvals")
         self.open_json_button = QPushButton("Open JSON receipt")
         self.open_markdown_button = QPushButton("Open Markdown receipt")
         self.open_output_button = QPushButton("Open output")
@@ -228,6 +237,7 @@ class GenerationLaunchReceiptDialog(QDialog):
             (self.clear_baseline_button, "general.clear"),
             (self.compare_baseline_button, "report"),
             (self.guard_policy_button, "settings"),
+            (self.guard_approval_button, "report"),
             (self.open_json_button, "report"),
             (self.open_markdown_button, "report"),
             (self.open_output_button, "project.output_folder"),
@@ -264,6 +274,7 @@ class GenerationLaunchReceiptDialog(QDialog):
         self.clear_baseline_button.clicked.connect(self.clear_selected_baseline)
         self.compare_baseline_button.clicked.connect(self.compare_selected_to_baseline)
         self.guard_policy_button.clicked.connect(self.open_guard_policy)
+        self.guard_approval_button.clicked.connect(self.open_guard_approvals)
         self.open_json_button.clicked.connect(self.open_json)
         self.open_markdown_button.clicked.connect(self.open_markdown)
         self.open_output_button.clicked.connect(self.open_output)
@@ -288,6 +299,7 @@ class GenerationLaunchReceiptDialog(QDialog):
         self.apply_filters()
         self.refresh_baseline_status()
         self.refresh_guard_policy_status()
+        self.refresh_guard_approval_status()
 
     def apply_filters(self) -> None:
         project_name = self.project_name if self.current_project_only.isChecked() else None
@@ -339,6 +351,7 @@ class GenerationLaunchReceiptDialog(QDialog):
         project = receipt.project_name if receipt else None
         self.refresh_baseline_status(project)
         self.refresh_guard_policy_status(project)
+        self.refresh_guard_approval_status(project)
         if receipt is None:
             self.details.clear()
             self._update_action_state()
@@ -359,6 +372,7 @@ class GenerationLaunchReceiptDialog(QDialog):
                     f"Risk / cost: {receipt.risk_level} · {receipt.currency} {receipt.estimated_cost:,.4f}",
                     f"Acknowledged: {acknowledgement}",
                     f"Required acknowledgements: {required}",
+                    f"Guard exception approval: {receipt.guard_approval_id or 'None'}",
                     f"Output: {receipt.output_directory or 'Unavailable'}",
                     f"JSON: {receipt.path}",
                 )
@@ -408,6 +422,49 @@ class GenerationLaunchReceiptDialog(QDialog):
             f"{len(policy.protected_categories):,} protected category group(s)."
         )
 
+    def refresh_guard_approval_status(self, project_name: str | None = None) -> None:
+        project = project_name or (
+            self.project_name if self.project_name not in {"", "all-projects"} else ""
+        )
+        if not project:
+            receipt = self.selected_receipt()
+            project = receipt.project_name if receipt is not None else ""
+        if not project:
+            self.guard_approval_label.setText(
+                "Select a project receipt to review exception approvals."
+            )
+            return
+        approvals = self.service.list_guard_approvals(
+            project_name=project,
+            include_expired=True,
+        )
+        active = sum(item.status == "approved" for item in approvals)
+        self.guard_approval_label.setText(
+            f"Guard exceptions for {project}: {active:,} active · "
+            f"{len(approvals):,} total audit record(s)."
+        )
+
+    def open_guard_approvals(self) -> GenerationLaunchGuardApprovalDialog | None:
+        receipt = self.selected_receipt()
+        project = receipt.project_name if receipt is not None else self.project_name
+        if not project or project == "all-projects":
+            self.status_label.setText(
+                "Select a project receipt before reviewing exception approvals."
+            )
+            return None
+        dialog = GenerationLaunchGuardApprovalDialog(self.service, project, self)
+        self.guard_approval_dialogs.append(dialog)
+        dialog.finished.connect(self._guard_approval_dialog_finished)
+        dialog.show()
+        return dialog
+
+    def _guard_approval_dialog_finished(self, _result: int) -> None:
+        dialog = self.sender()
+        project = getattr(dialog, "project_name", "")
+        if dialog in self.guard_approval_dialogs:
+            self.guard_approval_dialogs.remove(dialog)
+        self.refresh_guard_approval_status(project)
+
     def open_guard_policy(self) -> GenerationLaunchGuardPolicyDialog | None:
         receipt = self.selected_receipt()
         project = receipt.project_name if receipt is not None else self.project_name
@@ -440,6 +497,7 @@ class GenerationLaunchReceiptDialog(QDialog):
             return None
         self.refresh_baseline_status(receipt.project_name)
         self.refresh_guard_policy_status(receipt.project_name)
+        self.refresh_guard_approval_status(receipt.project_name)
         self._update_action_state()
         self.status_label.setText(
             f"Project baseline set to {receipt.receipt_id or receipt.path.name}."
@@ -454,6 +512,7 @@ class GenerationLaunchReceiptDialog(QDialog):
         cleared = self.service.clear_baseline(project)
         self.refresh_baseline_status(project)
         self.refresh_guard_policy_status(project)
+        self.refresh_guard_approval_status(project)
         self._update_action_state()
         self.status_label.setText(
             "Project baseline cleared." if cleared else "No project baseline was set."
@@ -603,6 +662,7 @@ class GenerationLaunchReceiptDialog(QDialog):
         self.compare_baseline_button.setEnabled(bool(receipt and baseline is not None))
         project = receipt.project_name if receipt is not None else self.project_name
         self.guard_policy_button.setEnabled(bool(project and project != "all-projects"))
+        self.guard_approval_button.setEnabled(bool(project and project != "all-projects"))
         self.copy_path_button.setEnabled(has_receipt)
         self.copy_fingerprint_button.setEnabled(bool(receipt and receipt.launch_fingerprint))
         self.export_button.setEnabled(bool(self.filtered_receipts))

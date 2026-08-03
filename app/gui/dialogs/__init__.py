@@ -13,6 +13,9 @@ from app.gui.dialogs.generation_reliability_dialog import (
 )
 from app.gui.dialogs.generation_history_dialog import GenerationHistoryDialog
 from app.gui.dialogs.generation_launch_dialog import GenerationLaunchDialog
+from app.gui.dialogs.generation_launch_guard_approval_dialog import (
+    GenerationLaunchGuardApprovalDialog,
+)
 from app.gui.dialogs.generation_launch_guard_policy_dialog import (
     GenerationLaunchGuardPolicyDialog,
 )
@@ -61,6 +64,7 @@ __all__ = [
     "GenerationReliabilityDialog",
     "GenerationHistoryDialog",
     "GenerationLaunchDialog",
+    "GenerationLaunchGuardApprovalDialog",
     "GenerationLaunchGuardPolicyDialog",
     "GenerationLaunchReceiptDialog",
     "GenerationLaunchReceiptDriftDialog",

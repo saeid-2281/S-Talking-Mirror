@@ -4,11 +4,12 @@ import csv
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
 from app.models.generation_launch_receipt import (
+    GenerationLaunchGuardApproval,
     GenerationLaunchGuardDecision,
     GenerationLaunchGuardPolicy,
     GenerationLaunchReceipt,
@@ -25,6 +26,7 @@ class GenerationLaunchReceiptService:
     MARKDOWN_NAME = "generation-launch.md"
     BASELINE_INDEX_NAME = "generation-launch-receipt-baselines.json"
     GUARD_POLICY_INDEX_NAME = "generation-launch-guard-policies.json"
+    GUARD_APPROVAL_INDEX_NAME = "generation-launch-guard-approvals.json"
     GUARD_MODES = {"off", "warn", "enforce"}
     GUARD_CATEGORIES = (
         "Provider",
@@ -126,6 +128,11 @@ class GenerationLaunchReceiptService:
             ),
             integrity_status=integrity_status,
             integrity_message=integrity_message,
+            guard_approval_id=str(
+                (payload.get("guard_exception") or {}).get("approval_id")
+                if isinstance(payload.get("guard_exception"), dict)
+                else ""
+            ),
         )
 
     @classmethod
@@ -342,6 +349,157 @@ class GenerationLaunchReceiptService:
         self._write_guard_policy_index(payload)
         return self._guard_policy_index_path
 
+    def create_guard_approval(
+        self,
+        *,
+        project_name: str,
+        launch_fingerprint: str,
+        baseline_receipt_id: str,
+        protected_change_keys: Iterable[str],
+        reason: str,
+        approved_by: str,
+        duration_minutes: int = 60,
+        max_uses: int = 1,
+    ) -> GenerationLaunchGuardApproval:
+        """Create a secret-free, time-bound exception for one exact launch preview."""
+
+        project = str(project_name or "").strip()
+        fingerprint = str(launch_fingerprint or "").strip().casefold()
+        baseline_id = str(baseline_receipt_id or "").strip()
+        reason_text = str(reason or "").strip()
+        approver = str(approved_by or "").strip()
+        if not project:
+            raise ValueError("A project is required for a guard exception approval.")
+        if len(fingerprint) != 64 or any(ch not in "0123456789abcdef" for ch in fingerprint):
+            raise ValueError("A valid SHA-256 launch fingerprint is required.")
+        if not baseline_id:
+            raise ValueError("A baseline receipt ID is required.")
+        if len(reason_text) < 8:
+            raise ValueError("Provide a specific approval reason of at least 8 characters.")
+        if not approver:
+            raise ValueError("Approved by is required.")
+        minutes = max(5, min(24 * 60, int(duration_minutes)))
+        uses = max(1, min(10, int(max_uses)))
+        keys = tuple(sorted(dict.fromkeys(str(item) for item in protected_change_keys if str(item).strip())))
+        if not keys:
+            raise ValueError("At least one protected change is required.")
+        baseline = self.baseline(project)
+        if baseline is None or not baseline.integrity_ok:
+            raise ValueError("A trusted project baseline is required before approval.")
+        actual_baseline_id = baseline.receipt_id or baseline.launch_fingerprint or baseline.path.name
+        if actual_baseline_id != baseline_id:
+            raise ValueError("The project baseline changed. Recreate the approval request.")
+
+        now = datetime.now(timezone.utc)
+        approval_seed = "|".join(
+            (project.casefold(), fingerprint, baseline_id, ",".join(keys), now.isoformat())
+        )
+        approval_id = f"guard-{now.strftime('%Y%m%dT%H%M%S%fZ')}-{hashlib.sha256(approval_seed.encode('utf-8')).hexdigest()[:12]}"
+        record = {
+            "approval_id": approval_id,
+            "project_name": project,
+            "launch_fingerprint": fingerprint,
+            "baseline_receipt_id": baseline_id,
+            "protected_change_keys": list(keys),
+            "reason": reason_text,
+            "approved_by": approver,
+            "created_at": now.isoformat(),
+            "expires_at": (now + timedelta(minutes=minutes)).isoformat(),
+            "max_uses": uses,
+            "used_count": 0,
+            "status": "approved",
+        }
+        payload = self._read_guard_approval_index()
+        approvals = payload.setdefault("approvals", [])
+        if not isinstance(approvals, list):
+            approvals = []
+            payload["approvals"] = approvals
+        approvals.append(record)
+        payload["updated_at"] = now.isoformat()
+        self._write_guard_approval_index(payload)
+        return self._approval_from_record(record)
+
+    def list_guard_approvals(
+        self,
+        *,
+        project_name: str | None = None,
+        include_expired: bool = True,
+    ) -> list[GenerationLaunchGuardApproval]:
+        payload = self._read_guard_approval_index()
+        records = payload.get("approvals")
+        project_key = str(project_name or "").strip().casefold()
+        approvals: list[GenerationLaunchGuardApproval] = []
+        for record in records if isinstance(records, list) else []:
+            if not isinstance(record, dict):
+                continue
+            approval = self._approval_from_record(record)
+            if project_key and approval.project_name.casefold() != project_key:
+                continue
+            if not include_expired and approval.status != "approved":
+                continue
+            approvals.append(approval)
+        approvals.sort(key=lambda item: (item.created_at, item.approval_id), reverse=True)
+        return approvals
+
+    def revoke_guard_approval(self, approval_id: str) -> bool:
+        payload = self._read_guard_approval_index()
+        records = payload.get("approvals")
+        changed = False
+        for record in records if isinstance(records, list) else []:
+            if isinstance(record, dict) and str(record.get("approval_id") or "") == approval_id:
+                if str(record.get("status") or "approved") != "revoked":
+                    record["status"] = "revoked"
+                    record["revoked_at"] = datetime.now(timezone.utc).isoformat()
+                    changed = True
+                break
+        if changed:
+            payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._write_guard_approval_index(payload)
+        return changed
+
+    def consume_guard_approval(self, approval_id: str) -> bool:
+        payload = self._read_guard_approval_index()
+        records = payload.get("approvals")
+        changed = False
+        for record in records if isinstance(records, list) else []:
+            if not isinstance(record, dict) or str(record.get("approval_id") or "") != approval_id:
+                continue
+            approval = self._approval_from_record(record)
+            if approval.status != "approved":
+                return False
+            record["used_count"] = approval.used_count + 1
+            if int(record["used_count"]) >= approval.max_uses:
+                record["status"] = "consumed"
+            record["last_used_at"] = datetime.now(timezone.utc).isoformat()
+            changed = True
+            break
+        if changed:
+            payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._write_guard_approval_index(payload)
+        return changed
+
+    def matching_guard_approval(
+        self,
+        candidate: GenerationLaunchReceipt,
+        *,
+        baseline: GenerationLaunchReceipt,
+        protected_changes: Iterable[GenerationLaunchReceiptChange],
+    ) -> GenerationLaunchGuardApproval | None:
+        baseline_id = baseline.receipt_id or baseline.launch_fingerprint or baseline.path.name
+        required_keys = tuple(sorted(item.key for item in protected_changes))
+        for approval in self.list_guard_approvals(
+            project_name=candidate.project_name,
+            include_expired=False,
+        ):
+            if approval.launch_fingerprint != candidate.launch_fingerprint.casefold():
+                continue
+            if approval.baseline_receipt_id != baseline_id:
+                continue
+            if tuple(sorted(approval.protected_change_keys)) != required_keys:
+                continue
+            return approval
+        return None
+
     def evaluate_guard(
         self,
         candidate: GenerationLaunchReceipt,
@@ -370,6 +528,25 @@ class GenerationLaunchReceiptService:
         warnings = sum(item.severity == "warning" for item in protected)
         information = sum(item.severity == "info" for item in protected)
         if critical and policy.blocks_critical_drift:
+            approval = self.matching_guard_approval(
+                candidate,
+                baseline=baseline,
+                protected_changes=protected,
+            )
+            if approval is not None:
+                return GenerationLaunchGuardDecision(
+                    policy=policy,
+                    status="approved_exception",
+                    allowed=True,
+                    requires_acknowledgement=True,
+                    summary=(
+                        f"One-time exception {approval.approval_id} authorizes "
+                        f"{critical:,} critical protected launch change(s)."
+                    ),
+                    comparison=comparison,
+                    protected_changes=protected,
+                    approval=approval,
+                )
             return GenerationLaunchGuardDecision(
                 policy=policy,
                 status="blocked",
@@ -600,6 +777,14 @@ class GenerationLaunchReceiptService:
             "info",
             self._display_sequence,
         )
+        add(
+            "guard_approval_id",
+            "Guard exception approval",
+            "Review",
+            baseline.guard_approval_id,
+            candidate.guard_approval_id,
+            "info",
+        )
         if baseline.integrity_status in {"mismatch", "unreadable"}:
             add(
                 "baseline_integrity_status",
@@ -711,6 +896,68 @@ class GenerationLaunchReceiptService:
             lines.append("- No launch configuration drift detected.")
         markdown_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return json_path, markdown_path
+
+    @property
+    def _guard_approval_index_path(self) -> Path:
+        return self.reports_dir / self.GUARD_APPROVAL_INDEX_NAME
+
+    def _read_guard_approval_index(self) -> dict[str, object]:
+        path = self._guard_approval_index_path
+        if not path.exists():
+            return {"schema_version": 1, "approvals": []}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return {"schema_version": 1, "approvals": []}
+        if not isinstance(payload, dict):
+            return {"schema_version": 1, "approvals": []}
+        payload.setdefault("schema_version", 1)
+        payload.setdefault("approvals", [])
+        return payload
+
+    def _write_guard_approval_index(self, payload: dict[str, object]) -> None:
+        self.reports_dir.mkdir(parents=True, exist_ok=True)
+        temporary = self._guard_approval_index_path.with_suffix(".json.tmp")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        temporary.replace(self._guard_approval_index_path)
+
+    @staticmethod
+    def _approval_from_record(record: dict[str, object]) -> GenerationLaunchGuardApproval:
+        now = datetime.now(timezone.utc)
+        status = str(record.get("status") or "approved").casefold()
+        expires_at = str(record.get("expires_at") or "")
+        used_count = GenerationLaunchReceiptService._integer(record.get("used_count"))
+        max_uses = max(1, GenerationLaunchReceiptService._integer(record.get("max_uses"), 1))
+        if status == "approved":
+            try:
+                expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                if expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=timezone.utc)
+                if expiry <= now:
+                    status = "expired"
+            except (TypeError, ValueError):
+                status = "expired"
+            if used_count >= max_uses:
+                status = "consumed"
+        return GenerationLaunchGuardApproval(
+            approval_id=str(record.get("approval_id") or ""),
+            project_name=str(record.get("project_name") or ""),
+            launch_fingerprint=str(record.get("launch_fingerprint") or "").casefold(),
+            baseline_receipt_id=str(record.get("baseline_receipt_id") or ""),
+            protected_change_keys=GenerationLaunchReceiptService._strings(
+                record.get("protected_change_keys")
+            ),
+            reason=str(record.get("reason") or ""),
+            approved_by=str(record.get("approved_by") or ""),
+            created_at=str(record.get("created_at") or ""),
+            expires_at=expires_at,
+            max_uses=max_uses,
+            used_count=used_count,
+            status=status,
+        )
 
     @property
     def _guard_policy_index_path(self) -> Path:
@@ -862,6 +1109,7 @@ class GenerationLaunchReceiptService:
                 receipt.review_status,
                 receipt.risk_level,
                 receipt.integrity_status,
+                receipt.guard_approval_id,
             )
         ).casefold()
 
@@ -911,6 +1159,7 @@ class GenerationLaunchReceiptService:
             "required_acknowledgements": ";".join(receipt.required_acknowledgements),
             "integrity_status": receipt.integrity_status,
             "integrity_message": receipt.integrity_message,
+            "guard_approval_id": receipt.guard_approval_id,
             "receipt_path": str(receipt.path),
             "markdown_path": str(receipt.markdown_path),
             "output_directory": receipt.output_directory,

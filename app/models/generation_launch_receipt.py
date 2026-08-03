@@ -40,6 +40,7 @@ class GenerationLaunchReceipt:
     required_acknowledgements: tuple[str, ...] = field(default_factory=tuple)
     integrity_status: str = "legacy"
     integrity_message: str = "Receipt predates integrity metadata."
+    guard_approval_id: str = ""
 
     @property
     def integrity_ok(self) -> bool:
@@ -130,6 +131,28 @@ class GenerationLaunchGuardPolicy:
 
 
 @dataclass(frozen=True)
+class GenerationLaunchGuardApproval:
+    """Time-bound approval for one exact protected launch drift."""
+
+    approval_id: str
+    project_name: str
+    launch_fingerprint: str
+    baseline_receipt_id: str
+    protected_change_keys: tuple[str, ...] = field(default_factory=tuple)
+    reason: str = ""
+    approved_by: str = ""
+    created_at: str = ""
+    expires_at: str = ""
+    max_uses: int = 1
+    used_count: int = 0
+    status: str = "approved"
+
+    @property
+    def remaining_uses(self) -> int:
+        return max(0, self.max_uses - self.used_count)
+
+
+@dataclass(frozen=True)
 class GenerationLaunchGuardDecision:
     """Result of evaluating current launch settings against a project baseline."""
 
@@ -142,6 +165,7 @@ class GenerationLaunchGuardDecision:
     protected_changes: tuple[GenerationLaunchReceiptChange, ...] = field(
         default_factory=tuple
     )
+    approval: GenerationLaunchGuardApproval | None = None
 
     @property
     def critical_count(self) -> int:

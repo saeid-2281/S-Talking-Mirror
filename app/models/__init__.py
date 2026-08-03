@@ -10,6 +10,7 @@ from app.models.generation_monitor_state import GenerationMonitorState
 from app.models.generation_scope import ExecutionOrderMode, GenerationPlan, GenerationScopeMode
 from app.models.generation_planning import BatchGenerationPlan, GenerationPlanScenario
 from app.models.generation_launch_receipt import (
+    GenerationLaunchGuardApproval,
     GenerationLaunchGuardDecision,
     GenerationLaunchGuardPolicy,
     GenerationLaunchReceipt,
@@ -178,6 +179,7 @@ __all__ = [
     "GenerationPlan",
     "BatchGenerationPlan",
     "GenerationPlanScenario",
+    "GenerationLaunchGuardApproval",
     "GenerationLaunchGuardDecision",
     "GenerationLaunchGuardPolicy",
     "GenerationLaunchReceipt",

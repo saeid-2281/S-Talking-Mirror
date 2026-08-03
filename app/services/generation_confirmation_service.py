@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,6 +35,10 @@ class GenerationConfirmation:
     summary: str = ""
     checks: tuple[GenerationLaunchCheck, ...] = field(default_factory=tuple)
     required_acknowledgements: tuple[str, ...] = field(default_factory=tuple)
+    guard_candidate_fingerprint: str = ""
+    guard_baseline_receipt_id: str = ""
+    guard_change_keys: tuple[str, ...] = field(default_factory=tuple)
+    guard_approval_id: str = ""
 
 
 class GenerationConfirmationCoordinator:
@@ -336,6 +340,21 @@ class GenerationConfirmationCoordinator:
                 "error" if decision.critical_count else "warning",
                 True,
             )
+        elif decision.status == "approved_exception":
+            approval = decision.approval
+            detail = decision.summary
+            if approval is not None:
+                detail = (
+                    f"{decision.summary} Approved by {approval.approved_by}; "
+                    f"expires {approval.expires_at}."
+                )
+            check = GenerationLaunchCheck(
+                "baseline_drift_exception",
+                "Approved baseline guard exception",
+                detail,
+                "warning",
+                True,
+            )
         else:
             check = GenerationLaunchCheck(
                 "baseline_drift_blocked",
@@ -344,24 +363,40 @@ class GenerationConfirmationCoordinator:
                 "error",
             )
         checks = (*confirmation.checks, check)
+        baseline = decision.comparison.baseline if decision.comparison is not None else None
+        baseline_id = (
+            baseline.receipt_id or baseline.launch_fingerprint or baseline.path.name
+            if baseline is not None
+            else ""
+        )
+        change_keys = tuple(sorted(item.key for item in decision.protected_changes))
+        approval_id = decision.approval.approval_id if decision.approval is not None else ""
         if not decision.allowed:
-            return self._confirmation(
+            result = self._confirmation(
                 allowed=False,
                 title="Launch blocked by project baseline",
                 message=(
-                    f"{decision.summary} Restore protected settings or change the "
-                    "project guard policy in Launch Receipts."
+                    f"{decision.summary} Create a time-bound exception approval or "
+                    "restore protected settings."
                 ),
                 status="baseline_guard_blocked",
                 state=state,
                 settings=settings,
                 checks=checks,
             )
+            return replace(
+                result,
+                guard_candidate_fingerprint=confirmation.fingerprint,
+                guard_baseline_receipt_id=baseline_id,
+                guard_change_keys=change_keys,
+            )
         required = any(item.requires_acknowledgement for item in checks)
-        return self._confirmation(
+        result = self._confirmation(
             allowed=True,
             title=(
-                "Baseline drift review"
+                "Baseline exception review"
+                if decision.status == "approved_exception"
+                else "Baseline drift review"
                 if decision.requires_acknowledgement
                 else confirmation.title
             ),
@@ -375,6 +410,13 @@ class GenerationConfirmationCoordinator:
             settings=settings,
             checks=checks,
         )
+        return replace(
+            result,
+            guard_candidate_fingerprint=confirmation.fingerprint,
+            guard_baseline_receipt_id=baseline_id,
+            guard_change_keys=change_keys,
+            guard_approval_id=approval_id,
+        )
 
     def write_receipt(
         self,
@@ -386,6 +428,7 @@ class GenerationConfirmationCoordinator:
         project_name: str,
         output_dir: Path,
         acknowledged_codes: tuple[str, ...] = (),
+        receipt_service: GenerationLaunchReceiptService | None = None,
     ) -> Path:
         """Persist the exact launch decision without API keys or credentials."""
 
@@ -408,6 +451,16 @@ class GenerationConfirmationCoordinator:
             "review_status": confirmation.status,
             "acknowledged_codes": sorted(set(acknowledged_codes)),
             "required_acknowledgements": list(confirmation.required_acknowledgements),
+            "guard_exception": (
+                {
+                    "approval_id": confirmation.guard_approval_id,
+                    "candidate_fingerprint": confirmation.guard_candidate_fingerprint,
+                    "baseline_receipt_id": confirmation.guard_baseline_receipt_id,
+                    "protected_change_keys": list(confirmation.guard_change_keys),
+                }
+                if confirmation.guard_approval_id
+                else None
+            ),
             "scope": {
                 "files": state.estimated_files,
                 "characters": state.estimated_characters,
@@ -441,6 +494,8 @@ class GenerationConfirmationCoordinator:
             self._receipt_markdown(payload),
             encoding="utf-8",
         )
+        if receipt_service is not None and confirmation.guard_approval_id:
+            receipt_service.consume_guard_approval(confirmation.guard_approval_id)
         return receipt_path
 
     def _confirmation(
@@ -506,6 +561,7 @@ class GenerationConfirmationCoordinator:
             f"- Integrity: {payload.get('integrity', {}).get('algorithm', 'legacy')} "
             f"`{payload.get('integrity', {}).get('digest', '')}`",
             f"- Preflight status: {payload['preflight_status']}",
+            f"- Guard exception: {(payload.get('guard_exception') or {}).get('approval_id', 'None')}",
             f"- Files: {scope['files']:,}",
             f"- Characters: {scope['characters']:,}",
             f"- Requests: {scope['provider_requests']:,}",

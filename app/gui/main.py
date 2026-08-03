@@ -27,7 +27,7 @@ from app.gui.responsive_workspace import (
 )
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationCostCapacityDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationCostCapacityDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -1833,6 +1833,18 @@ class MainWindow(QMainWindow):
         launch_dialog=GenerationLaunchDialog(confirmation,state,parent=self)
         if launch_dialog.exec()!=QDialog.Accepted: return None
         return launch_dialog.acknowledged_codes()
+    def request_generation_launch_exception(self,confirmation):
+        if confirmation.status!='baseline_guard_blocked': return False
+        app=QApplication.instance(); platform=app.platformName().casefold() if app is not None else ''
+        if platform in {'offscreen','minimal'} or not self.isVisible(): return False
+        dialog=GenerationLaunchGuardApprovalDialog(
+            self.context.generation_launch_receipt_service,
+            self.project_controller.project_name,
+            self,
+            confirmation=confirmation,
+        )
+        dialog.exec()
+        return dialog.created_approval is not None
     def start(self):
         if not self.generation_controller.has_jobs():self.load_csv()
         if not self.generation_controller.has_jobs():return
@@ -1846,6 +1858,15 @@ class MainWindow(QMainWindow):
             project_name=self.project_controller.project_name,
             output_dir=project.output_path,
         )
+        if not confirmation.allowed and confirmation.status=='baseline_guard_blocked':
+            if self.request_generation_launch_exception(confirmation):
+                confirmation=self.context.generation_confirmation_service.evaluate(
+                    state,
+                    s,
+                    receipt_service=self.context.generation_launch_receipt_service,
+                    project_name=self.project_controller.project_name,
+                    output_dir=project.output_path,
+                )
         if not confirmation.allowed:
             self.show_preflight_dialog(state); return
         acknowledged_codes=self.review_generation_launch(confirmation,state)
@@ -1862,6 +1883,7 @@ class MainWindow(QMainWindow):
                     project_name=self.project_controller.project_name,
                     output_dir=project.output_path,
                     acknowledged_codes=acknowledged_codes,
+                    receipt_service=self.context.generation_launch_receipt_service,
                 )
                 self.last_launch_receipt=receipt
                 self.log.appendPlainText(f'Generation launch receipt: {receipt}')
