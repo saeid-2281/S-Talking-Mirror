@@ -59,6 +59,10 @@ class GenerationExecutionSessionService:
         started_at: datetime | None = None,
         initial_status: str = "running",
         planned_existing_outputs: Iterable[str] = (),
+        parent_run_id: str = "",
+        resume_receipt_id: str = "",
+        resume_receipt_path: Path | None = None,
+        resume_scope: str = "",
     ) -> GenerationExecutionSession:
         started = started_at or datetime.now(timezone.utc)
         folder = self._session_folder(project_name, run_id)
@@ -78,6 +82,12 @@ class GenerationExecutionSessionService:
                 "fingerprint": launch_fingerprint,
                 "decision_trace_id": decision_trace_id,
                 "guard_approval_id": guard_approval_id,
+            },
+            "recovery": {
+                "parent_run_id": str(parent_run_id or ""),
+                "resume_receipt_id": str(resume_receipt_id or ""),
+                "resume_receipt_path": str(resume_receipt_path or ""),
+                "resume_scope": str(resume_scope or ""),
             },
             "settings": {
                 "provider": settings.provider,
@@ -180,6 +190,7 @@ class GenerationExecutionSessionService:
         integrity_status, integrity_message = self.verify_payload(payload)
         project = payload.get("project") if isinstance(payload.get("project"), dict) else {}
         launch = payload.get("launch") if isinstance(payload.get("launch"), dict) else {}
+        recovery = payload.get("recovery") if isinstance(payload.get("recovery"), dict) else {}
         settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
         metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
         execution_receipt = payload.get("execution_receipt") if isinstance(payload.get("execution_receipt"), dict) else {}
@@ -202,6 +213,10 @@ class GenerationExecutionSessionService:
             launch_fingerprint=str(launch.get("fingerprint") or ""),
             decision_trace_id=str(launch.get("decision_trace_id") or ""),
             guard_approval_id=str(launch.get("guard_approval_id") or ""),
+            parent_run_id=str(recovery.get("parent_run_id") or ""),
+            resume_receipt_id=str(recovery.get("resume_receipt_id") or ""),
+            resume_receipt_path=str(recovery.get("resume_receipt_path") or ""),
+            resume_scope=str(recovery.get("resume_scope") or ""),
             provider=str(settings.get("provider") or ""),
             model_id=str(settings.get("model_id") or ""),
             voice_id=str(settings.get("voice_id") or ""),
@@ -472,6 +487,10 @@ class GenerationExecutionSessionService:
                 session.launch_fingerprint,
                 session.decision_trace_id,
                 session.guard_approval_id,
+                session.parent_run_id,
+                session.resume_receipt_id,
+                session.resume_receipt_path,
+                session.resume_scope,
                 session.provider,
                 session.model_id,
                 session.voice_id,
@@ -497,6 +516,10 @@ class GenerationExecutionSessionService:
             "launch_fingerprint": session.launch_fingerprint,
             "decision_trace_id": session.decision_trace_id,
             "guard_approval_id": session.guard_approval_id,
+            "parent_run_id": session.parent_run_id,
+            "resume_receipt_id": session.resume_receipt_id,
+            "resume_receipt_path": session.resume_receipt_path,
+            "resume_scope": session.resume_scope,
             "provider": session.provider,
             "model_id": session.model_id,
             "voice_id": session.voice_id,
@@ -524,6 +547,7 @@ class GenerationExecutionSessionService:
     def _markdown(payload: dict[str, object]) -> str:
         project = payload.get("project") if isinstance(payload.get("project"), dict) else {}
         launch = payload.get("launch") if isinstance(payload.get("launch"), dict) else {}
+        recovery = payload.get("recovery") if isinstance(payload.get("recovery"), dict) else {}
         settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
         metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
         execution_receipt = payload.get("execution_receipt") if isinstance(payload.get("execution_receipt"), dict) else {}
@@ -537,6 +561,9 @@ class GenerationExecutionSessionService:
             f"- Finished: {payload.get('finished_at', '') or 'In progress'}",
             f"- Launch receipt: `{launch.get('receipt_id', '')}`",
             f"- Decision trace: `{launch.get('decision_trace_id', '')}`",
+            f"- Parent run: `{recovery.get('parent_run_id', '') or '—'}`",
+            f"- Resume receipt: `{recovery.get('resume_receipt_id', '') or '—'}`",
+            f"- Resume scope: {recovery.get('resume_scope', '') or '—'}",
             f"- Provider: {settings.get('provider', '')}",
             f"- Model: {settings.get('model_id', '')}",
             f"- Voice: {settings.get('voice_id', '')}",

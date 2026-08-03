@@ -95,6 +95,10 @@ class GenerationExecutionReceiptService:
                 "execution_session_path": str(session.path),
                 "decision_trace_id": session.decision_trace_id,
                 "guard_approval_id": session.guard_approval_id,
+                "parent_run_id": session.parent_run_id,
+                "resume_receipt_id": session.resume_receipt_id,
+                "resume_receipt_path": session.resume_receipt_path,
+                "resume_scope": session.resume_scope,
                 "report_path": str(report_path or session.report_path or ""),
             },
             "settings": {
@@ -161,6 +165,10 @@ class GenerationExecutionReceiptService:
             execution_session_path=str(links.get("execution_session_path") or ""),
             decision_trace_id=str(links.get("decision_trace_id") or ""),
             guard_approval_id=str(links.get("guard_approval_id") or ""),
+            parent_run_id=str(links.get("parent_run_id") or ""),
+            resume_receipt_id=str(links.get("resume_receipt_id") or ""),
+            resume_receipt_path=str(links.get("resume_receipt_path") or ""),
+            resume_scope=str(links.get("resume_scope") or ""),
             provider=str(settings.get("provider") or ""),
             model_id=str(settings.get("model_id") or ""),
             voice_id=str(settings.get("voice_id") or ""),
@@ -514,6 +522,10 @@ class GenerationExecutionReceiptService:
                 receipt.launch_receipt_id,
                 receipt.decision_trace_id,
                 receipt.guard_approval_id,
+                receipt.parent_run_id,
+                receipt.resume_receipt_id,
+                receipt.resume_receipt_path,
+                receipt.resume_scope,
                 receipt.provider,
                 receipt.model_id,
                 receipt.voice_id,
@@ -533,6 +545,10 @@ class GenerationExecutionReceiptService:
             "launch_receipt_id": receipt.launch_receipt_id,
             "decision_trace_id": receipt.decision_trace_id,
             "guard_approval_id": receipt.guard_approval_id,
+            "parent_run_id": receipt.parent_run_id,
+            "resume_receipt_id": receipt.resume_receipt_id,
+            "resume_receipt_path": receipt.resume_receipt_path,
+            "resume_scope": receipt.resume_scope,
             "provider": receipt.provider,
             "model_id": receipt.model_id,
             "voice_id": receipt.voice_id,
@@ -560,6 +576,7 @@ class GenerationExecutionReceiptService:
         project = payload.get("project") if isinstance(payload.get("project"), dict) else {}
         planned = payload.get("planned") if isinstance(payload.get("planned"), dict) else {}
         actual = payload.get("actual") if isinstance(payload.get("actual"), dict) else {}
+        links = payload.get("links") if isinstance(payload.get("links"), dict) else {}
         lines = [
             "# S Talking Generation Execution Receipt",
             "",
@@ -567,6 +584,9 @@ class GenerationExecutionReceiptService:
             f"- Run ID: `{payload.get('run_id', '')}`",
             f"- Status: {payload.get('status', 'unknown')}",
             f"- Project: {project.get('name', '')}",
+            f"- Parent run: `{links.get('parent_run_id', '') or '—'}`",
+            f"- Resume receipt: `{links.get('resume_receipt_id', '') or '—'}`",
+            f"- Resume scope: {links.get('resume_scope', '') or '—'}",
             f"- Started: {payload.get('started_at', '')}",
             f"- Finished: {payload.get('finished_at', '')}",
             f"- Planned files: {planned.get('files', 0)}",

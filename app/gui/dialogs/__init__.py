@@ -14,6 +14,7 @@ from app.gui.dialogs.generation_reliability_dialog import (
 from app.gui.dialogs.generation_history_dialog import GenerationHistoryDialog
 from app.gui.dialogs.generation_execution_receipt_dialog import GenerationExecutionReceiptDialog
 from app.gui.dialogs.generation_execution_session_dialog import GenerationExecutionSessionDialog
+from app.gui.dialogs.generation_safe_resume_dialog import GenerationSafeResumeDialog
 from app.gui.dialogs.generation_launch_dialog import GenerationLaunchDialog
 from app.gui.dialogs.generation_launch_guard_approval_dialog import (
     GenerationLaunchGuardApprovalDialog,
@@ -72,6 +73,7 @@ __all__ = [
     "GenerationHistoryDialog",
     "GenerationExecutionReceiptDialog",
     "GenerationExecutionSessionDialog",
+    "GenerationSafeResumeDialog",
     "GenerationLaunchDialog",
     "GenerationLaunchGuardApprovalDialog",
     "GenerationLaunchGuardApprovalRenewDialog",

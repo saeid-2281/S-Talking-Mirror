@@ -38,6 +38,7 @@ class GenerationExecutionReceiptDialog(QDialog):
         export_dir: Path | None = None,
         open_path: Callable[[Path], None] | None = None,
         copy_path: Callable[[Path], None] | None = None,
+        safe_resume: Callable[[GenerationExecutionReceipt], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.service = service
@@ -45,6 +46,7 @@ class GenerationExecutionReceiptDialog(QDialog):
         self.export_dir = Path(export_dir or service.reports_dir / "execution-receipts")
         self.open_path_callback = open_path
         self.copy_path_callback = copy_path
+        self.safe_resume_callback = safe_resume
         self.all_receipts: list[GenerationExecutionReceipt] = []
         self.filtered_receipts: list[GenerationExecutionReceipt] = []
         self.setAttribute(Qt.WA_DeleteOnClose)
@@ -171,20 +173,24 @@ class GenerationExecutionReceiptDialog(QDialog):
         self.open_receipt_button = QPushButton("Open receipt JSON")
         self.open_manifest_button = QPushButton("Open output manifest")
         self.open_session_button = QPushButton("Open execution session")
+        self.open_resume_button = QPushButton("Open resume receipt")
         self.open_launch_button = QPushButton("Open launch receipt")
         self.open_report_button = QPushButton("Open final report")
         self.open_output_button = QPushButton("Open output folder")
         self.copy_run_id_button = QPushButton("Copy run ID")
+        self.safe_resume_button = QPushButton("Plan safe resume")
         self.export_button = QPushButton("Export filtered catalog")
         for index, (button, icon_name) in enumerate(
             (
                 (self.open_receipt_button, "report"),
                 (self.open_manifest_button, "report"),
                 (self.open_session_button, "history"),
+                (self.open_resume_button, "history"),
                 (self.open_launch_button, "report"),
                 (self.open_report_button, "report"),
                 (self.open_output_button, "project.output_folder"),
                 (self.copy_run_id_button, "general.copy"),
+                (self.safe_resume_button, "general.refresh"),
                 (self.export_button, "save"),
             )
         ):
@@ -211,10 +217,12 @@ class GenerationExecutionReceiptDialog(QDialog):
         self.open_receipt_button.clicked.connect(lambda: self._open_selected("path"))
         self.open_manifest_button.clicked.connect(lambda: self._open_selected("manifest_csv_path"))
         self.open_session_button.clicked.connect(lambda: self._open_selected("execution_session_path"))
+        self.open_resume_button.clicked.connect(lambda: self._open_selected("resume_receipt_path"))
         self.open_launch_button.clicked.connect(lambda: self._open_selected("launch_receipt_path"))
         self.open_report_button.clicked.connect(lambda: self._open_selected("report_path"))
         self.open_output_button.clicked.connect(lambda: self._open_selected("output_directory"))
         self.copy_run_id_button.clicked.connect(self.copy_run_id)
+        self.safe_resume_button.clicked.connect(self.plan_safe_resume)
         self.export_button.clicked.connect(self.export_filtered)
         close_button.clicked.connect(self.close)
         self._update_action_state()
@@ -300,6 +308,7 @@ class GenerationExecutionReceiptDialog(QDialog):
                     f"Created / overwritten / skipped: {receipt.created_outputs} / {receipt.overwritten_outputs} / {receipt.skipped_outputs}",
                     f"Failed / missing / incomplete / unexpected: {receipt.failed_outputs} / {receipt.missing_outputs} / {receipt.incomplete_outputs} / {receipt.unexpected_outputs}",
                     f"Output bytes: {receipt.total_bytes:,} · Elapsed {receipt.elapsed_seconds:.1f}s",
+                    f"Parent / resume: {receipt.parent_run_id or '—'} / {receipt.resume_receipt_id or '—'}",
                     f"Output: {receipt.output_directory}",
                 )
             )
@@ -326,6 +335,7 @@ class GenerationExecutionReceiptDialog(QDialog):
             self.open_receipt_button: receipt.path if receipt else None,
             self.open_manifest_button: receipt.manifest_csv_path if receipt else None,
             self.open_session_button: Path(receipt.execution_session_path) if receipt and receipt.execution_session_path else None,
+            self.open_resume_button: Path(receipt.resume_receipt_path) if receipt and receipt.resume_receipt_path else None,
             self.open_launch_button: Path(receipt.launch_receipt_path) if receipt and receipt.launch_receipt_path else None,
             self.open_report_button: Path(receipt.report_path) if receipt and receipt.report_path else None,
             self.open_output_button: Path(receipt.output_directory) if receipt and receipt.output_directory else None,
@@ -333,6 +343,13 @@ class GenerationExecutionReceiptDialog(QDialog):
         for button, path in paths.items():
             button.setEnabled(path is not None and path.exists())
         self.copy_run_id_button.setEnabled(receipt is not None)
+        recoverable = bool(
+            receipt
+            and receipt.integrity_status == "verified"
+            and (receipt.requires_attention or receipt.status in {"partial", "failed", "cancelled"})
+            and self.safe_resume_callback is not None
+        )
+        self.safe_resume_button.setEnabled(recoverable)
         self.export_button.setEnabled(bool(self.filtered_receipts))
 
     def _open_selected(self, attribute: str) -> None:
@@ -351,6 +368,11 @@ class GenerationExecutionReceiptDialog(QDialog):
 
             QApplication.clipboard().setText(receipt.run_id)
             self.status_label.setText("Run ID copied.")
+
+    def plan_safe_resume(self) -> None:
+        receipt = self.selected_receipt()
+        if receipt is not None and self.safe_resume_callback is not None:
+            self.safe_resume_callback(receipt)
 
     def export_filtered(self) -> None:
         json_path, csv_path = self.service.export(

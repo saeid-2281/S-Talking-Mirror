@@ -14,6 +14,7 @@ from app.services.git_service import GitService
 from app.services.generation_confirmation_service import GenerationConfirmationCoordinator
 from app.services.generation_execution_receipt_service import GenerationExecutionReceiptService
 from app.services.generation_execution_session_service import GenerationExecutionSessionService
+from app.services.generation_safe_resume_service import GenerationSafeResumeService
 from app.services.generation_launch_receipt_service import GenerationLaunchReceiptService
 from app.services.generation_cost_capacity_service import GenerationCostCapacityService
 from app.services.generation_scope_service import GenerationScopeService
@@ -87,6 +88,7 @@ class ApplicationContext:
     generation_launch_receipt_service: GenerationLaunchReceiptService
     generation_execution_receipt_service: GenerationExecutionReceiptService
     generation_execution_session_service: GenerationExecutionSessionService
+    generation_safe_resume_service: GenerationSafeResumeService
     pronunciation_dictionary_service: PronunciationDictionaryService
     provider_verification_service: ProviderVerificationService
     provider_catalog_service: ProviderCatalogService
@@ -141,6 +143,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         generation_launch_receipt_service=services.generation_launch_receipt_service,
         generation_execution_receipt_service=services.generation_execution_receipt_service,
         generation_execution_session_service=services.generation_execution_session_service,
+        generation_safe_resume_service=services.generation_safe_resume_service,
         pronunciation_dictionary_service=services.pronunciation_dictionary_service,
         provider_verification_service=services.provider_verification_service,
         provider_catalog_service=services.provider_catalog_service,

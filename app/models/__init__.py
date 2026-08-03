@@ -29,6 +29,11 @@ from app.models.generation_execution_receipt import (
     GenerationExecutionReceiptSummary,
     GenerationOutputManifestEntry,
 )
+from app.models.generation_safe_resume import (
+    GenerationResumeCandidate,
+    GenerationResumePreview,
+    GenerationResumeReceipt,
+)
 from app.models.generation_execution_session import (
     GenerationExecutionJob,
     GenerationExecutionSession,
@@ -256,6 +261,9 @@ __all__ = [
     "GenerationReliabilityDashboard",
     "GenerationReliabilitySnapshot",
     "GenerationSloPolicy",
+    "GenerationResumeCandidate",
+    "GenerationResumePreview",
+    "GenerationResumeReceipt",
     "GenerationRecoverySnapshot",
     "FailureAnalysis",
     "FailureCategory",

@@ -161,6 +161,7 @@ class GenerationExecutionSessionDialog(QDialog):
         actions.setContentsMargins(0, 0, 0, 0)
         self.open_session_button = QPushButton("Open session JSON")
         self.open_receipt_button = QPushButton("Open launch receipt")
+        self.open_resume_button = QPushButton("Open resume receipt")
         self.open_report_button = QPushButton("Open final report")
         self.open_execution_receipt_button = QPushButton("Open execution receipt")
         self.open_manifest_button = QPushButton("Open output manifest")
@@ -172,6 +173,7 @@ class GenerationExecutionSessionDialog(QDialog):
             (
                 (self.open_session_button, "report"),
                 (self.open_receipt_button, "report"),
+                (self.open_resume_button, "history"),
                 (self.open_report_button, "report"),
                 (self.open_execution_receipt_button, "report"),
                 (self.open_manifest_button, "report"),
@@ -203,6 +205,7 @@ class GenerationExecutionSessionDialog(QDialog):
         self.table.itemSelectionChanged.connect(self.update_details)
         self.open_session_button.clicked.connect(self.open_session)
         self.open_receipt_button.clicked.connect(self.open_receipt)
+        self.open_resume_button.clicked.connect(self.open_resume_receipt)
         self.open_report_button.clicked.connect(self.open_report)
         self.open_execution_receipt_button.clicked.connect(self.open_execution_receipt)
         self.open_manifest_button.clicked.connect(self.open_manifest)
@@ -288,6 +291,8 @@ class GenerationExecutionSessionDialog(QDialog):
             f"Launch receipt: {session.launch_receipt_id or '—'}",
             f"Decision trace: {session.decision_trace_id or '—'}",
             f"Approval: {session.guard_approval_id or 'None'}",
+            f"Parent run / resume: {session.parent_run_id or '—'} / {session.resume_receipt_id or '—'}",
+            f"Resume scope: {session.resume_scope or '—'}",
             f"Provider / model / voice: {session.provider} / {session.model_id or '—'} / {session.voice_id or '—'}",
             f"Scope / order: {session.generation_scope or '—'} / {session.execution_order or '—'}",
             f"Started: {session.started_at}",
@@ -307,12 +312,14 @@ class GenerationExecutionSessionDialog(QDialog):
         session = self.selected_session()
         has_session = session is not None and session.path.exists()
         has_receipt = bool(session and session.launch_receipt_path and Path(session.launch_receipt_path).exists())
+        has_resume = bool(session and session.resume_receipt_path and Path(session.resume_receipt_path).exists())
         has_report = bool(session and session.report_path and Path(session.report_path).exists())
         has_output = bool(session and session.output_directory and Path(session.output_directory).exists())
         has_execution_receipt = bool(session and session.execution_receipt_path and Path(session.execution_receipt_path).exists())
         has_manifest = bool(session and session.output_manifest_path and Path(session.output_manifest_path).exists())
         self.open_session_button.setEnabled(has_session)
         self.open_receipt_button.setEnabled(has_receipt)
+        self.open_resume_button.setEnabled(has_resume)
         self.open_report_button.setEnabled(has_report)
         self.open_output_button.setEnabled(has_output)
         self.open_execution_receipt_button.setEnabled(has_execution_receipt)
@@ -338,6 +345,11 @@ class GenerationExecutionSessionDialog(QDialog):
         session = self.selected_session()
         if session and session.launch_receipt_path:
             self._open(Path(session.launch_receipt_path))
+
+    def open_resume_receipt(self) -> None:
+        session = self.selected_session()
+        if session and session.resume_receipt_path:
+            self._open(Path(session.resume_receipt_path))
 
     def open_report(self) -> None:
         session = self.selected_session()

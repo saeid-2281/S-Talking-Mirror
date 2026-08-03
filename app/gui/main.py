@@ -27,7 +27,7 @@ from app.gui.responsive_workspace import (
 )
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationCostCapacityDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationCostCapacityDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -151,7 +151,7 @@ class MainWindow(QMainWindow):
         self.audio_player_service=context.audio_player_service
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
-        self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]; self.last_launch_receipt=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.palette=None; self.actions_by_name={}; self.job_pronunciation_overrides={}; self.project_sources=[]
+        self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]; self.last_launch_receipt=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.pending_resume_receipt=None; self.palette=None; self.actions_by_name={}; self.job_pronunciation_overrides={}; self.project_sources=[]
         self.autosave_timer=QTimer(self); self.autosave_timer.setInterval(30000); self.autosave_timer.timeout.connect(self.autosave); self.autosave_timer.start()
         self.build(); self.setup_responsive_workspace(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.apply_interface_preferences(self.interface_preferences,persist=False,announce=False); self.restore_layout_state(); self.run_startup_recovery(); self.restore_previous_session(); self.update_window_title(); self.update_status_bar(); QTimer.singleShot(0,self.offer_generation_recovery)
     def set_initial_geometry(self):
@@ -1775,7 +1775,7 @@ class MainWindow(QMainWindow):
             except Exception as e: self.notifications.error('Project error',str(e))
         elif d.removed_project_id: self.project_controller.remove_recent_project(d.removed_project_id)
     def close_project(self):
-        self.project_controller.close_project(); self.project_path=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
+        self.project_controller.close_project(); self.project_path=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.pending_resume_receipt=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
     def autosave(self):
         try:
             if self.project_controller.autosave_if_needed(generation_active=self.generation_controller.is_active): self.log.appendPlainText('Project auto-saved.'); self.update_window_title(); self.update_status_bar()
@@ -1850,6 +1850,19 @@ class MainWindow(QMainWindow):
         if not self.generation_controller.has_jobs():return
         self.refresh_quota_snapshot()
         s=self.settings(); project=self.project_controller.generation_context(self.out.text())
+        pending_resume=self.pending_resume_receipt
+        if pending_resume is not None:
+            mismatch=self.context.generation_safe_resume_service.compatibility_issues(
+                pending_resume,
+                current_jobs=self.generation_controller.jobs,
+                settings=s,
+                output_directory=project.output_path,
+                project_name=self.project_controller.project_name,
+            )
+            if mismatch:
+                self.notifications.warning("Safe resume",f"Recovery settings changed: {', '.join(mismatch)}. Prepare the recovery queue again.")
+                return
+            self.generation_controller.set_generation_selection(list(pending_resume.selected_rows)); self.set_combo_data(self.scope_selector,'selected')
         state=self.run_preflight(write_report=False)
         confirmation=self.context.generation_confirmation_service.evaluate(
             state,
@@ -1914,6 +1927,10 @@ class MainWindow(QMainWindow):
                 started_at=self.generation_started_at,
                 initial_status='starting',
                 planned_existing_outputs=state.existing_outputs,
+                parent_run_id=pending_resume.parent_run_id if pending_resume else "",
+                resume_receipt_id=pending_resume.resume_id if pending_resume else "",
+                resume_receipt_path=pending_resume.path if pending_resume else None,
+                resume_scope=pending_resume.scope if pending_resume else "",
             )
             self.current_run_id=run_id; self.current_execution_session=execution.path
             self.log.appendPlainText(f'Execution session: {run_id} · {execution.path}')
@@ -1922,6 +1939,9 @@ class MainWindow(QMainWindow):
             self.log.appendPlainText(f'Execution session initialization failed: {exc}')
         if not self.generation_controller.start(self,s,project.output_path,project.project_key):
             self.finish_execution_session('cancelled')
+            if pending_resume is not None:
+                try: self.context.generation_safe_resume_service.mark_cancelled(pending_resume)
+                except Exception as exc: self.log.appendPlainText(f'Resume receipt cancellation failed: {exc}')
             self.generation_status_strip.set_generation_state('Ready','Generation did not start')
             self.statusBar().showMessage('Generation did not start; the execution session was cancelled.',7000)
             return
@@ -1930,6 +1950,13 @@ class MainWindow(QMainWindow):
                 self.context.generation_launch_receipt_service.consume_guard_approval(confirmation.guard_approval_id,receipt_id=receipt_id)
             except Exception as exc:
                 self.log.appendPlainText(f'Guard approval consumption failed: {exc}')
+        if pending_resume is not None:
+            try:
+                started_resume=self.context.generation_safe_resume_service.mark_started(pending_resume,new_run_id=run_id)
+                self.log.appendPlainText(f'Safe resume started: {started_resume.resume_id} · parent {started_resume.parent_run_id}')
+            except Exception as exc:
+                self.log.appendPlainText(f'Resume receipt start update failed: {exc}')
+            self.pending_resume_receipt=None
         self.sync_execution_session('running')
         self.monitor_service.start_run(self.generation_controller.generation_jobs(),provider=s.provider,output_dir=project.output_path,settings=s,project_key=project.project_key); self.set_generation_controls(active=True); self.generation_status_strip.set_generation_state('Running',f'{len(self.generation_controller.generation_jobs()):,} jobs queued · {run_id}'); self.update_status_bar()
         self.context.product_activity_service.activity('generation','Generation started',f'{len(self.generation_controller.generation_jobs()):,} job(s) queued · {run_id}.',project_id=current.project_id if current else None,metadata={'run_id':run_id,'launch_receipt':str(receipt or '')})
@@ -1987,6 +2014,17 @@ class MainWindow(QMainWindow):
                 self.log.appendPlainText(f'Execution receipt: {receipt.receipt_id} · {receipt.status}')
             except Exception as exc:
                 self.log.appendPlainText(f'Execution receipt creation failed: {exc}')
+            if session.resume_receipt_path:
+                try:
+                    finalized_resume=self.context.generation_safe_resume_service.mark_finished(
+                        Path(session.resume_receipt_path),
+                        result=session.status,
+                        execution_receipt_id=session.execution_receipt_id,
+                        execution_receipt_path=Path(session.execution_receipt_path) if session.execution_receipt_path else None,
+                    )
+                    self.log.appendPlainText(f'Resume receipt finalized: {finalized_resume.resume_id} · {finalized_resume.status}')
+                except Exception as exc:
+                    self.log.appendPlainText(f'Resume receipt finalization failed: {exc}')
             self.log.appendPlainText(f'Execution session finalized: {session.run_id} · {session.status}')
             return session
         except Exception as exc:
@@ -2480,7 +2518,32 @@ class MainWindow(QMainWindow):
     def open_generation_execution_sessions(self):
         project=self.project_controller.current_project; dialog=GenerationExecutionSessionDialog(self.context.generation_execution_session_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'execution-sessions',open_path=self.open_path,copy_path=self.copy_path); self.report_dialogs.append(dialog); dialog.finished.connect(self._release_report_dialog); dialog.show()
     def open_generation_execution_receipts(self):
-        project=self.project_controller.current_project; dialog=GenerationExecutionReceiptDialog(self.context.generation_execution_receipt_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'execution-receipts',open_path=self.open_path,copy_path=self.copy_path); self.report_dialogs.append(dialog); dialog.finished.connect(self._release_report_dialog); dialog.show()
+        project=self.project_controller.current_project; dialog=GenerationExecutionReceiptDialog(self.context.generation_execution_receipt_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'execution-receipts',open_path=self.open_path,copy_path=self.copy_path,safe_resume=self.prepare_safe_resume); self.report_dialogs.append(dialog); dialog.finished.connect(self._release_report_dialog); dialog.show()
+    def prepare_safe_resume(self,receipt):
+        if self.generation_controller.is_active:
+            self.notifications.warning('Safe resume','Stop the active generation before preparing recovery.'); return None
+        project=self.project_controller.current_project
+        if project is None or receipt.project_name.casefold()!=project.name.casefold():
+            self.notifications.warning('Safe resume','Open the project that owns this execution receipt first.'); return None
+        if not self.generation_controller.has_jobs():
+            self.load_csv()
+        if not self.generation_controller.has_jobs():
+            self.notifications.warning('Safe resume','Load the current project source before preparing recovery.'); return None
+        settings=self.settings(); output=Path(self.out.text() or self.project_controller.default_output_path)
+        dialog=GenerationSafeResumeDialog(self.context.generation_safe_resume_service,receipt,self.generation_controller.jobs,settings,output,project.name,self)
+        if dialog.exec()!=QDialog.Accepted or dialog.preview is None or not dialog.preview.allowed: return None
+        try:
+            resume_receipt=self.context.generation_safe_resume_service.create_receipt(dialog.preview)
+            jobs,rows=self.context.generation_safe_resume_service.prepare_jobs(resume_receipt,self.generation_controller.jobs)
+            self.generation_controller.set_jobs(jobs,project_id=project.project_id,output_dir=output,settings=settings)
+            self.generation_controller.set_generation_selection(list(rows)); self.set_combo_data(self.scope_selector,'selected')
+            self.pending_resume_receipt=resume_receipt
+            self.render_queue(); self.refresh_monitor_queue(); self.dashboard(); self.invalidate_preflight(); self.update_status_bar()
+            self.log.appendPlainText(f'Safe resume prepared: {resume_receipt.resume_id} · {len(rows)} job(s) · parent {resume_receipt.parent_run_id}')
+            self.statusBar().showMessage(f'Safe resume prepared for {len(rows)} job(s). Run Start Generation to revalidate preflight and guard.',9000)
+            return resume_receipt
+        except Exception as exc:
+            self.notifications.error('Safe resume',str(exc)); return None
     def open_generation_launch_receipts(self):
         project=self.project_controller.current_project; dialog=GenerationLaunchReceiptDialog(self.context.generation_launch_receipt_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'launch-receipts',open_path=self.open_path,copy_path=self.copy_path); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
     def open_generation_launch_approvals(self):
