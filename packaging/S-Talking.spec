@@ -10,6 +10,7 @@ datas = [
     (str(root / "app" / "resources"), "app/resources"),
     (str(root / "docs" / "USER_GUIDE.md"), "docs"),
     (str(root / "docs" / "INSTALLATION.md"), "docs"),
+    (str(root / "docs" / "DISTRIBUTION_READINESS_PHASE52.md"), "docs"),
     (str(root / "docs" / "TROUBLESHOOTING.md"), "docs"),
     (str(root / "docs" / "RELEASE_CHECKLIST.md"), "docs"),
     (str(root / "docs" / "MULTI_SOURCE_PROJECTS.md"), "docs"),

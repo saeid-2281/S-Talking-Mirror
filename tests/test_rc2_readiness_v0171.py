@@ -27,8 +27,9 @@ def test_build_script_writes_installer_result_contract() -> None:
     assert "ISCC.exe" in build
     assert "S-Talking-$version-setup.exe" in build
     assert "Inno Setup not installed" in build
-    assert "Preserve user data" not in iss
-    assert "DefaultDirName={autopf}\\S Talking" in iss
+    assert "S-Talking-$version-installer-unavailable.txt" in build
+    assert "DefaultDirName={localappdata}\\Programs\\S Talking" in iss
+    assert "[UninstallDelete]" not in iss
 
 
 def test_source_refresh_diff_relocation_and_collision_strategies(tmp_path: Path) -> None:
