@@ -39,6 +39,9 @@ class GenerationConfirmation:
     guard_baseline_receipt_id: str = ""
     guard_change_keys: tuple[str, ...] = field(default_factory=tuple)
     guard_approval_id: str = ""
+    guard_policy_profile_id: str = ""
+    guard_policy_version: int = 0
+    guard_policy_locked: bool = False
 
 
 class GenerationConfirmationCoordinator:
@@ -389,6 +392,9 @@ class GenerationConfirmationCoordinator:
                 guard_candidate_fingerprint=confirmation.fingerprint,
                 guard_baseline_receipt_id=baseline_id,
                 guard_change_keys=change_keys,
+                guard_policy_profile_id=decision.policy.profile_id,
+                guard_policy_version=decision.policy.version,
+                guard_policy_locked=decision.policy.locked,
             )
         required = any(item.requires_acknowledgement for item in checks)
         result = self._confirmation(
@@ -416,6 +422,9 @@ class GenerationConfirmationCoordinator:
             guard_baseline_receipt_id=baseline_id,
             guard_change_keys=change_keys,
             guard_approval_id=approval_id,
+            guard_policy_profile_id=decision.policy.profile_id,
+            guard_policy_version=decision.policy.version,
+            guard_policy_locked=decision.policy.locked,
         )
 
     def write_receipt(
@@ -451,6 +460,11 @@ class GenerationConfirmationCoordinator:
             "review_status": confirmation.status,
             "acknowledged_codes": sorted(set(acknowledged_codes)),
             "required_acknowledgements": list(confirmation.required_acknowledgements),
+            "guard_policy": {
+                "profile_id": confirmation.guard_policy_profile_id,
+                "version": confirmation.guard_policy_version,
+                "locked": confirmation.guard_policy_locked,
+            },
             "guard_exception": (
                 {
                     "approval_id": confirmation.guard_approval_id,
@@ -564,6 +578,9 @@ class GenerationConfirmationCoordinator:
             f"- Integrity: {payload.get('integrity', {}).get('algorithm', 'legacy')} "
             f"`{payload.get('integrity', {}).get('digest', '')}`",
             f"- Preflight status: {payload['preflight_status']}",
+            f"- Guard policy profile: {(payload.get('guard_policy') or {}).get('profile_id', 'Custom') or 'Custom'}",
+            f"- Guard policy version: {(payload.get('guard_policy') or {}).get('version', 0)}",
+            f"- Guard policy locked: {(payload.get('guard_policy') or {}).get('locked', False)}",
             f"- Guard exception: {(payload.get('guard_exception') or {}).get('approval_id', 'None')}",
             f"- Files: {scope['files']:,}",
             f"- Characters: {scope['characters']:,}",

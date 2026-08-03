@@ -372,6 +372,7 @@ class GenerationLaunchReceiptDialog(QDialog):
                     f"Risk / cost: {receipt.risk_level} · {receipt.currency} {receipt.estimated_cost:,.4f}",
                     f"Acknowledged: {acknowledgement}",
                     f"Required acknowledgements: {required}",
+                    f"Guard policy: {receipt.guard_policy_profile_id or 'Custom'} · v{receipt.guard_policy_version} · {'Locked' if receipt.guard_policy_locked else 'Unlocked'}",
                     f"Guard exception approval: {receipt.guard_approval_id or 'None'}",
                     f"Output: {receipt.output_directory or 'Unavailable'}",
                     f"JSON: {receipt.path}",
@@ -417,8 +418,10 @@ class GenerationLaunchReceiptDialog(QDialog):
             "warn": "Warn and acknowledge",
             "enforce": "Enforce critical drift",
         }.get(policy.mode, policy.mode.title())
+        lock_label = "Locked" if policy.locked else "Unlocked"
         self.guard_policy_label.setText(
             f"Baseline guard for {project}: {mode_label} · "
+            f"{policy.profile_name or 'Custom'} · v{policy.version} · {lock_label} · "
             f"{len(policy.protected_categories):,} protected category group(s)."
         )
 
@@ -474,7 +477,12 @@ class GenerationLaunchReceiptDialog(QDialog):
                 "Select a project receipt before editing its baseline guard policy."
             )
             return None
-        dialog = GenerationLaunchGuardPolicyDialog(self.service, project, self)
+        dialog = GenerationLaunchGuardPolicyDialog(
+            self.service,
+            project,
+            self,
+            export_dir=self.export_dir / "guard-policy-profiles",
+        )
         self.guard_policy_dialogs.append(dialog)
         dialog.finished.connect(self._guard_policy_dialog_finished)
         dialog.show()

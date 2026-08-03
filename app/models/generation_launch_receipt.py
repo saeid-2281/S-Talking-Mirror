@@ -41,6 +41,9 @@ class GenerationLaunchReceipt:
     integrity_status: str = "legacy"
     integrity_message: str = "Receipt predates integrity metadata."
     guard_approval_id: str = ""
+    guard_policy_profile_id: str = ""
+    guard_policy_version: int = 0
+    guard_policy_locked: bool = False
 
     @property
     def integrity_ok(self) -> bool:
@@ -120,6 +123,12 @@ class GenerationLaunchGuardPolicy:
     mode: str = "warn"
     protected_categories: tuple[str, ...] = field(default_factory=tuple)
     updated_at: str = ""
+    profile_id: str = ""
+    profile_name: str = ""
+    locked: bool = False
+    version: int = 0
+    updated_by: str = ""
+    history_count: int = 0
 
     @property
     def enabled(self) -> bool:
@@ -128,6 +137,36 @@ class GenerationLaunchGuardPolicy:
     @property
     def blocks_critical_drift(self) -> bool:
         return self.mode == "enforce"
+
+
+@dataclass(frozen=True)
+class GenerationLaunchGuardPolicyProfile:
+    """Reusable secret-free template for project baseline guard policies."""
+
+    profile_id: str
+    name: str
+    description: str = ""
+    mode: str = "warn"
+    protected_categories: tuple[str, ...] = field(default_factory=tuple)
+    built_in: bool = False
+    created_at: str = ""
+    updated_at: str = ""
+
+
+@dataclass(frozen=True)
+class GenerationLaunchGuardPolicyHistoryEntry:
+    """Immutable audit entry for one project guard-policy revision."""
+
+    version: int
+    occurred_at: str
+    action: str
+    actor: str = ""
+    profile_id: str = ""
+    profile_name: str = ""
+    mode: str = "warn"
+    protected_categories: tuple[str, ...] = field(default_factory=tuple)
+    locked: bool = False
+    note: str = ""
 
 
 @dataclass(frozen=True)

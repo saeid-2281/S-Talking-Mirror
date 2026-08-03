@@ -14,6 +14,8 @@ from app.models.generation_launch_receipt import (
     GenerationLaunchGuardApprovalSummary,
     GenerationLaunchGuardDecision,
     GenerationLaunchGuardPolicy,
+    GenerationLaunchGuardPolicyHistoryEntry,
+    GenerationLaunchGuardPolicyProfile,
     GenerationLaunchReceipt,
     GenerationLaunchReceiptChange,
     GenerationLaunchReceiptComparison,
@@ -28,6 +30,7 @@ class GenerationLaunchReceiptService:
     MARKDOWN_NAME = "generation-launch.md"
     BASELINE_INDEX_NAME = "generation-launch-receipt-baselines.json"
     GUARD_POLICY_INDEX_NAME = "generation-launch-guard-policies.json"
+    GUARD_PROFILE_INDEX_NAME = "generation-launch-guard-policy-profiles.json"
     GUARD_APPROVAL_INDEX_NAME = "generation-launch-guard-approvals.json"
     GUARD_MODES = {"off", "warn", "enforce"}
     GUARD_CATEGORIES = (
@@ -38,6 +41,43 @@ class GenerationLaunchReceiptService:
         "Scope",
         "Risk and cost",
         "Integrity",
+    )
+    BUILTIN_GUARD_PROFILES = (
+        {
+            "profile_id": "strict-production",
+            "name": "Strict production",
+            "description": "Enforce all protected launch categories for production work.",
+            "mode": "enforce",
+            "protected_categories": GUARD_CATEGORIES,
+        },
+        {
+            "profile_id": "balanced",
+            "name": "Balanced",
+            "description": "Warn on drift across all launch categories and require acknowledgement.",
+            "mode": "warn",
+            "protected_categories": GUARD_CATEGORIES,
+        },
+        {
+            "profile_id": "experimental",
+            "name": "Experimental",
+            "description": "Warn only for output policy, risk and integrity while allowing rapid iteration.",
+            "mode": "warn",
+            "protected_categories": ("Output policy", "Risk and cost", "Integrity"),
+        },
+        {
+            "profile_id": "provider-migration",
+            "name": "Provider migration",
+            "description": "Allow provider changes while protecting output, execution, scope, cost and integrity.",
+            "mode": "warn",
+            "protected_categories": (
+                "Output format",
+                "Output policy",
+                "Execution",
+                "Scope",
+                "Risk and cost",
+                "Integrity",
+            ),
+        },
     )
 
     def __init__(self, reports_dir: Path) -> None:
@@ -95,6 +135,7 @@ class GenerationLaunchReceiptService:
         scope = payload.get("scope") if isinstance(payload.get("scope"), dict) else {}
         settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
         plan = payload.get("generation_plan") if isinstance(payload.get("generation_plan"), dict) else {}
+        guard_policy = payload.get("guard_policy") if isinstance(payload.get("guard_policy"), dict) else {}
         return GenerationLaunchReceipt(
             path=receipt_path,
             markdown_path=markdown_path,
@@ -135,6 +176,9 @@ class GenerationLaunchReceiptService:
                 if isinstance(payload.get("guard_exception"), dict)
                 else ""
             ),
+            guard_policy_profile_id=str(guard_policy.get("profile_id") or ""),
+            guard_policy_version=max(0, self._integer(guard_policy.get("version"))),
+            guard_policy_locked=self._boolean(guard_policy.get("locked")),
         )
 
     @classmethod
@@ -283,13 +327,213 @@ class GenerationLaunchReceiptService:
         except OSError:
             return str(baseline.path) == str(receipt.path)
 
+    def list_guard_policy_profiles(self) -> list[GenerationLaunchGuardPolicyProfile]:
+        """Return built-in and custom reusable guard-policy templates."""
+
+        profiles = [self._profile_from_record(item, built_in=True) for item in self.BUILTIN_GUARD_PROFILES]
+        payload = self._read_guard_profile_index()
+        records = payload.get("profiles")
+        for record in records if isinstance(records, list) else []:
+            if not isinstance(record, dict):
+                continue
+            try:
+                profile = self._profile_from_record(record, built_in=False)
+            except ValueError:
+                continue
+            if any(item.profile_id == profile.profile_id for item in profiles):
+                continue
+            profiles.append(profile)
+        profiles.sort(key=lambda item: (not item.built_in, item.name.casefold(), item.profile_id))
+        return profiles
+
+    def guard_policy_profile(self, profile_id: str) -> GenerationLaunchGuardPolicyProfile | None:
+        key = str(profile_id or "").strip().casefold()
+        return next((item for item in self.list_guard_policy_profiles() if item.profile_id.casefold() == key), None)
+
+    def default_guard_policy_profile_id(self) -> str:
+        payload = self._read_guard_profile_index()
+        profile_id = str(payload.get("default_profile_id") or "balanced").strip()
+        return profile_id if self.guard_policy_profile(profile_id) is not None else "balanced"
+
+    def set_default_guard_policy_profile(self, profile_id: str) -> Path:
+        profile = self.guard_policy_profile(profile_id)
+        if profile is None:
+            raise ValueError("Select an existing guard policy profile.")
+        payload = self._read_guard_profile_index()
+        payload["default_profile_id"] = profile.profile_id
+        payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self._write_guard_profile_index(payload)
+        return self._guard_profile_index_path
+
+    def save_guard_policy_profile(
+        self,
+        *,
+        name: str,
+        description: str,
+        mode: str,
+        protected_categories: Iterable[str],
+        profile_id: str = "",
+    ) -> GenerationLaunchGuardPolicyProfile:
+        """Create or update a custom secret-free guard policy profile."""
+
+        title = str(name or "").strip()
+        if len(title) < 3:
+            raise ValueError("Profile name must contain at least 3 characters.")
+        normalized_mode = str(mode or "").strip().casefold()
+        if normalized_mode not in self.GUARD_MODES:
+            raise ValueError("Guard mode must be off, warn or enforce.")
+        categories = tuple(
+            dict.fromkeys(
+                item
+                for item in protected_categories
+                if item in self.GUARD_CATEGORIES
+            )
+        )
+        if normalized_mode != "off" and not categories:
+            raise ValueError("Select at least one protected launch category.")
+        requested_id = str(profile_id or "").strip().casefold()
+        if requested_id and self.guard_policy_profile(requested_id) is not None:
+            existing = self.guard_policy_profile(requested_id)
+            if existing is not None and existing.built_in:
+                raise ValueError("Built-in guard policy profiles cannot be overwritten.")
+        safe_slug = re.sub(r"[^a-z0-9._-]+", "-", title.casefold()).strip("-._") or "profile"
+        safe_id = requested_id or f"custom-{safe_slug}"
+        if safe_id in {str(item["profile_id"]) for item in self.BUILTIN_GUARD_PROFILES}:
+            raise ValueError("Built-in guard policy profile IDs are reserved.")
+        now = datetime.now(timezone.utc).isoformat()
+        payload = self._read_guard_profile_index()
+        records = payload.setdefault("profiles", [])
+        if not isinstance(records, list):
+            records = []
+            payload["profiles"] = records
+        previous = next(
+            (item for item in records if isinstance(item, dict) and str(item.get("profile_id") or "").casefold() == safe_id),
+            None,
+        )
+        record = {
+            "profile_id": safe_id,
+            "name": title,
+            "description": str(description or "").strip(),
+            "mode": normalized_mode,
+            "protected_categories": list(categories),
+            "created_at": str(previous.get("created_at") or now) if isinstance(previous, dict) else now,
+            "updated_at": now,
+        }
+        if isinstance(previous, dict):
+            previous.clear()
+            previous.update(record)
+        else:
+            records.append(record)
+        payload["updated_at"] = now
+        self._write_guard_profile_index(payload)
+        return self._profile_from_record(record, built_in=False)
+
+    def delete_guard_policy_profile(self, profile_id: str) -> bool:
+        key = str(profile_id or "").strip().casefold()
+        profile = self.guard_policy_profile(key)
+        if profile is None:
+            return False
+        if profile.built_in:
+            raise ValueError("Built-in guard policy profiles cannot be deleted.")
+        if self.default_guard_policy_profile_id().casefold() == key:
+            raise ValueError("Choose another default profile before deleting this one.")
+        policy_payload = self._read_guard_policy_index()
+        projects = policy_payload.get("projects")
+        if isinstance(projects, dict) and any(
+            isinstance(record, dict) and str(record.get("profile_id") or "").casefold() == key
+            for record in projects.values()
+        ):
+            raise ValueError("This profile is still assigned to a project policy.")
+        payload = self._read_guard_profile_index()
+        records = payload.get("profiles")
+        if not isinstance(records, list):
+            return False
+        before = len(records)
+        payload["profiles"] = [
+            record
+            for record in records
+            if not (
+                isinstance(record, dict)
+                and str(record.get("profile_id") or "").casefold() == key
+            )
+        ]
+        removed = len(payload["profiles"]) != before
+        if removed:
+            payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._write_guard_profile_index(payload)
+        return removed
+
+    def export_guard_policy_profiles(self, destination: Path) -> Path:
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema_version": 1,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "default_profile_id": self.default_guard_policy_profile_id(),
+            "profiles": [
+                {
+                    "profile_id": item.profile_id,
+                    "name": item.name,
+                    "description": item.description,
+                    "mode": item.mode,
+                    "protected_categories": list(item.protected_categories),
+                    "built_in": item.built_in,
+                }
+                for item in self.list_guard_policy_profiles()
+            ],
+        }
+        destination.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        return destination
+
+    def import_guard_policy_profiles(self, source: Path) -> tuple[GenerationLaunchGuardPolicyProfile, ...]:
+        source = Path(source)
+        payload = json.loads(source.read_text(encoding="utf-8"))
+        records = payload.get("profiles") if isinstance(payload, dict) else None
+        if not isinstance(records, list):
+            raise ValueError("Guard policy profile import must contain a profiles list.")
+        imported: list[GenerationLaunchGuardPolicyProfile] = []
+        for record in records:
+            if not isinstance(record, dict) or bool(record.get("built_in")):
+                continue
+            imported.append(
+                self.save_guard_policy_profile(
+                    profile_id=str(record.get("profile_id") or ""),
+                    name=str(record.get("name") or ""),
+                    description=str(record.get("description") or ""),
+                    mode=str(record.get("mode") or "warn"),
+                    protected_categories=self._strings(record.get("protected_categories")),
+                )
+            )
+        return tuple(imported)
+
+    def compare_guard_policy_to_profile(
+        self,
+        policy: GenerationLaunchGuardPolicy,
+        profile: GenerationLaunchGuardPolicyProfile,
+    ) -> tuple[str, ...]:
+        differences: list[str] = []
+        if policy.mode != profile.mode:
+            differences.append(f"Mode: {policy.mode} → {profile.mode}")
+        current = set(policy.protected_categories)
+        target = set(profile.protected_categories)
+        added = [item for item in self.GUARD_CATEGORIES if item in target - current]
+        removed = [item for item in self.GUARD_CATEGORIES if item in current - target]
+        if added:
+            differences.append("Protect additionally: " + ", ".join(added))
+        if removed:
+            differences.append("Stop protecting: " + ", ".join(removed))
+        return tuple(differences)
+
     def guard_policy(self, project_name: str) -> GenerationLaunchGuardPolicy:
         project = str(project_name or "").strip()
+        default_profile = self.guard_policy_profile(self.default_guard_policy_profile_id())
         if not project:
             return GenerationLaunchGuardPolicy(
                 project_name="",
                 mode="off",
                 protected_categories=self.GUARD_CATEGORIES,
+                profile_id=default_profile.profile_id if default_profile else "balanced",
+                profile_name=default_profile.name if default_profile else "Balanced",
             )
         payload = self._read_guard_policy_index()
         projects = payload.get("projects")
@@ -298,8 +542,15 @@ class GenerationLaunchReceiptService:
             if isinstance(projects, dict)
             else {}
         )
-        if not isinstance(record, dict):
-            record = {}
+        if not isinstance(record, dict) or not record:
+            profile = default_profile or self.guard_policy_profile("balanced")
+            return GenerationLaunchGuardPolicy(
+                project_name=project,
+                mode=profile.mode if profile else "warn",
+                protected_categories=profile.protected_categories if profile else self.GUARD_CATEGORIES,
+                profile_id=profile.profile_id if profile else "balanced",
+                profile_name=profile.name if profile else "Balanced",
+            )
         mode = str(record.get("mode") or "warn").casefold()
         if mode not in self.GUARD_MODES:
             mode = "warn"
@@ -308,12 +559,47 @@ class GenerationLaunchReceiptService:
             for item in self._strings(record.get("protected_categories"))
             if item in self.GUARD_CATEGORIES
         )
+        profile_id = str(record.get("profile_id") or "")
+        profile = self.guard_policy_profile(profile_id) if profile_id else None
+        history = record.get("history")
         return GenerationLaunchGuardPolicy(
             project_name=str(record.get("project_name") or project),
             mode=mode,
             protected_categories=categories or self.GUARD_CATEGORIES,
             updated_at=str(record.get("updated_at") or ""),
+            profile_id=profile_id,
+            profile_name=str(record.get("profile_name") or (profile.name if profile else "Custom")),
+            locked=self._boolean(record.get("locked")),
+            version=max(0, self._integer(record.get("version"))),
+            updated_by=str(record.get("updated_by") or ""),
+            history_count=len(history) if isinstance(history, list) else 0,
         )
+
+    def guard_policy_history(self, project_name: str) -> tuple[GenerationLaunchGuardPolicyHistoryEntry, ...]:
+        payload = self._read_guard_policy_index()
+        projects = payload.get("projects")
+        record = projects.get(self._project_key(project_name), {}) if isinstance(projects, dict) else {}
+        history = record.get("history") if isinstance(record, dict) else None
+        entries: list[GenerationLaunchGuardPolicyHistoryEntry] = []
+        for item in history if isinstance(history, list) else []:
+            if not isinstance(item, dict):
+                continue
+            entries.append(
+                GenerationLaunchGuardPolicyHistoryEntry(
+                    version=max(0, self._integer(item.get("version"))),
+                    occurred_at=str(item.get("occurred_at") or ""),
+                    action=str(item.get("action") or "updated"),
+                    actor=str(item.get("actor") or ""),
+                    profile_id=str(item.get("profile_id") or ""),
+                    profile_name=str(item.get("profile_name") or ""),
+                    mode=str(item.get("mode") or "warn"),
+                    protected_categories=self._strings(item.get("protected_categories")),
+                    locked=self._boolean(item.get("locked")),
+                    note=str(item.get("note") or ""),
+                )
+            )
+        entries.sort(key=lambda item: item.version, reverse=True)
+        return tuple(entries)
 
     def set_guard_policy(
         self,
@@ -321,6 +607,12 @@ class GenerationLaunchReceiptService:
         *,
         mode: str,
         protected_categories: Iterable[str] | None = None,
+        profile_id: str = "",
+        locked: bool | None = None,
+        updated_by: str = "Operator",
+        note: str = "",
+        override_lock: bool = False,
+        action: str = "updated",
     ) -> Path:
         project = str(project_name or "").strip()
         if not project:
@@ -328,10 +620,15 @@ class GenerationLaunchReceiptService:
         normalized_mode = str(mode or "").strip().casefold()
         if normalized_mode not in self.GUARD_MODES:
             raise ValueError("Guard mode must be off, warn or enforce.")
+        source_categories = (
+            self.GUARD_CATEGORIES
+            if protected_categories is None
+            else protected_categories
+        )
         categories = tuple(
             dict.fromkeys(
                 item
-                for item in (protected_categories or self.GUARD_CATEGORIES)
+                for item in source_categories
                 if item in self.GUARD_CATEGORIES
             )
         )
@@ -342,14 +639,105 @@ class GenerationLaunchReceiptService:
         if not isinstance(projects, dict):
             projects = {}
             payload["projects"] = projects
-        projects[self._project_key(project)] = {
+        key = self._project_key(project)
+        previous = projects.get(key, {})
+        if not isinstance(previous, dict):
+            previous = {}
+        previous_policy = self.guard_policy(project)
+        requested_profile = self.guard_policy_profile(profile_id) if profile_id else None
+        effective_profile_id = requested_profile.profile_id if requested_profile else str(profile_id or "")
+        effective_profile_name = requested_profile.name if requested_profile else ("Custom" if effective_profile_id else "Custom")
+        target_locked = previous_policy.locked if locked is None else bool(locked)
+        changed = (
+            previous_policy.mode != normalized_mode
+            or tuple(previous_policy.protected_categories) != categories
+            or previous_policy.profile_id != effective_profile_id
+            or previous_policy.locked != target_locked
+        )
+        if previous_policy.locked and changed and not override_lock:
+            raise ValueError("This project guard policy is locked. Unlock it before making changes.")
+        now = datetime.now(timezone.utc).isoformat()
+        version = max(0, self._integer(previous.get("version"))) + 1
+        history = previous.get("history")
+        if not isinstance(history, list):
+            history = []
+        history.append(
+            {
+                "version": version,
+                "occurred_at": now,
+                "action": str(action or "updated"),
+                "actor": str(updated_by or "Operator").strip(),
+                "profile_id": effective_profile_id,
+                "profile_name": effective_profile_name,
+                "mode": normalized_mode,
+                "protected_categories": list(categories),
+                "locked": target_locked,
+                "note": str(note or "").strip(),
+            }
+        )
+        projects[key] = {
             "project_name": project,
             "mode": normalized_mode,
             "protected_categories": list(categories),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": now,
+            "profile_id": effective_profile_id,
+            "profile_name": effective_profile_name,
+            "locked": target_locked,
+            "version": version,
+            "updated_by": str(updated_by or "Operator").strip(),
+            "history": history[-100:],
         }
+        payload["updated_at"] = now
         self._write_guard_policy_index(payload)
         return self._guard_policy_index_path
+
+    def apply_guard_policy_profile(
+        self,
+        project_name: str,
+        profile_id: str,
+        *,
+        locked: bool = False,
+        updated_by: str = "Operator",
+        note: str = "",
+        override_lock: bool = False,
+    ) -> GenerationLaunchGuardPolicy:
+        profile = self.guard_policy_profile(profile_id)
+        if profile is None:
+            raise ValueError("Select an existing guard policy profile.")
+        self.set_guard_policy(
+            project_name,
+            mode=profile.mode,
+            protected_categories=profile.protected_categories,
+            profile_id=profile.profile_id,
+            locked=locked,
+            updated_by=updated_by,
+            note=note or f"Applied profile {profile.name}.",
+            override_lock=override_lock,
+            action="profile_applied",
+        )
+        return self.guard_policy(project_name)
+
+    def set_guard_policy_lock(
+        self,
+        project_name: str,
+        locked: bool,
+        *,
+        updated_by: str = "Operator",
+        note: str = "",
+    ) -> GenerationLaunchGuardPolicy:
+        policy = self.guard_policy(project_name)
+        self.set_guard_policy(
+            project_name,
+            mode=policy.mode,
+            protected_categories=policy.protected_categories,
+            profile_id=policy.profile_id,
+            locked=bool(locked),
+            updated_by=updated_by,
+            note=note or ("Policy locked." if locked else "Policy unlocked."),
+            override_lock=True,
+            action="locked" if locked else "unlocked",
+        )
+        return self.guard_policy(project_name)
 
     def create_guard_approval(
         self,
@@ -1189,6 +1577,65 @@ class GenerationLaunchReceiptService:
         }
 
     @property
+    def _guard_profile_index_path(self) -> Path:
+        return self.reports_dir / self.GUARD_PROFILE_INDEX_NAME
+
+    def _read_guard_profile_index(self) -> dict[str, object]:
+        path = self._guard_profile_index_path
+        if not path.exists():
+            return {"schema_version": 1, "default_profile_id": "balanced", "profiles": []}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return {"schema_version": 1, "default_profile_id": "balanced", "profiles": []}
+        if not isinstance(payload, dict):
+            return {"schema_version": 1, "default_profile_id": "balanced", "profiles": []}
+        payload.setdefault("schema_version", 1)
+        payload.setdefault("default_profile_id", "balanced")
+        payload.setdefault("profiles", [])
+        return payload
+
+    def _write_guard_profile_index(self, payload: dict[str, object]) -> None:
+        self.reports_dir.mkdir(parents=True, exist_ok=True)
+        temporary = self._guard_profile_index_path.with_suffix(".json.tmp")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        temporary.replace(self._guard_profile_index_path)
+
+    def _profile_from_record(
+        self,
+        record: dict[str, object],
+        *,
+        built_in: bool,
+    ) -> GenerationLaunchGuardPolicyProfile:
+        profile_id = str(record.get("profile_id") or "").strip().casefold()
+        name = str(record.get("name") or "").strip()
+        mode = str(record.get("mode") or "warn").strip().casefold()
+        categories = tuple(
+            item
+            for item in self._strings(record.get("protected_categories"))
+            if item in self.GUARD_CATEGORIES
+        )
+        if not profile_id or not name:
+            raise ValueError("Guard policy profile requires an ID and name.")
+        if mode not in self.GUARD_MODES:
+            raise ValueError("Guard policy profile mode is invalid.")
+        if mode != "off" and not categories:
+            raise ValueError("Guard policy profile requires protected categories.")
+        return GenerationLaunchGuardPolicyProfile(
+            profile_id=profile_id,
+            name=name,
+            description=str(record.get("description") or "").strip(),
+            mode=mode,
+            protected_categories=categories,
+            built_in=built_in,
+            created_at=str(record.get("created_at") or ""),
+            updated_at=str(record.get("updated_at") or ""),
+        )
+
+    @property
     def _guard_policy_index_path(self) -> Path:
         return self.reports_dir / self.GUARD_POLICY_INDEX_NAME
 
@@ -1261,6 +1708,9 @@ class GenerationLaunchReceiptService:
             "launch_fingerprint": receipt.launch_fingerprint,
             "integrity_status": receipt.integrity_status,
             "receipt_path": str(receipt.path),
+            "guard_policy_profile_id": receipt.guard_policy_profile_id,
+            "guard_policy_version": receipt.guard_policy_version,
+            "guard_policy_locked": receipt.guard_policy_locked,
         }
 
     @staticmethod
@@ -1339,6 +1789,8 @@ class GenerationLaunchReceiptService:
                 receipt.risk_level,
                 receipt.integrity_status,
                 receipt.guard_approval_id,
+                receipt.guard_policy_profile_id,
+                str(receipt.guard_policy_version),
             )
         ).casefold()
 
@@ -1389,6 +1841,9 @@ class GenerationLaunchReceiptService:
             "integrity_status": receipt.integrity_status,
             "integrity_message": receipt.integrity_message,
             "guard_approval_id": receipt.guard_approval_id,
+            "guard_policy_profile_id": receipt.guard_policy_profile_id,
+            "guard_policy_version": receipt.guard_policy_version,
+            "guard_policy_locked": receipt.guard_policy_locked,
             "receipt_path": str(receipt.path),
             "markdown_path": str(receipt.markdown_path),
             "output_directory": receipt.output_directory,
