@@ -39,6 +39,7 @@ from app.services.preview_service import PreviewService
 from app.services.pronunciation_dictionary_service import PronunciationDictionaryService
 from app.services.project_manager import ProjectManager
 from app.services.queue_service import QueueService
+from app.services.qt_runtime_health_service import QtRuntimeHealthService
 from app.services.release_readiness_service import ReleaseReadinessService
 from app.services.startup_recovery_service import SessionRestoreService, StartupRecoveryService
 from app.services.voice_library_store import VoiceLibraryStore
@@ -84,6 +85,7 @@ __all__ = [
     "PronunciationDictionaryService",
     "ProjectManager",
     "QueueService",
+    "QtRuntimeHealthService",
     "ReleaseReadinessService",
     "SessionRestoreService",
     "StartupRecoveryService",

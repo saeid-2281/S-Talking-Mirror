@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 import json,os,sys
 
 import app
@@ -27,7 +27,7 @@ from app.gui.responsive_workspace import (
 )
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -50,6 +50,7 @@ from app.models.product_events import BatchSessionRecord
 from app.models.ui_state import SettingsViewData
 from app.services.monitor_formatting import elide_middle, format_characters_per_minute, format_duration, format_files_per_minute
 from app.services.text_source_service import TextSourceService
+from app.services.qt_runtime_health_service import QtRuntimeHealthService
 
 COLORS=STATUS_COLORS
 MONITOR_MIN_WIDTH=290
@@ -151,7 +152,7 @@ class MainWindow(QMainWindow):
         self.audio_player_service=context.audio_player_service
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
-        self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]; self.last_launch_receipt=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.palette=None; self.actions_by_name={}; self.job_pronunciation_overrides={}; self.project_sources=[]
+        self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]; self.qt_runtime_health_service=QtRuntimeHealthService(self); self.last_launch_receipt=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.palette=None; self.actions_by_name={}; self.job_pronunciation_overrides={}; self.project_sources=[]
         self.autosave_timer=QTimer(self); self.autosave_timer.setInterval(30000); self.autosave_timer.timeout.connect(self.autosave); self.autosave_timer.start()
         self.build(); self.setup_responsive_workspace(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.apply_interface_preferences(self.interface_preferences,persist=False,announce=False); self.restore_layout_state(); self.run_startup_recovery(); self.restore_previous_session(); self.update_window_title(); self.update_status_bar(); QTimer.singleShot(0,self.offer_generation_recovery)
     def set_initial_geometry(self):
@@ -654,7 +655,7 @@ class MainWindow(QMainWindow):
             action=self.generation_menu.addAction(action_icon(ic),text); action.triggered.connect(handler); action.setShortcut(QKeySequence(shortcut)); self.actions_by_name[text]=action
     def build_reports_menu(self):
         self.reports_menu=QMenu('Reports',self); self.menuBar().addMenu(self.reports_menu)
-        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Artifact Retention',self.open_generation_artifact_retention,'report'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Budget & Quota Guard',self.open_generation_budget_guard,'warning'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Estimate vs Actual',self.open_generation_estimate_actual,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
+        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Artifact Retention',self.open_generation_artifact_retention,'report'),('UI Runtime Health',self.open_qt_runtime_health,'health'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Budget & Quota Guard',self.open_generation_budget_guard,'warning'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Estimate vs Actual',self.open_generation_estimate_actual,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
     def build_developer_tools_menu(self):
         self.developer_menu=QMenu('Developer Tools',self); self.menuBar().addMenu(self.developer_menu); self.actions_by_name.update(self.developer_tools.populate_menu(self.developer_menu))
     def build_help_menu(self):
@@ -2396,7 +2397,8 @@ class MainWindow(QMainWindow):
     def failed(self,e):
         self.monitor_service.finish({'stopped':True}); self.set_generation_controls(active=False); self.generation_status_strip.set_generation_state('Failed',f'{e} · {self.current_run_id or "run"}'); self.dashboard(); self.run_logs.append(f'FAILED: {e}'); report=self.create_report({'total':len(self.generation_controller.generation_jobs()),'completed':0,'skipped':0,'failed':1,'stopped':True,'error':e}); self.finish_execution_session('failed',report.report_html); self.context.product_activity_service.notify('error','Generation failed',str(e)); self.context.product_activity_service.activity('generation','Generation failed',str(e),metadata={'run_id':self.current_run_id or ''}); self.notify_report_created(report,{'completed':0,'skipped':0,'failed':1}); self.notifications.error('Error',e); self.update_status_bar()
     def closeEvent(self,event):
-        for dialog in list(self.report_dialogs): dialog.close()
+        self.qt_runtime_health_service.close_all()
+        self.report_dialogs.clear()
         self.audio_player_service.stop()
         self.developer_tools.close()
         self.monitor_service.persist_recovery()
@@ -2517,7 +2519,7 @@ class MainWindow(QMainWindow):
         report_summary=dict(summary); report_summary['run_id']=self.current_run_id or ''
         return self.report_service.create_generation_report(project=self.project_controller.current_project,settings=self.settings(),jobs=list(self.generation_controller.generation_jobs()),output_dir=Path(self.out.text() or self.project_controller.default_output_path),summary=report_summary,started_at=self.generation_started_at or datetime.now(timezone.utc),log_events=self.run_logs,monitor_metrics=self.monitor_service.report_metrics())
     def show_report_dialog(self,report):
-        d=ReportDialog(report,self,open_report=self.open_path,open_folder=self.open_path,copy_path=self.copy_path,export_diagnostics=self.export_diagnostics_for); self.report_dialogs.append(d); d.destroyed.connect(lambda *_: self.report_dialogs.remove(d) if d in self.report_dialogs else None); d.show()
+        d=ReportDialog(report,self,open_report=self.open_path,open_folder=self.open_path,copy_path=self.copy_path,export_diagnostics=self.export_diagnostics_for); self._show_report_dialog(d)
     def notify_report_created(self,report,summary):
         completed=summary.get('completed',0); failed=summary.get('failed',0); skipped=summary.get('skipped',0); stamp=datetime.now().strftime('%H:%M')
         project=self.project_controller.current_project; settings=self.settings(); jobs=list(self.generation_controller.generation_jobs())
@@ -2540,6 +2542,7 @@ class MainWindow(QMainWindow):
             'generation-orchestration':self.open_generation_orchestration,
             'generation-maintenance':self.open_generation_maintenance,
             'generation-artifact-retention':self.open_generation_artifact_retention,
+            'qt-runtime-health':self.open_qt_runtime_health,
             'generation-cost-capacity':self.open_generation_cost_capacity,
             'generation-budget-guard':self.open_generation_budget_guard,
             'generation-reliability-dashboard':self.open_generation_reliability,
@@ -2572,12 +2575,22 @@ class MainWindow(QMainWindow):
         project=self.project_controller.current_project; project_name=getattr(project,'name',None) or getattr(self.project_controller,'project_name','project')
         json_path,csv_path=self.generation_controller.export_failure_report(self.context.container.runtime.reports_dir/'failures',project_name=str(project_name))
         message=f'Failure report exported: {json_path.name} and {csv_path.name}'; self.log.appendPlainText(message); self.statusBar().showMessage(message,7000); self.context.product_activity_service.activity('generation','Failure report exported',message,project_id=project.project_id if project else None,metadata={'json':str(json_path),'csv':str(csv_path)}); return json_path,csv_path
+    def _show_report_dialog(self, dialog, *, category="report"):
+        if dialog not in self.report_dialogs:
+            self.report_dialogs.append(dialog)
+        self.qt_runtime_health_service.register_dialog(dialog, category=category)
+        dialog.finished.connect(self._release_report_dialog)
+        dialog.show()
+        return dialog
+    def open_qt_runtime_health(self):
+        dialog=QtRuntimeHealthDialog(self.qt_runtime_health_service,self,export_dir=self.context.container.runtime.reports_dir/'qt-runtime-health',open_path=self.open_path)
+        return self._show_report_dialog(dialog,category='runtime-health')
     def open_generation_orchestration(self):
-        project=self.project_controller.current_project; dialog=GenerationOrchestrationDialog(self.context.generation_orchestration_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',settings_provider=self.settings,export_dir=self.context.container.runtime.reports_dir/'orchestration'); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+        project=self.project_controller.current_project; dialog=GenerationOrchestrationDialog(self.context.generation_orchestration_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',settings_provider=self.settings,export_dir=self.context.container.runtime.reports_dir/'orchestration'); self._show_report_dialog(dialog)
     def open_generation_maintenance(self):
-        project=self.project_controller.current_project; dialog=GenerationMaintenanceDialog(self.context.generation_maintenance_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'hardening'); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+        project=self.project_controller.current_project; dialog=GenerationMaintenanceDialog(self.context.generation_maintenance_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'hardening'); self._show_report_dialog(dialog)
     def open_generation_artifact_retention(self):
-        project=self.project_controller.current_project; dialog=GenerationArtifactRetentionDialog(self.context.generation_artifact_retention_service,self,project_name=project.name if project else '',export_dir=self.context.container.runtime.reports_dir/'artifact-retention',open_path=self.open_path); self.report_dialogs.append(dialog); dialog.finished.connect(self._release_report_dialog); dialog.show()
+        project=self.project_controller.current_project; dialog=GenerationArtifactRetentionDialog(self.context.generation_artifact_retention_service,self,project_name=project.name if project else '',export_dir=self.context.container.runtime.reports_dir/'artifact-retention',open_path=self.open_path); self._show_report_dialog(dialog)
     def open_generation_budget_guard(self):
         project=self.project_controller.current_project
         dialog=GenerationBudgetGuardDialog(
@@ -2586,21 +2599,19 @@ class MainWindow(QMainWindow):
             self,
             export_dir=self.context.container.runtime.reports_dir/'budget-guard',
         )
-        self.report_dialogs.append(dialog)
-        dialog.finished.connect(self._release_report_dialog)
-        dialog.show()
+        self._show_report_dialog(dialog)
     def open_generation_cost_capacity(self):
-        project=self.project_controller.current_project; settings=self.settings(); dialog=GenerationCostCapacityDialog(self.context.generation_cost_capacity_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',provider=settings.provider,model=settings.model_id,export_dir=self.context.container.runtime.reports_dir/'cost-capacity'); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+        project=self.project_controller.current_project; settings=self.settings(); dialog=GenerationCostCapacityDialog(self.context.generation_cost_capacity_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',provider=settings.provider,model=settings.model_id,export_dir=self.context.container.runtime.reports_dir/'cost-capacity'); self._show_report_dialog(dialog)
     def open_generation_reliability(self):
-        project=self.project_controller.current_project; dialog=GenerationReliabilityDialog(self.context.generation_reliability_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'reliability',open_history=self.open_generation_history,open_incidents=self.open_generation_incidents); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+        project=self.project_controller.current_project; dialog=GenerationReliabilityDialog(self.context.generation_reliability_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'reliability',open_history=self.open_generation_history,open_incidents=self.open_generation_incidents); self._show_report_dialog(dialog)
     def open_generation_history(self):
-        project=self.project_controller.current_project; dialog=GenerationHistoryDialog(self.context.generation_history_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'history',open_path=self.open_path,copy_path=self.copy_path); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+        project=self.project_controller.current_project; dialog=GenerationHistoryDialog(self.context.generation_history_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'history',open_path=self.open_path,copy_path=self.copy_path); self._show_report_dialog(dialog)
     def open_generation_execution_sessions(self):
-        project=self.project_controller.current_project; dialog=GenerationExecutionSessionDialog(self.context.generation_execution_session_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'execution-sessions',open_path=self.open_path,copy_path=self.copy_path); self.report_dialogs.append(dialog); dialog.finished.connect(self._release_report_dialog); dialog.show()
+        project=self.project_controller.current_project; dialog=GenerationExecutionSessionDialog(self.context.generation_execution_session_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'execution-sessions',open_path=self.open_path,copy_path=self.copy_path); self._show_report_dialog(dialog)
     def open_generation_execution_receipts(self):
-        project=self.project_controller.current_project; dialog=GenerationExecutionReceiptDialog(self.context.generation_execution_receipt_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'execution-receipts',open_path=self.open_path,copy_path=self.copy_path,safe_resume=self.prepare_safe_resume); self.report_dialogs.append(dialog); dialog.finished.connect(self._release_report_dialog); dialog.show()
+        project=self.project_controller.current_project; dialog=GenerationExecutionReceiptDialog(self.context.generation_execution_receipt_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'execution-receipts',open_path=self.open_path,copy_path=self.copy_path,safe_resume=self.prepare_safe_resume); self._show_report_dialog(dialog)
     def open_generation_estimate_actual(self):
-        project=self.project_controller.current_project; dialog=GenerationEstimateActualDialog(self.context.generation_estimate_actual_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'estimate-actual',open_path=self.open_path,copy_path=self.copy_path); self.report_dialogs.append(dialog); dialog.finished.connect(self._release_report_dialog); dialog.show()
+        project=self.project_controller.current_project; dialog=GenerationEstimateActualDialog(self.context.generation_estimate_actual_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'estimate-actual',open_path=self.open_path,copy_path=self.copy_path); self._show_report_dialog(dialog)
     def prepare_safe_resume(self,receipt):
         if self.generation_controller.is_active:
             self.notifications.warning('Safe resume','Stop the active generation before preparing recovery.'); return None
@@ -2627,7 +2638,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.notifications.error('Safe resume',str(exc)); return None
     def open_generation_launch_receipts(self):
-        project=self.project_controller.current_project; dialog=GenerationLaunchReceiptDialog(self.context.generation_launch_receipt_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'launch-receipts',open_path=self.open_path,copy_path=self.copy_path); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+        project=self.project_controller.current_project; dialog=GenerationLaunchReceiptDialog(self.context.generation_launch_receipt_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'launch-receipts',open_path=self.open_path,copy_path=self.copy_path); self._show_report_dialog(dialog)
     def open_generation_launch_approvals(self):
         project=self.project_controller.current_project
         dialog=GenerationLaunchGuardApprovalDialog(
@@ -2636,9 +2647,7 @@ class MainWindow(QMainWindow):
             self,
             export_dir=self.context.container.runtime.reports_dir/'launch-approvals',
         )
-        self.report_dialogs.append(dialog)
-        dialog.finished.connect(self._release_report_dialog)
-        dialog.show()
+        self._show_report_dialog(dialog)
     def open_generation_guard_profiles(self):
         project=self.project_controller.current_project
         dialog=GenerationLaunchGuardProfileDialog(
@@ -2647,16 +2656,14 @@ class MainWindow(QMainWindow):
             project_name=project.name if project else 'all-projects',
             export_dir=self.context.container.runtime.reports_dir/'guard-policy-profiles',
         )
-        self.report_dialogs.append(dialog)
-        dialog.finished.connect(self._release_report_dialog)
-        dialog.show()
+        self._show_report_dialog(dialog)
     def _release_report_dialog(self,_result=0):
         dialog=self.sender()
         if dialog in self.report_dialogs: self.report_dialogs.remove(dialog)
     def open_generation_incidents(self):
-        project=self.project_controller.current_project; dialog=GenerationIncidentDialog(self.context.generation_incident_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'incidents',problem_service=self.context.generation_problem_service,automation_service=self.context.generation_remediation_automation_service); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+        project=self.project_controller.current_project; dialog=GenerationIncidentDialog(self.context.generation_incident_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'incidents',problem_service=self.context.generation_problem_service,automation_service=self.context.generation_remediation_automation_service); self._show_report_dialog(dialog)
     def open_generation_problems(self):
-        project=self.project_controller.current_project; dialog=GenerationProblemDialog(self.context.generation_problem_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'problems'); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+        project=self.project_controller.current_project; dialog=GenerationProblemDialog(self.context.generation_problem_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'problems'); self._show_report_dialog(dialog)
     def open_reports_folder(self): self.open_path(self.context.container.runtime.reports_dir)
     def copy_path(self,path): QApplication.clipboard().setText(str(path)); self.statusBar().showMessage(f'Copied: {path}')
     def copy_report_path(self):
@@ -2694,6 +2701,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Reports: Reliability Dashboard',act('Reliability Dashboard')),
             PaletteCommand('Reports: Generation History',act('Generation History')),
             PaletteCommand('Reports: Artifact Retention',act('Artifact Retention')),
+            PaletteCommand('Reports: UI Runtime Health',act('UI Runtime Health')),
             PaletteCommand('Reports: Execution Sessions',act('Execution Sessions')),
             PaletteCommand('Reports: Execution Receipts',act('Execution Receipts')),
             PaletteCommand('Reports: Estimate vs Actual',act('Estimate vs Actual')),

@@ -57,6 +57,7 @@ from app.gui.dialogs.remediation_automation_policy_dialog import (
 from app.gui.dialogs.preflight_dialog import PreflightDialog, PreflightFixDialog
 from app.gui.dialogs.provider_accounts_dialog import ProviderAccountsDialog
 from app.gui.dialogs.quick_setup_dialog import QuickSetupDialog
+from app.gui.dialogs.qt_runtime_health_dialog import QtRuntimeHealthDialog
 from app.gui.dialogs.pronunciation_dictionary_dialog import PronunciationDictionaryDialog
 from app.gui.dialogs.recent_projects_dialog import RecentProjectsDialog
 from app.gui.dialogs.report_dialog import ReportDialog
@@ -104,6 +105,7 @@ __all__ = [
     "PreflightFixDialog",
     "ProviderAccountsDialog",
     "QuickSetupDialog",
+    "QtRuntimeHealthDialog",
     "PronunciationDictionaryDialog",
     "RecentProjectsDialog",
     "ReportDialog",

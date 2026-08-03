@@ -141,6 +141,7 @@ from app.models.release_state import ProviderStatusState, ReleaseReadinessState
 from app.models.startup_state import SessionRestoreState, StartupRecoveryState
 from app.models.ui_state import GenerationContext, GenerationUiState, SettingsViewData
 from app.models.workspace_profile import WorkspaceProfile
+from app.models.qt_runtime_health import QtDialogLifecycleRecord, QtRuntimeHealthSnapshot
 
 from app.models.provider_health import ProviderAccountHealth, ProviderHealthState, evaluate_provider_health
 
@@ -341,4 +342,6 @@ __all__ = [
     "TTSJob",
     "VoiceRecord",
     "WorkspaceProfile",
+    "QtDialogLifecycleRecord",
+    "QtRuntimeHealthSnapshot",
 ]
