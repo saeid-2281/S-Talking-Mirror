@@ -225,7 +225,7 @@ class GenerationLaunchReceiptDialog(QDialog):
         self.clear_baseline_button = QPushButton("Clear project baseline")
         self.compare_baseline_button = QPushButton("Compare to baseline")
         self.guard_policy_button = QPushButton("Baseline guard policy")
-        self.guard_approval_button = QPushButton("Exception approvals")
+        self.guard_approval_button = QPushButton("Approval operations")
         self.open_json_button = QPushButton("Open JSON receipt")
         self.open_markdown_button = QPushButton("Open Markdown receipt")
         self.open_output_button = QPushButton("Open output")
@@ -447,12 +447,13 @@ class GenerationLaunchReceiptDialog(QDialog):
     def open_guard_approvals(self) -> GenerationLaunchGuardApprovalDialog | None:
         receipt = self.selected_receipt()
         project = receipt.project_name if receipt is not None else self.project_name
-        if not project or project == "all-projects":
-            self.status_label.setText(
-                "Select a project receipt before reviewing exception approvals."
-            )
-            return None
-        dialog = GenerationLaunchGuardApprovalDialog(self.service, project, self)
+        project = project or "all-projects"
+        dialog = GenerationLaunchGuardApprovalDialog(
+            self.service,
+            project,
+            self,
+            export_dir=self.export_dir / "approvals",
+        )
         self.guard_approval_dialogs.append(dialog)
         dialog.finished.connect(self._guard_approval_dialog_finished)
         dialog.show()
@@ -662,7 +663,7 @@ class GenerationLaunchReceiptDialog(QDialog):
         self.compare_baseline_button.setEnabled(bool(receipt and baseline is not None))
         project = receipt.project_name if receipt is not None else self.project_name
         self.guard_policy_button.setEnabled(bool(project and project != "all-projects"))
-        self.guard_approval_button.setEnabled(bool(project and project != "all-projects"))
+        self.guard_approval_button.setEnabled(True)
         self.copy_path_button.setEnabled(has_receipt)
         self.copy_fingerprint_button.setEnabled(bool(receipt and receipt.launch_fingerprint))
         self.export_button.setEnabled(bool(self.filtered_receipts))

@@ -131,6 +131,31 @@ class GenerationLaunchGuardPolicy:
 
 
 @dataclass(frozen=True)
+class GenerationLaunchGuardApprovalEvent:
+    """One immutable audit event in an approval lifecycle."""
+
+    action: str
+    occurred_at: str
+    actor: str = ""
+    note: str = ""
+    receipt_id: str = ""
+
+
+@dataclass(frozen=True)
+class GenerationLaunchGuardApprovalSummary:
+    """Operational metrics for a filtered approval archive."""
+
+    total_count: int = 0
+    active_count: int = 0
+    expired_count: int = 0
+    consumed_count: int = 0
+    revoked_count: int = 0
+    project_count: int = 0
+    authorized_uses: int = 0
+    used_count: int = 0
+
+
+@dataclass(frozen=True)
 class GenerationLaunchGuardApproval:
     """Time-bound approval for one exact protected launch drift."""
 
@@ -146,6 +171,12 @@ class GenerationLaunchGuardApproval:
     max_uses: int = 1
     used_count: int = 0
     status: str = "approved"
+    revoked_at: str = ""
+    last_used_at: str = ""
+    renewed_from_id: str = ""
+    audit_events: tuple[GenerationLaunchGuardApprovalEvent, ...] = field(
+        default_factory=tuple
+    )
 
     @property
     def remaining_uses(self) -> int:

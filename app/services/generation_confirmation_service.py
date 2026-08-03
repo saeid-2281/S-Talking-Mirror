@@ -495,7 +495,10 @@ class GenerationConfirmationCoordinator:
             encoding="utf-8",
         )
         if receipt_service is not None and confirmation.guard_approval_id:
-            receipt_service.consume_guard_approval(confirmation.guard_approval_id)
+            receipt_service.consume_guard_approval(
+                confirmation.guard_approval_id,
+                receipt_id=str(payload.get("receipt_id") or ""),
+            )
         return receipt_path
 
     def _confirmation(
