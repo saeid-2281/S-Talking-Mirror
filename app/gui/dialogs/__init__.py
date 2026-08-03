@@ -12,6 +12,7 @@ from app.gui.dialogs.generation_reliability_dialog import (
     GenerationSloPolicyDialog,
 )
 from app.gui.dialogs.generation_history_dialog import GenerationHistoryDialog
+from app.gui.dialogs.generation_execution_receipt_dialog import GenerationExecutionReceiptDialog
 from app.gui.dialogs.generation_execution_session_dialog import GenerationExecutionSessionDialog
 from app.gui.dialogs.generation_launch_dialog import GenerationLaunchDialog
 from app.gui.dialogs.generation_launch_guard_approval_dialog import (
@@ -69,6 +70,7 @@ __all__ = [
     "GenerationSloPolicyDialog",
     "GenerationReliabilityDialog",
     "GenerationHistoryDialog",
+    "GenerationExecutionReceiptDialog",
     "GenerationExecutionSessionDialog",
     "GenerationLaunchDialog",
     "GenerationLaunchGuardApprovalDialog",

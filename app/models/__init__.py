@@ -24,6 +24,11 @@ from app.models.generation_launch_receipt import (
     GenerationLaunchReceiptSummary,
 )
 from app.models.generation_session import GenerationSession
+from app.models.generation_execution_receipt import (
+    GenerationExecutionReceipt,
+    GenerationExecutionReceiptSummary,
+    GenerationOutputManifestEntry,
+)
 from app.models.generation_execution_session import (
     GenerationExecutionJob,
     GenerationExecutionSession,
@@ -204,6 +209,9 @@ __all__ = [
     "GenerationLaunchReceiptSummary",
     "GenerationScopeMode",
     "GenerationSession",
+    "GenerationExecutionReceipt",
+    "GenerationExecutionReceiptSummary",
+    "GenerationOutputManifestEntry",
     "GenerationExecutionJob",
     "GenerationExecutionSession",
     "GenerationExecutionSessionSummary",

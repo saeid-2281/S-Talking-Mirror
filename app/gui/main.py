@@ -27,7 +27,7 @@ from app.gui.responsive_workspace import (
 )
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationCostCapacityDialog,GenerationExecutionSessionDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationCostCapacityDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -151,7 +151,7 @@ class MainWindow(QMainWindow):
         self.audio_player_service=context.audio_player_service
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
-        self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]; self.last_launch_receipt=None; self.current_run_id=None; self.current_execution_session=None; self.palette=None; self.actions_by_name={}; self.job_pronunciation_overrides={}; self.project_sources=[]
+        self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]; self.last_launch_receipt=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.palette=None; self.actions_by_name={}; self.job_pronunciation_overrides={}; self.project_sources=[]
         self.autosave_timer=QTimer(self); self.autosave_timer.setInterval(30000); self.autosave_timer.timeout.connect(self.autosave); self.autosave_timer.start()
         self.build(); self.setup_responsive_workspace(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.apply_interface_preferences(self.interface_preferences,persist=False,announce=False); self.restore_layout_state(); self.run_startup_recovery(); self.restore_previous_session(); self.update_window_title(); self.update_status_bar(); QTimer.singleShot(0,self.offer_generation_recovery)
     def set_initial_geometry(self):
@@ -356,7 +356,7 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Generation History','Execution Sessions','Launch Receipts','Approval Operations','Guard Policy Profiles','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Generation History','Execution Sessions','Execution Receipts','Launch Receipts','Approval Operations','Guard Policy Profiles','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
@@ -654,7 +654,7 @@ class MainWindow(QMainWindow):
             action=self.generation_menu.addAction(action_icon(ic),text); action.triggered.connect(handler); action.setShortcut(QKeySequence(shortcut)); self.actions_by_name[text]=action
     def build_reports_menu(self):
         self.reports_menu=QMenu('Reports',self); self.menuBar().addMenu(self.reports_menu)
-        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
+        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
     def build_developer_tools_menu(self):
         self.developer_menu=QMenu('Developer Tools',self); self.menuBar().addMenu(self.developer_menu); self.actions_by_name.update(self.developer_tools.populate_menu(self.developer_menu))
     def build_help_menu(self):
@@ -1775,7 +1775,7 @@ class MainWindow(QMainWindow):
             except Exception as e: self.notifications.error('Project error',str(e))
         elif d.removed_project_id: self.project_controller.remove_recent_project(d.removed_project_id)
     def close_project(self):
-        self.project_controller.close_project(); self.project_path=None; self.current_run_id=None; self.current_execution_session=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
+        self.project_controller.close_project(); self.project_path=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
     def autosave(self):
         try:
             if self.project_controller.autosave_if_needed(generation_active=self.generation_controller.is_active): self.log.appendPlainText('Project auto-saved.'); self.update_window_title(); self.update_status_bar()
@@ -1872,7 +1872,7 @@ class MainWindow(QMainWindow):
         acknowledged_codes=self.review_generation_launch(confirmation,state)
         if acknowledged_codes is None:
             self.show_preflight_dialog(state); return
-        self.generation_started_at=datetime.now(timezone.utc); self.run_logs=[]; self.dashboard()
+        self.generation_started_at=datetime.now(timezone.utc); self.run_logs=[]; self.current_execution_receipt=None; self.dashboard()
         run_service=self.context.generation_execution_session_service
         run_id=run_service.new_run_id(confirmation.fingerprint)
         session_path=run_service.path_for(self.project_controller.project_name,run_id)
@@ -1913,6 +1913,7 @@ class MainWindow(QMainWindow):
                 output_directory=project.output_path,
                 started_at=self.generation_started_at,
                 initial_status='starting',
+                planned_existing_outputs=state.existing_outputs,
             )
             self.current_run_id=run_id; self.current_execution_session=execution.path
             self.log.appendPlainText(f'Execution session: {run_id} · {execution.path}')
@@ -1966,6 +1967,26 @@ class MainWindow(QMainWindow):
                 monitor_metrics=metrics,
             )
             self.current_execution_session=session.path
+            try:
+                receipt=self.context.generation_execution_receipt_service.create_receipt(
+                    session=session,
+                    jobs=self.generation_controller.generation_jobs(),
+                    settings=settings,
+                    output_directory=project.output_path,
+                    report_path=Path(report_path) if report_path else None,
+                )
+                session=self.context.generation_execution_session_service.link_execution_receipt(
+                    session.run_id,
+                    project_name=self.project_controller.project_name,
+                    receipt_id=receipt.receipt_id,
+                    receipt_path=receipt.path,
+                    manifest_path=receipt.manifest_csv_path,
+                )
+                self.current_execution_session=session.path
+                self.current_execution_receipt=receipt.path
+                self.log.appendPlainText(f'Execution receipt: {receipt.receipt_id} · {receipt.status}')
+            except Exception as exc:
+                self.log.appendPlainText(f'Execution receipt creation failed: {exc}')
             self.log.appendPlainText(f'Execution session finalized: {session.run_id} · {session.status}')
             return session
         except Exception as exc:
@@ -2420,6 +2441,7 @@ class MainWindow(QMainWindow):
             'generation-reliability-dashboard':self.open_generation_reliability,
             'generation-history':self.open_generation_history,
             'generation-execution-sessions':self.open_generation_execution_sessions,
+            'generation-execution-receipts':self.open_generation_execution_receipts,
             'generation-launch-receipts':self.open_generation_launch_receipts,
             'generation-launch-approvals':self.open_generation_launch_approvals,
             'generation-launch-guard-profiles':self.open_generation_guard_profiles,
@@ -2457,6 +2479,8 @@ class MainWindow(QMainWindow):
         project=self.project_controller.current_project; dialog=GenerationHistoryDialog(self.context.generation_history_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'history',open_path=self.open_path,copy_path=self.copy_path); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
     def open_generation_execution_sessions(self):
         project=self.project_controller.current_project; dialog=GenerationExecutionSessionDialog(self.context.generation_execution_session_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'execution-sessions',open_path=self.open_path,copy_path=self.copy_path); self.report_dialogs.append(dialog); dialog.finished.connect(self._release_report_dialog); dialog.show()
+    def open_generation_execution_receipts(self):
+        project=self.project_controller.current_project; dialog=GenerationExecutionReceiptDialog(self.context.generation_execution_receipt_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'execution-receipts',open_path=self.open_path,copy_path=self.copy_path); self.report_dialogs.append(dialog); dialog.finished.connect(self._release_report_dialog); dialog.show()
     def open_generation_launch_receipts(self):
         project=self.project_controller.current_project; dialog=GenerationLaunchReceiptDialog(self.context.generation_launch_receipt_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'launch-receipts',open_path=self.open_path,copy_path=self.copy_path); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
     def open_generation_launch_approvals(self):
@@ -2525,6 +2549,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Reports: Reliability Dashboard',act('Reliability Dashboard')),
             PaletteCommand('Reports: Generation History',act('Generation History')),
             PaletteCommand('Reports: Execution Sessions',act('Execution Sessions')),
+            PaletteCommand('Reports: Execution Receipts',act('Execution Receipts')),
             PaletteCommand('Reports: Launch Receipts',act('Launch Receipts')),
             PaletteCommand('Reports: Approval Operations',act('Approval Operations')),
             PaletteCommand('Reports: Guard Policy Profiles',act('Guard Policy Profiles')),

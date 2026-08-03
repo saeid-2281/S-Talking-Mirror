@@ -51,6 +51,9 @@ class GenerationExecutionSession:
     execution_order: str = ""
     output_directory: str = ""
     report_path: str = ""
+    execution_receipt_id: str = ""
+    execution_receipt_path: str = ""
+    output_manifest_path: str = ""
     started_at: str = ""
     updated_at: str = ""
     finished_at: str = ""
@@ -64,6 +67,7 @@ class GenerationExecutionSession:
     processed_characters: int = 0
     retry_events: int = 0
     elapsed_seconds: float = 0.0
+    planned_existing_outputs: tuple[str, ...] = field(default_factory=tuple)
     jobs: tuple[GenerationExecutionJob, ...] = field(default_factory=tuple)
     integrity_status: str = "verified"
     integrity_message: str = "Execution session integrity verified."

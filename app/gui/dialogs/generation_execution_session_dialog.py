@@ -162,6 +162,8 @@ class GenerationExecutionSessionDialog(QDialog):
         self.open_session_button = QPushButton("Open session JSON")
         self.open_receipt_button = QPushButton("Open launch receipt")
         self.open_report_button = QPushButton("Open final report")
+        self.open_execution_receipt_button = QPushButton("Open execution receipt")
+        self.open_manifest_button = QPushButton("Open output manifest")
         self.open_output_button = QPushButton("Open output folder")
         self.copy_run_id_button = QPushButton("Copy run ID")
         self.copy_session_path_button = QPushButton("Copy session path")
@@ -171,6 +173,8 @@ class GenerationExecutionSessionDialog(QDialog):
                 (self.open_session_button, "report"),
                 (self.open_receipt_button, "report"),
                 (self.open_report_button, "report"),
+                (self.open_execution_receipt_button, "report"),
+                (self.open_manifest_button, "report"),
                 (self.open_output_button, "project.output_folder"),
                 (self.copy_run_id_button, "general.copy"),
                 (self.copy_session_path_button, "general.copy"),
@@ -200,6 +204,8 @@ class GenerationExecutionSessionDialog(QDialog):
         self.open_session_button.clicked.connect(self.open_session)
         self.open_receipt_button.clicked.connect(self.open_receipt)
         self.open_report_button.clicked.connect(self.open_report)
+        self.open_execution_receipt_button.clicked.connect(self.open_execution_receipt)
+        self.open_manifest_button.clicked.connect(self.open_manifest)
         self.open_output_button.clicked.connect(self.open_output)
         self.copy_run_id_button.clicked.connect(self.copy_run_id)
         self.copy_session_path_button.clicked.connect(self.copy_session_path)
@@ -291,6 +297,8 @@ class GenerationExecutionSessionDialog(QDialog):
             f"Retries: {session.retry_events} · Elapsed: {session.elapsed_seconds:.1f}s",
             f"Output: {session.output_directory}",
             f"Report: {session.report_path or 'Not available'}",
+            f"Execution receipt: {session.execution_receipt_id or 'Not available'}",
+            f"Output manifest: {session.output_manifest_path or 'Not available'}",
         ]
         self.details.setPlainText("\n".join(lines))
         self._update_action_state()
@@ -301,10 +309,14 @@ class GenerationExecutionSessionDialog(QDialog):
         has_receipt = bool(session and session.launch_receipt_path and Path(session.launch_receipt_path).exists())
         has_report = bool(session and session.report_path and Path(session.report_path).exists())
         has_output = bool(session and session.output_directory and Path(session.output_directory).exists())
+        has_execution_receipt = bool(session and session.execution_receipt_path and Path(session.execution_receipt_path).exists())
+        has_manifest = bool(session and session.output_manifest_path and Path(session.output_manifest_path).exists())
         self.open_session_button.setEnabled(has_session)
         self.open_receipt_button.setEnabled(has_receipt)
         self.open_report_button.setEnabled(has_report)
         self.open_output_button.setEnabled(has_output)
+        self.open_execution_receipt_button.setEnabled(has_execution_receipt)
+        self.open_manifest_button.setEnabled(has_manifest)
         self.copy_run_id_button.setEnabled(session is not None)
         self.copy_session_path_button.setEnabled(has_session)
         self.export_button.setEnabled(bool(self.filtered_sessions))
@@ -331,6 +343,16 @@ class GenerationExecutionSessionDialog(QDialog):
         session = self.selected_session()
         if session and session.report_path:
             self._open(Path(session.report_path))
+
+    def open_execution_receipt(self) -> None:
+        session = self.selected_session()
+        if session and session.execution_receipt_path:
+            self._open(Path(session.execution_receipt_path))
+
+    def open_manifest(self) -> None:
+        session = self.selected_session()
+        if session and session.output_manifest_path:
+            self._open(Path(session.output_manifest_path))
 
     def open_output(self) -> None:
         session = self.selected_session()

@@ -58,6 +58,7 @@ class GenerationExecutionSessionService:
         output_directory: Path,
         started_at: datetime | None = None,
         initial_status: str = "running",
+        planned_existing_outputs: Iterable[str] = (),
     ) -> GenerationExecutionSession:
         started = started_at or datetime.now(timezone.utc)
         folder = self._session_folder(project_name, run_id)
@@ -87,6 +88,12 @@ class GenerationExecutionSessionService:
             },
             "output_directory": str(Path(output_directory)),
             "report_path": "",
+            "execution_receipt": {
+                "receipt_id": "",
+                "receipt_path": "",
+                "manifest_path": "",
+            },
+            "planned_existing_outputs": [str(item) for item in planned_existing_outputs],
             "started_at": started.isoformat(),
             "updated_at": started.isoformat(),
             "finished_at": "",
@@ -175,6 +182,7 @@ class GenerationExecutionSessionService:
         launch = payload.get("launch") if isinstance(payload.get("launch"), dict) else {}
         settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
         metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
+        execution_receipt = payload.get("execution_receipt") if isinstance(payload.get("execution_receipt"), dict) else {}
         jobs = tuple(
             self._job_from_payload(item)
             for item in payload.get("jobs", [])
@@ -201,6 +209,9 @@ class GenerationExecutionSessionService:
             execution_order=str(settings.get("execution_order") or ""),
             output_directory=str(payload.get("output_directory") or ""),
             report_path=str(payload.get("report_path") or ""),
+            execution_receipt_id=str(execution_receipt.get("receipt_id") or ""),
+            execution_receipt_path=str(execution_receipt.get("receipt_path") or ""),
+            output_manifest_path=str(execution_receipt.get("manifest_path") or ""),
             started_at=str(payload.get("started_at") or ""),
             updated_at=str(payload.get("updated_at") or ""),
             finished_at=str(payload.get("finished_at") or ""),
@@ -214,10 +225,31 @@ class GenerationExecutionSessionService:
             processed_characters=self._integer(metrics.get("processed_characters")),
             retry_events=self._integer(metrics.get("retry_events")),
             elapsed_seconds=self._number(metrics.get("elapsed_seconds")),
+            planned_existing_outputs=tuple(str(item) for item in payload.get("planned_existing_outputs", []) if str(item)),
             jobs=jobs,
             integrity_status=integrity_status,
             integrity_message=integrity_message,
         )
+
+    def link_execution_receipt(
+        self,
+        run_id: str,
+        *,
+        project_name: str,
+        receipt_id: str,
+        receipt_path: Path,
+        manifest_path: Path,
+    ) -> GenerationExecutionSession:
+        path = self.path_for(project_name, run_id)
+        payload = self._read_payload(path)
+        payload["execution_receipt"] = {
+            "receipt_id": str(receipt_id or ""),
+            "receipt_path": str(receipt_path),
+            "manifest_path": str(manifest_path),
+        }
+        payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self._write(path.parent, payload)
+        return self.load(path)
 
     def list_sessions(
         self,
@@ -445,6 +477,9 @@ class GenerationExecutionSessionService:
                 session.voice_id,
                 session.output_directory,
                 session.report_path,
+                session.execution_receipt_id,
+                session.execution_receipt_path,
+                session.output_manifest_path,
                 " ".join(job.filename for job in session.jobs),
             )
         ).casefold()
@@ -469,6 +504,9 @@ class GenerationExecutionSessionService:
             "execution_order": session.execution_order,
             "output_directory": session.output_directory,
             "report_path": session.report_path,
+            "execution_receipt_id": session.execution_receipt_id,
+            "execution_receipt_path": session.execution_receipt_path,
+            "output_manifest_path": session.output_manifest_path,
             "started_at": session.started_at,
             "updated_at": session.updated_at,
             "finished_at": session.finished_at,
@@ -488,6 +526,7 @@ class GenerationExecutionSessionService:
         launch = payload.get("launch") if isinstance(payload.get("launch"), dict) else {}
         settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
         metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
+        execution_receipt = payload.get("execution_receipt") if isinstance(payload.get("execution_receipt"), dict) else {}
         lines = [
             "# S Talking Generation Execution Session",
             "",
@@ -502,6 +541,7 @@ class GenerationExecutionSessionService:
             f"- Model: {settings.get('model_id', '')}",
             f"- Voice: {settings.get('voice_id', '')}",
             f"- Output: {payload.get('output_directory', '')}",
+            f"- Execution receipt: {execution_receipt.get('receipt_id', '')}",
             f"- Jobs: {metrics.get('total_jobs', 0)} total / {metrics.get('completed_jobs', 0)} completed / {metrics.get('failed_jobs', 0)} failed / {metrics.get('skipped_jobs', 0)} skipped",
             "",
             "## Jobs",
