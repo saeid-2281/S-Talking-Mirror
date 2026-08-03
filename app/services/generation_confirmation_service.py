@@ -10,7 +10,9 @@ from pathlib import Path
 from app.models.domain import AppSettings
 from app.models.generation_launch_receipt import GenerationLaunchReceipt
 from app.models.preflight_state import PreflightState
+from app.models.unified_preflight_decision import UnifiedPreflightDecision
 from app.services.generation_launch_receipt_service import GenerationLaunchReceiptService
+from app.services.unified_preflight_decision_service import UnifiedPreflightDecisionService
 
 
 @dataclass(frozen=True)
@@ -42,12 +44,19 @@ class GenerationConfirmation:
     guard_policy_profile_id: str = ""
     guard_policy_version: int = 0
     guard_policy_locked: bool = False
+    unified_decision: UnifiedPreflightDecision | None = None
 
 
 class GenerationConfirmationCoordinator:
     """Build the safe-launch decision and a secret-free execution receipt."""
 
     CLOUD_PROVIDERS = {"elevenlabs", "openai", "azure", "google", "aws_polly"}
+
+    def __init__(
+        self,
+        decision_service: UnifiedPreflightDecisionService | None = None,
+    ) -> None:
+        self.decision_service = decision_service or UnifiedPreflightDecisionService()
 
     def evaluate(
         self,
@@ -67,14 +76,18 @@ class GenerationConfirmationCoordinator:
                     "error",
                 ),
             )
-            return self._confirmation(
-                allowed=False,
-                title="Preflight errors",
-                message="Resolve blocking errors before generation.",
-                status="blocked",
-                state=state,
-                settings=settings,
-                checks=checks,
+            return self._finalize_decision(
+                self._confirmation(
+                    allowed=False,
+                    title="Preflight errors",
+                    message="Resolve blocking errors before generation.",
+                    status="blocked",
+                    state=state,
+                    settings=settings,
+                    checks=checks,
+                ),
+                state,
+                settings,
             )
         if state.status == "No pending jobs":
             checks = (
@@ -85,14 +98,18 @@ class GenerationConfirmationCoordinator:
                     "neutral",
                 ),
             )
-            return self._confirmation(
-                allowed=False,
-                title="No pending jobs",
-                message="There are no pending jobs in the selected scope.",
-                status="blocked",
-                state=state,
-                settings=settings,
-                checks=checks,
+            return self._finalize_decision(
+                self._confirmation(
+                    allowed=False,
+                    title="No pending jobs",
+                    message="There are no pending jobs in the selected scope.",
+                    status="blocked",
+                    state=state,
+                    settings=settings,
+                    checks=checks,
+                ),
+                state,
+                settings,
             )
 
         checks: list[GenerationLaunchCheck] = [
@@ -241,7 +258,7 @@ class GenerationConfirmationCoordinator:
             settings=settings,
             checks=tuple(checks),
         )
-        return self._apply_baseline_guard(
+        guarded = self._apply_baseline_guard(
             confirmation,
             state,
             settings,
@@ -249,6 +266,23 @@ class GenerationConfirmationCoordinator:
             project_name=project_name,
             output_dir=output_dir,
         )
+        return self._finalize_decision(guarded, state, settings)
+
+    def _finalize_decision(
+        self,
+        confirmation: GenerationConfirmation,
+        state: PreflightState,
+        settings: AppSettings,
+    ) -> GenerationConfirmation:
+        decision = self.decision_service.evaluate(
+            state,
+            settings,
+            checks=confirmation.checks,
+            base_allowed=confirmation.allowed,
+            required_acknowledgements=confirmation.required_acknowledgements,
+            base_status=confirmation.status,
+        )
+        return replace(confirmation, unified_decision=decision)
 
     def _apply_baseline_guard(
         self,
@@ -475,6 +509,11 @@ class GenerationConfirmationCoordinator:
                 if confirmation.guard_approval_id
                 else None
             ),
+            "unified_decision": (
+                asdict(confirmation.unified_decision)
+                if confirmation.unified_decision is not None
+                else None
+            ),
             "scope": {
                 "files": state.estimated_files,
                 "characters": state.estimated_characters,
@@ -578,6 +617,8 @@ class GenerationConfirmationCoordinator:
             f"- Integrity: {payload.get('integrity', {}).get('algorithm', 'legacy')} "
             f"`{payload.get('integrity', {}).get('digest', '')}`",
             f"- Preflight status: {payload['preflight_status']}",
+            f"- Unified decision: {(payload.get('unified_decision') or {}).get('headline', 'Not recorded')}",
+            f"- Decision trace: `{(payload.get('unified_decision') or {}).get('trace_id', '')}`",
             f"- Guard policy profile: {(payload.get('guard_policy') or {}).get('profile_id', 'Custom') or 'Custom'}",
             f"- Guard policy version: {(payload.get('guard_policy') or {}).get('version', 0)}",
             f"- Guard policy locked: {(payload.get('guard_policy') or {}).get('locked', False)}",

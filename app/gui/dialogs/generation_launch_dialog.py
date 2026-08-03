@@ -58,6 +58,20 @@ class GenerationLaunchDialog(QDialog):
         self.status_card.setObjectName("generationLaunchStatusCard")
         self.workspace.add_body_widget(self.status_card)
 
+        self.decision_section = DialogSection(
+            "Unified preflight decision",
+            "One explainable result combines source preparation, provider readiness, planning, quota, output policy, baseline guard, and approvals.",
+        )
+        self.decision_card = DialogStatusCard("Decision not calculated", "", tone="neutral")
+        self.decision_card.setObjectName("generationUnifiedDecisionStatus")
+        self.decision_section.add_widget(self.decision_card)
+        self.decision_recommendations = QLabel()
+        self.decision_recommendations.setObjectName("generationUnifiedDecisionRecommendations")
+        self.decision_recommendations.setWordWrap(True)
+        self.decision_recommendations.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.decision_section.add_widget(self.decision_recommendations)
+        self.workspace.add_body_widget(self.decision_section)
+
         plan_section = DialogSection(
             "Execution plan",
             "The launch uses the same immutable plan calculated by the latest preflight run.",
@@ -145,6 +159,27 @@ class GenerationLaunchDialog(QDialog):
             f"{self.confirmation.summary}\n{self.confirmation.message}",
             tone=tone,
         )
+        decision = self.confirmation.unified_decision
+        self.decision_section.setVisible(decision is not None)
+        if decision is not None:
+            decision_tone = {
+                "ready": "success",
+                "ready_with_warnings": "warning",
+                "approval_required": "warning",
+                "blocked": "error",
+            }.get(decision.status, "neutral")
+            self.decision_card.update_status(
+                decision.headline,
+                f"{decision.summary}\nDecision trace: {decision.trace_id}",
+                tone=decision_tone,
+            )
+            if decision.recommendations:
+                self.decision_recommendations.setText(
+                    "Recommended next actions:\n"
+                    + "\n".join(f"• {item}" for item in decision.recommendations)
+                )
+            else:
+                self.decision_recommendations.setText("No additional action is recommended.")
         self.plan_summary.set_plan(self.state.generation_plan)
 
         self.check_table.setRowCount(len(self.confirmation.checks))
@@ -198,11 +233,24 @@ class GenerationLaunchDialog(QDialog):
         )
 
     def copy_summary(self) -> None:
+        decision = self.confirmation.unified_decision
+        decision_lines = (
+            [
+                f"Unified decision: {decision.headline}",
+                decision.summary,
+                f"Decision trace: {decision.trace_id}",
+                *(f"Recommendation: {item}" for item in decision.recommendations),
+                "",
+            ]
+            if decision is not None
+            else []
+        )
         lines = [
             self.confirmation.title,
             self.confirmation.summary,
             self.confirmation.message,
             "",
+            *decision_lines,
             *(
                 f"[{check.tone.upper()}] {check.title}: {check.detail}"
                 for check in self.confirmation.checks

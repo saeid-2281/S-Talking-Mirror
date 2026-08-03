@@ -136,6 +136,11 @@ class GenerationLaunchReceiptService:
         settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
         plan = payload.get("generation_plan") if isinstance(payload.get("generation_plan"), dict) else {}
         guard_policy = payload.get("guard_policy") if isinstance(payload.get("guard_policy"), dict) else {}
+        unified_decision = (
+            payload.get("unified_decision")
+            if isinstance(payload.get("unified_decision"), dict)
+            else {}
+        )
         return GenerationLaunchReceipt(
             path=receipt_path,
             markdown_path=markdown_path,
@@ -179,6 +184,9 @@ class GenerationLaunchReceiptService:
             guard_policy_profile_id=str(guard_policy.get("profile_id") or ""),
             guard_policy_version=max(0, self._integer(guard_policy.get("version"))),
             guard_policy_locked=self._boolean(guard_policy.get("locked")),
+            decision_status=str(unified_decision.get("status") or ""),
+            decision_trace_id=str(unified_decision.get("trace_id") or ""),
+            decision_summary=str(unified_decision.get("summary") or ""),
         )
 
     @classmethod
@@ -1791,6 +1799,9 @@ class GenerationLaunchReceiptService:
                 receipt.guard_approval_id,
                 receipt.guard_policy_profile_id,
                 str(receipt.guard_policy_version),
+                receipt.decision_status,
+                receipt.decision_trace_id,
+                receipt.decision_summary,
             )
         ).casefold()
 
@@ -1844,6 +1855,9 @@ class GenerationLaunchReceiptService:
             "guard_policy_profile_id": receipt.guard_policy_profile_id,
             "guard_policy_version": receipt.guard_policy_version,
             "guard_policy_locked": receipt.guard_policy_locked,
+            "decision_status": receipt.decision_status,
+            "decision_trace_id": receipt.decision_trace_id,
+            "decision_summary": receipt.decision_summary,
             "receipt_path": str(receipt.path),
             "markdown_path": str(receipt.markdown_path),
             "output_directory": receipt.output_directory,

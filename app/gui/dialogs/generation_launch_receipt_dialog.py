@@ -367,6 +367,8 @@ class GenerationLaunchReceiptDialog(QDialog):
                     f"Integrity: {receipt.integrity_status} — {receipt.integrity_message}",
                     f"Launch fingerprint: {receipt.launch_fingerprint or 'Unavailable'}",
                     f"Preflight / review: {receipt.preflight_status} / {receipt.review_status}",
+                    f"Unified decision: {receipt.decision_status or 'Not recorded'} · {receipt.decision_summary or 'Legacy receipt'}",
+                    f"Decision trace: {receipt.decision_trace_id or 'Unavailable'}",
                     f"Provider: {receipt.provider} · Model: {receipt.model_id or 'Default'} · Voice: {receipt.voice_id or 'Default'}",
                     f"Scope: {receipt.files:,} files · {receipt.characters:,} characters · {receipt.provider_requests:,} requests",
                     f"Risk / cost: {receipt.risk_level} · {receipt.currency} {receipt.estimated_cost:,.4f}",

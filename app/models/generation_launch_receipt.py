@@ -44,6 +44,9 @@ class GenerationLaunchReceipt:
     guard_policy_profile_id: str = ""
     guard_policy_version: int = 0
     guard_policy_locked: bool = False
+    decision_status: str = ""
+    decision_trace_id: str = ""
+    decision_summary: str = ""
 
     @property
     def integrity_ok(self) -> bool:
@@ -51,7 +54,11 @@ class GenerationLaunchReceipt:
 
     @property
     def requires_attention(self) -> bool:
-        return self.integrity_status in {"mismatch", "unreadable"} or self.risk_level == "high"
+        return (
+            self.integrity_status in {"mismatch", "unreadable"}
+            or self.risk_level == "high"
+            or self.decision_status in {"blocked", "approval_required"}
+        )
 
 
 @dataclass(frozen=True)

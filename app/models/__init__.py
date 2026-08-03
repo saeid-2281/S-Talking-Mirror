@@ -9,6 +9,7 @@ from app.models.generation_report import GenerationReport, ReportJob
 from app.models.generation_monitor_state import GenerationMonitorState
 from app.models.generation_scope import ExecutionOrderMode, GenerationPlan, GenerationScopeMode
 from app.models.generation_planning import BatchGenerationPlan, GenerationPlanScenario
+from app.models.unified_preflight_decision import UnifiedPreflightDecision, UnifiedPreflightSignal
 from app.models.generation_launch_receipt import (
     GenerationLaunchGuardApproval,
     GenerationLaunchGuardApprovalEvent,
@@ -183,6 +184,8 @@ __all__ = [
     "GenerationPlan",
     "BatchGenerationPlan",
     "GenerationPlanScenario",
+    "UnifiedPreflightDecision",
+    "UnifiedPreflightSignal",
     "GenerationLaunchGuardApproval",
     "GenerationLaunchGuardApprovalEvent",
     "GenerationLaunchGuardApprovalSummary",
