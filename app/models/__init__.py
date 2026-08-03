@@ -29,6 +29,11 @@ from app.models.generation_execution_receipt import (
     GenerationExecutionReceiptSummary,
     GenerationOutputManifestEntry,
 )
+from app.models.generation_estimate_actual import (
+    GenerationEstimateActualProviderSummary,
+    GenerationEstimateActualRun,
+    GenerationEstimateActualSummary,
+)
 from app.models.generation_safe_resume import (
     GenerationResumeCandidate,
     GenerationResumePreview,
@@ -217,6 +222,9 @@ __all__ = [
     "GenerationExecutionReceipt",
     "GenerationExecutionReceiptSummary",
     "GenerationOutputManifestEntry",
+    "GenerationEstimateActualProviderSummary",
+    "GenerationEstimateActualRun",
+    "GenerationEstimateActualSummary",
     "GenerationExecutionJob",
     "GenerationExecutionSession",
     "GenerationExecutionSessionSummary",

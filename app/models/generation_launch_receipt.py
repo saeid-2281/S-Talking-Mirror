@@ -35,6 +35,7 @@ class GenerationLaunchReceipt:
     existing_outputs: int = 0
     risk_level: str = "unknown"
     estimated_cost: float = 0.0
+    estimated_duration_seconds: float = 0.0
     currency: str = "USD"
     acknowledged_codes: tuple[str, ...] = field(default_factory=tuple)
     required_acknowledgements: tuple[str, ...] = field(default_factory=tuple)

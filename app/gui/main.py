@@ -27,7 +27,7 @@ from app.gui.responsive_workspace import (
 )
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationCostCapacityDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -356,7 +356,7 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Generation History','Execution Sessions','Execution Receipts','Launch Receipts','Approval Operations','Guard Policy Profiles','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Generation History','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
@@ -654,7 +654,7 @@ class MainWindow(QMainWindow):
             action=self.generation_menu.addAction(action_icon(ic),text); action.triggered.connect(handler); action.setShortcut(QKeySequence(shortcut)); self.actions_by_name[text]=action
     def build_reports_menu(self):
         self.reports_menu=QMenu('Reports',self); self.menuBar().addMenu(self.reports_menu)
-        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
+        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Estimate vs Actual',self.open_generation_estimate_actual,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
     def build_developer_tools_menu(self):
         self.developer_menu=QMenu('Developer Tools',self); self.menuBar().addMenu(self.developer_menu); self.actions_by_name.update(self.developer_tools.populate_menu(self.developer_menu))
     def build_help_menu(self):
@@ -2480,6 +2480,7 @@ class MainWindow(QMainWindow):
             'generation-history':self.open_generation_history,
             'generation-execution-sessions':self.open_generation_execution_sessions,
             'generation-execution-receipts':self.open_generation_execution_receipts,
+            'generation-estimate-actual':self.open_generation_estimate_actual,
             'generation-launch-receipts':self.open_generation_launch_receipts,
             'generation-launch-approvals':self.open_generation_launch_approvals,
             'generation-launch-guard-profiles':self.open_generation_guard_profiles,
@@ -2519,6 +2520,8 @@ class MainWindow(QMainWindow):
         project=self.project_controller.current_project; dialog=GenerationExecutionSessionDialog(self.context.generation_execution_session_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'execution-sessions',open_path=self.open_path,copy_path=self.copy_path); self.report_dialogs.append(dialog); dialog.finished.connect(self._release_report_dialog); dialog.show()
     def open_generation_execution_receipts(self):
         project=self.project_controller.current_project; dialog=GenerationExecutionReceiptDialog(self.context.generation_execution_receipt_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'execution-receipts',open_path=self.open_path,copy_path=self.copy_path,safe_resume=self.prepare_safe_resume); self.report_dialogs.append(dialog); dialog.finished.connect(self._release_report_dialog); dialog.show()
+    def open_generation_estimate_actual(self):
+        project=self.project_controller.current_project; dialog=GenerationEstimateActualDialog(self.context.generation_estimate_actual_service,self,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'estimate-actual',open_path=self.open_path,copy_path=self.copy_path); self.report_dialogs.append(dialog); dialog.finished.connect(self._release_report_dialog); dialog.show()
     def prepare_safe_resume(self,receipt):
         if self.generation_controller.is_active:
             self.notifications.warning('Safe resume','Stop the active generation before preparing recovery.'); return None
@@ -2613,6 +2616,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Reports: Generation History',act('Generation History')),
             PaletteCommand('Reports: Execution Sessions',act('Execution Sessions')),
             PaletteCommand('Reports: Execution Receipts',act('Execution Receipts')),
+            PaletteCommand('Reports: Estimate vs Actual',act('Estimate vs Actual')),
             PaletteCommand('Reports: Launch Receipts',act('Launch Receipts')),
             PaletteCommand('Reports: Approval Operations',act('Approval Operations')),
             PaletteCommand('Reports: Guard Policy Profiles',act('Guard Policy Profiles')),

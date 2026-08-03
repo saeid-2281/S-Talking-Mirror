@@ -27,6 +27,8 @@ class GenerationLaunchReceiptService:
     """Discover, verify, filter, summarize, and export launch receipts."""
 
     RECEIPT_NAME = "generation-launch.json"
+    # Public filename contract shared with execution and recovery receipt services.
+    FILE_NAME = RECEIPT_NAME
     MARKDOWN_NAME = "generation-launch.md"
     BASELINE_INDEX_NAME = "generation-launch-receipt-baselines.json"
     GUARD_POLICY_INDEX_NAME = "generation-launch-guard-policies.json"
@@ -170,6 +172,7 @@ class GenerationLaunchReceiptService:
             existing_outputs=self._integer(scope.get("existing_outputs")),
             risk_level=str(plan.get("risk_level") or "unknown"),
             estimated_cost=self._number(plan.get("estimated_cost")),
+            estimated_duration_seconds=self._number(plan.get("estimated_duration_seconds")),
             currency=str(plan.get("currency") or "USD").upper(),
             acknowledged_codes=self._strings(payload.get("acknowledged_codes")),
             required_acknowledgements=self._strings(
@@ -1851,6 +1854,7 @@ class GenerationLaunchReceiptService:
             "existing_outputs": receipt.existing_outputs,
             "risk_level": receipt.risk_level,
             "estimated_cost": receipt.estimated_cost,
+            "estimated_duration_seconds": receipt.estimated_duration_seconds,
             "currency": receipt.currency,
             "acknowledged_codes": ";".join(receipt.acknowledged_codes),
             "required_acknowledgements": ";".join(receipt.required_acknowledgements),

@@ -13,6 +13,7 @@ from app.services.api_profile_service import ApiProfileService
 from app.services.git_service import GitService
 from app.services.generation_confirmation_service import GenerationConfirmationCoordinator
 from app.services.generation_execution_receipt_service import GenerationExecutionReceiptService
+from app.services.generation_estimate_actual_service import GenerationEstimateActualService
 from app.services.generation_execution_session_service import GenerationExecutionSessionService
 from app.services.generation_safe_resume_service import GenerationSafeResumeService
 from app.services.generation_launch_receipt_service import GenerationLaunchReceiptService
@@ -87,6 +88,7 @@ class ApplicationContext:
     generation_confirmation_service: GenerationConfirmationCoordinator
     generation_launch_receipt_service: GenerationLaunchReceiptService
     generation_execution_receipt_service: GenerationExecutionReceiptService
+    generation_estimate_actual_service: GenerationEstimateActualService
     generation_execution_session_service: GenerationExecutionSessionService
     generation_safe_resume_service: GenerationSafeResumeService
     pronunciation_dictionary_service: PronunciationDictionaryService
@@ -142,6 +144,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         generation_confirmation_service=services.generation_confirmation_service,
         generation_launch_receipt_service=services.generation_launch_receipt_service,
         generation_execution_receipt_service=services.generation_execution_receipt_service,
+        generation_estimate_actual_service=services.generation_estimate_actual_service,
         generation_execution_session_service=services.generation_execution_session_service,
         generation_safe_resume_service=services.generation_safe_resume_service,
         pronunciation_dictionary_service=services.pronunciation_dictionary_service,

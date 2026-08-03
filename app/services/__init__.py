@@ -17,6 +17,7 @@ from app.services.generation_planning_service import GenerationPlanningService
 from app.services.unified_preflight_decision_service import UnifiedPreflightDecisionService
 from app.services.generation_launch_receipt_service import GenerationLaunchReceiptService
 from app.services.generation_execution_receipt_service import GenerationExecutionReceiptService
+from app.services.generation_estimate_actual_service import GenerationEstimateActualService
 from app.services.generation_execution_session_service import GenerationExecutionSessionService
 from app.services.generation_safe_resume_service import GenerationSafeResumeService
 from app.services.generation_orchestration_service import GenerationOrchestrationService
@@ -60,6 +61,7 @@ __all__ = [
     "UnifiedPreflightDecisionService",
     "GenerationLaunchReceiptService",
     "GenerationExecutionReceiptService",
+    "GenerationEstimateActualService",
     "GenerationExecutionSessionService",
     "GenerationSafeResumeService",
     "GenerationOrchestrationService",
