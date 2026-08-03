@@ -18,6 +18,7 @@ from app.services.generation_execution_session_service import GenerationExecutio
 from app.services.generation_safe_resume_service import GenerationSafeResumeService
 from app.services.generation_launch_receipt_service import GenerationLaunchReceiptService
 from app.services.generation_cost_capacity_service import GenerationCostCapacityService
+from app.services.generation_budget_guard_service import GenerationBudgetGuardService
 from app.services.generation_scope_service import GenerationScopeService
 from app.services.generation_maintenance_service import GenerationMaintenanceService
 from app.services.generation_monitor_service import GenerationMonitorService
@@ -74,6 +75,7 @@ class ApplicationContext:
     generation_monitor_service: GenerationMonitorService
     generation_history_service: GenerationHistoryService
     generation_cost_capacity_service: GenerationCostCapacityService
+    generation_budget_guard_service: GenerationBudgetGuardService
     generation_incident_service: GenerationIncidentService
     generation_problem_service: GenerationProblemService
     generation_remediation_automation_service: GenerationRemediationAutomationService
@@ -128,6 +130,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         generation_monitor_service=services.generation_monitor_service,
         generation_history_service=services.generation_history_service,
         generation_cost_capacity_service=services.generation_cost_capacity_service,
+        generation_budget_guard_service=services.generation_budget_guard_service,
         generation_incident_service=services.generation_incident_service,
         generation_problem_service=services.generation_problem_service,
         generation_remediation_automation_service=(

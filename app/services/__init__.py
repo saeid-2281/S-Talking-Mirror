@@ -9,6 +9,7 @@ from app.services.generation_confirmation_service import (
     GenerationLaunchCheck,
 )
 from app.services.generation_cost_capacity_service import GenerationCostCapacityService
+from app.services.generation_budget_guard_service import GenerationBudgetGuardService
 from app.services.generation_scope_service import GenerationScopeService
 from app.services.failure_analysis_service import FailureAnalysisService, RetryPolicyService
 from app.services.generation_maintenance_service import GenerationMaintenanceService
@@ -53,6 +54,7 @@ __all__ = [
     "GenerationConfirmationCoordinator",
     "GenerationLaunchCheck",
     "GenerationCostCapacityService",
+    "GenerationBudgetGuardService",
     "FailureAnalysisService",
     "RetryPolicyService",
     "GenerationMaintenanceService",

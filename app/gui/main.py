@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 import json,os,sys
 
 import app
@@ -27,7 +27,7 @@ from app.gui.responsive_workspace import (
 )
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -151,7 +151,7 @@ class MainWindow(QMainWindow):
         self.audio_player_service=context.audio_player_service
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
-        self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]; self.last_launch_receipt=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.pending_resume_receipt=None; self.palette=None; self.actions_by_name={}; self.job_pronunciation_overrides={}; self.project_sources=[]
+        self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]; self.last_launch_receipt=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.palette=None; self.actions_by_name={}; self.job_pronunciation_overrides={}; self.project_sources=[]
         self.autosave_timer=QTimer(self); self.autosave_timer.setInterval(30000); self.autosave_timer.timeout.connect(self.autosave); self.autosave_timer.start()
         self.build(); self.setup_responsive_workspace(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.apply_interface_preferences(self.interface_preferences,persist=False,announce=False); self.restore_layout_state(); self.run_startup_recovery(); self.restore_previous_session(); self.update_window_title(); self.update_status_bar(); QTimer.singleShot(0,self.offer_generation_recovery)
     def set_initial_geometry(self):
@@ -654,7 +654,7 @@ class MainWindow(QMainWindow):
             action=self.generation_menu.addAction(action_icon(ic),text); action.triggered.connect(handler); action.setShortcut(QKeySequence(shortcut)); self.actions_by_name[text]=action
     def build_reports_menu(self):
         self.reports_menu=QMenu('Reports',self); self.menuBar().addMenu(self.reports_menu)
-        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Estimate vs Actual',self.open_generation_estimate_actual,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
+        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Budget & Quota Guard',self.open_generation_budget_guard,'warning'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Estimate vs Actual',self.open_generation_estimate_actual,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
     def build_developer_tools_menu(self):
         self.developer_menu=QMenu('Developer Tools',self); self.menuBar().addMenu(self.developer_menu); self.actions_by_name.update(self.developer_tools.populate_menu(self.developer_menu))
     def build_help_menu(self):
@@ -1775,7 +1775,7 @@ class MainWindow(QMainWindow):
             except Exception as e: self.notifications.error('Project error',str(e))
         elif d.removed_project_id: self.project_controller.remove_recent_project(d.removed_project_id)
     def close_project(self):
-        self.project_controller.close_project(); self.project_path=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.pending_resume_receipt=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
+        self.project_controller.close_project(); self.project_path=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
     def autosave(self):
         try:
             if self.project_controller.autosave_if_needed(generation_active=self.generation_controller.is_active): self.log.appendPlainText('Project auto-saved.'); self.update_window_title(); self.update_status_bar()
@@ -1845,6 +1845,19 @@ class MainWindow(QMainWindow):
         )
         dialog.exec()
         return dialog.created_approval is not None
+    def request_generation_budget_exception(self,confirmation):
+        if confirmation.status!='budget_guard_blocked' or confirmation.budget_guard_decision is None: return False
+        app=QApplication.instance(); platform=app.platformName().casefold() if app is not None else ''
+        if platform in {'offscreen','minimal'} or not self.isVisible(): return False
+        dialog=GenerationBudgetGuardDialog(
+            self.context.generation_budget_guard_service,
+            self.project_controller.project_name,
+            self,
+            decision=confirmation.budget_guard_decision,
+            export_dir=self.context.container.runtime.reports_dir/'budget-guard',
+        )
+        dialog.exec()
+        return dialog.created_approval is not None
     def start(self):
         if not self.generation_controller.has_jobs():self.load_csv()
         if not self.generation_controller.has_jobs():return
@@ -1868,7 +1881,9 @@ class MainWindow(QMainWindow):
             state,
             s,
             receipt_service=self.context.generation_launch_receipt_service,
+            budget_guard_service=self.context.generation_budget_guard_service,
             project_name=self.project_controller.project_name,
+            project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None,
             output_dir=project.output_path,
         )
         if not confirmation.allowed and confirmation.status=='baseline_guard_blocked':
@@ -1877,7 +1892,20 @@ class MainWindow(QMainWindow):
                     state,
                     s,
                     receipt_service=self.context.generation_launch_receipt_service,
+                    budget_guard_service=self.context.generation_budget_guard_service,
                     project_name=self.project_controller.project_name,
+                    project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None,
+                    output_dir=project.output_path,
+                )
+        if not confirmation.allowed and confirmation.status=='budget_guard_blocked':
+            if self.request_generation_budget_exception(confirmation):
+                confirmation=self.context.generation_confirmation_service.evaluate(
+                    state,
+                    s,
+                    receipt_service=self.context.generation_launch_receipt_service,
+                    budget_guard_service=self.context.generation_budget_guard_service,
+                    project_name=self.project_controller.project_name,
+                    project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None,
                     output_dir=project.output_path,
                 )
         if not confirmation.allowed:
@@ -1890,6 +1918,20 @@ class MainWindow(QMainWindow):
         run_id=run_service.new_run_id(confirmation.fingerprint)
         session_path=run_service.path_for(self.project_controller.project_name,run_id)
         receipt=None; receipt_id=''; current=self.project_controller.current_project
+        self.current_budget_reservation_id=None
+        if confirmation.budget_guard_decision is not None:
+            try:
+                reservation=self.context.generation_budget_guard_service.reserve(
+                    confirmation.budget_guard_decision,
+                    run_id=run_id,
+                    launch_fingerprint=confirmation.fingerprint,
+                )
+                self.current_budget_reservation_id=reservation.reservation_id
+                confirmation=replace(confirmation,budget_reservation_id=reservation.reservation_id)
+                self.log.appendPlainText(f'Budget reservation: {reservation.reservation_id}')
+            except Exception as exc:
+                self.notifications.error('Budget guard',f'Budget reservation failed: {exc}')
+                return
         try:
             receipt=self.context.generation_confirmation_service.write_receipt(
                 confirmation,
@@ -1906,6 +1948,8 @@ class MainWindow(QMainWindow):
             )
             receipt_record=self.context.generation_launch_receipt_service.load(receipt)
             receipt_id=receipt_record.receipt_id
+            if self.current_budget_reservation_id:
+                self.context.generation_budget_guard_service.attach_receipt(self.current_budget_reservation_id,receipt_id)
             self.last_launch_receipt=receipt
             self.log.appendPlainText(f'Generation launch receipt: {receipt}')
         except Exception as exc:
@@ -1938,6 +1982,10 @@ class MainWindow(QMainWindow):
             self.current_run_id=run_id; self.current_execution_session=session_path
             self.log.appendPlainText(f'Execution session initialization failed: {exc}')
         if not self.generation_controller.start(self,s,project.output_path,project.project_key):
+            if self.current_budget_reservation_id:
+                try: self.context.generation_budget_guard_service.release_reservation(self.current_budget_reservation_id,reason='generation_did_not_start')
+                except Exception as exc: self.log.appendPlainText(f'Budget reservation release failed: {exc}')
+                self.current_budget_reservation_id=None
             self.finish_execution_session('cancelled')
             if pending_resume is not None:
                 try: self.context.generation_safe_resume_service.mark_cancelled(pending_resume)
@@ -1950,6 +1998,11 @@ class MainWindow(QMainWindow):
                 self.context.generation_launch_receipt_service.consume_guard_approval(confirmation.guard_approval_id,receipt_id=receipt_id)
             except Exception as exc:
                 self.log.appendPlainText(f'Guard approval consumption failed: {exc}')
+        if confirmation.budget_approval_id and receipt_id:
+            try:
+                self.context.generation_budget_guard_service.consume_approval(confirmation.budget_approval_id,receipt_id=receipt_id)
+            except Exception as exc:
+                self.log.appendPlainText(f'Budget approval consumption failed: {exc}')
         if pending_resume is not None:
             try:
                 started_resume=self.context.generation_safe_resume_service.mark_started(pending_resume,new_run_id=run_id)
@@ -2011,6 +2064,17 @@ class MainWindow(QMainWindow):
                 )
                 self.current_execution_session=session.path
                 self.current_execution_receipt=receipt.path
+                if self.current_budget_reservation_id:
+                    try:
+                        analytics=self.context.generation_estimate_actual_service.analyze_receipt(receipt)
+                        self.context.generation_budget_guard_service.settle_reservation(
+                            self.current_budget_reservation_id,
+                            actual_cost=analytics.actual_cost if analytics.cost_source!='unavailable' else None,
+                            execution_receipt_id=receipt.receipt_id,
+                        )
+                        self.current_budget_reservation_id=None
+                    except Exception as exc:
+                        self.log.appendPlainText(f'Budget reservation settlement failed: {exc}')
                 self.log.appendPlainText(f'Execution receipt: {receipt.receipt_id} · {receipt.status}')
             except Exception as exc:
                 self.log.appendPlainText(f'Execution receipt creation failed: {exc}')
@@ -2476,6 +2540,7 @@ class MainWindow(QMainWindow):
             'generation-orchestration':self.open_generation_orchestration,
             'generation-maintenance':self.open_generation_maintenance,
             'generation-cost-capacity':self.open_generation_cost_capacity,
+            'generation-budget-guard':self.open_generation_budget_guard,
             'generation-reliability-dashboard':self.open_generation_reliability,
             'generation-history':self.open_generation_history,
             'generation-execution-sessions':self.open_generation_execution_sessions,
@@ -2510,6 +2575,17 @@ class MainWindow(QMainWindow):
         project=self.project_controller.current_project; dialog=GenerationOrchestrationDialog(self.context.generation_orchestration_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',settings_provider=self.settings,export_dir=self.context.container.runtime.reports_dir/'orchestration'); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
     def open_generation_maintenance(self):
         project=self.project_controller.current_project; dialog=GenerationMaintenanceDialog(self.context.generation_maintenance_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',export_dir=self.context.container.runtime.reports_dir/'hardening'); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
+    def open_generation_budget_guard(self):
+        project=self.project_controller.current_project
+        dialog=GenerationBudgetGuardDialog(
+            self.context.generation_budget_guard_service,
+            project.name if project else '',
+            self,
+            export_dir=self.context.container.runtime.reports_dir/'budget-guard',
+        )
+        self.report_dialogs.append(dialog)
+        dialog.finished.connect(self._release_report_dialog)
+        dialog.show()
     def open_generation_cost_capacity(self):
         project=self.project_controller.current_project; settings=self.settings(); dialog=GenerationCostCapacityDialog(self.context.generation_cost_capacity_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',provider=settings.provider,model=settings.model_id,export_dir=self.context.container.runtime.reports_dir/'cost-capacity'); self.report_dialogs.append(dialog); dialog.destroyed.connect(lambda *_: self.report_dialogs.remove(dialog) if dialog in self.report_dialogs else None); dialog.show()
     def open_generation_reliability(self):

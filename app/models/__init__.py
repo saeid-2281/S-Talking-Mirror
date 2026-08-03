@@ -29,6 +29,13 @@ from app.models.generation_execution_receipt import (
     GenerationExecutionReceiptSummary,
     GenerationOutputManifestEntry,
 )
+from app.models.generation_budget_guard import (
+    GenerationBudgetGuardApproval,
+    GenerationBudgetGuardDecision,
+    GenerationBudgetGuardExport,
+    GenerationBudgetGuardSummary,
+    GenerationBudgetReservation,
+)
 from app.models.generation_estimate_actual import (
     GenerationEstimateActualProviderSummary,
     GenerationEstimateActualRun,
@@ -222,6 +229,11 @@ __all__ = [
     "GenerationExecutionReceipt",
     "GenerationExecutionReceiptSummary",
     "GenerationOutputManifestEntry",
+    "GenerationBudgetGuardApproval",
+    "GenerationBudgetGuardDecision",
+    "GenerationBudgetGuardExport",
+    "GenerationBudgetGuardSummary",
+    "GenerationBudgetReservation",
     "GenerationEstimateActualProviderSummary",
     "GenerationEstimateActualRun",
     "GenerationEstimateActualSummary",

@@ -1,3 +1,4 @@
+from app.gui.dialogs.generation_budget_guard_dialog import GenerationBudgetGuardDialog
 from app.gui.dialogs.about_dialog import AboutDialog
 from app.gui.dialogs.csv_import_dialog import CsvImportReviewDialog
 from app.gui.dialogs.new_project_dialog import NewProjectDialog
@@ -62,6 +63,7 @@ from app.gui.dialogs.source_import_review_dialog import SourceImportReviewDialog
 from app.gui.dialogs.text_source_dialog import TextSourceDialog
 
 __all__ = [
+    "GenerationBudgetGuardDialog",
     "CsvImportReviewDialog",
     "AboutDialog",
     "NewProjectDialog",

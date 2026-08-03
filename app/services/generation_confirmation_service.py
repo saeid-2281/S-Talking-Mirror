@@ -8,10 +8,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.models.domain import AppSettings
+from app.models.generation_budget_guard import GenerationBudgetGuardDecision
 from app.models.generation_launch_receipt import GenerationLaunchReceipt
 from app.models.preflight_state import PreflightState
 from app.models.unified_preflight_decision import UnifiedPreflightDecision
 from app.services.generation_launch_receipt_service import GenerationLaunchReceiptService
+from app.services.generation_budget_guard_service import GenerationBudgetGuardService
 from app.services.unified_preflight_decision_service import UnifiedPreflightDecisionService
 
 
@@ -44,6 +46,9 @@ class GenerationConfirmation:
     guard_policy_profile_id: str = ""
     guard_policy_version: int = 0
     guard_policy_locked: bool = False
+    budget_guard_decision: GenerationBudgetGuardDecision | None = None
+    budget_approval_id: str = ""
+    budget_reservation_id: str = ""
     unified_decision: UnifiedPreflightDecision | None = None
 
 
@@ -64,7 +69,9 @@ class GenerationConfirmationCoordinator:
         settings: AppSettings,
         *,
         receipt_service: GenerationLaunchReceiptService | None = None,
+        budget_guard_service: GenerationBudgetGuardService | None = None,
         project_name: str = "",
+        project_id: int | None = None,
         output_dir: Path | None = None,
     ) -> GenerationConfirmation:
         if state.status == "Blocked by errors":
@@ -266,7 +273,15 @@ class GenerationConfirmationCoordinator:
             project_name=project_name,
             output_dir=output_dir,
         )
-        return self._finalize_decision(guarded, state, settings)
+        budgeted = self._apply_budget_guard(
+            guarded,
+            state,
+            settings,
+            budget_guard_service=budget_guard_service,
+            project_id=project_id,
+            project_name=project_name,
+        )
+        return self._finalize_decision(budgeted, state, settings)
 
     def _finalize_decision(
         self,
@@ -461,6 +476,170 @@ class GenerationConfirmationCoordinator:
             guard_policy_locked=decision.policy.locked,
         )
 
+    def _apply_budget_guard(
+        self,
+        confirmation: GenerationConfirmation,
+        state: PreflightState,
+        settings: AppSettings,
+        *,
+        budget_guard_service: GenerationBudgetGuardService | None,
+        project_id: int | None,
+        project_name: str,
+    ) -> GenerationConfirmation:
+        if budget_guard_service is None:
+            return confirmation
+        plan = state.generation_plan
+        estimated_cost = (
+            float(plan.estimated_cost)
+            if plan is not None and plan.cost_available
+            else float(state.estimated_cost or 0.0)
+        )
+        currency = plan.currency if plan is not None else "USD"
+        quota_remaining = plan.quota_remaining if plan is not None else None
+        decision = budget_guard_service.evaluate(
+            project_id=project_id,
+            project_name=project_name,
+            provider=settings.provider,
+            model_id=settings.model_id,
+            estimated_cost=estimated_cost,
+            currency=currency,
+            required_characters=state.estimated_characters,
+            quota_remaining=quota_remaining,
+            launch_fingerprint=confirmation.fingerprint,
+        )
+        detail = decision.summary
+        if decision.reasons:
+            detail = f"{detail} " + " ".join(decision.reasons)
+        if decision.status == "disabled":
+            check = GenerationLaunchCheck(
+                "budget_guard_disabled",
+                "Budget guard is disabled",
+                detail,
+                "info",
+            )
+        elif decision.status == "ready":
+            check = GenerationLaunchCheck(
+                "budget_guard_ready",
+                "Budget and quota guard ready",
+                detail,
+                "success",
+            )
+        elif decision.status == "warning":
+            check = GenerationLaunchCheck(
+                "budget_guard_warning",
+                "Budget or quota warning",
+                detail,
+                "warning",
+                True,
+            )
+        elif decision.status == "approved_exception":
+            check = GenerationLaunchCheck(
+                "budget_exception",
+                "Approved budget exception",
+                f"{detail} Approval: {decision.approval_id}.",
+                "warning",
+                True,
+            )
+        elif decision.status == "quota_blocked":
+            check = GenerationLaunchCheck(
+                "quota_guard_blocked",
+                "Provider quota blocks launch",
+                detail,
+                "error",
+            )
+        else:
+            check = GenerationLaunchCheck(
+                "budget_guard_blocked",
+                "Budget policy blocks launch",
+                detail,
+                "error",
+            )
+        checks = (*confirmation.checks, check)
+        if not confirmation.allowed:
+            result = self._confirmation(
+                allowed=False,
+                title=confirmation.title,
+                message=confirmation.message,
+                status=confirmation.status,
+                state=state,
+                settings=settings,
+                checks=checks,
+            )
+            return replace(
+                result,
+                budget_guard_decision=decision,
+                budget_approval_id=decision.approval_id,
+                guard_candidate_fingerprint=confirmation.guard_candidate_fingerprint,
+                guard_baseline_receipt_id=confirmation.guard_baseline_receipt_id,
+                guard_change_keys=confirmation.guard_change_keys,
+                guard_approval_id=confirmation.guard_approval_id,
+                guard_policy_profile_id=confirmation.guard_policy_profile_id,
+                guard_policy_version=confirmation.guard_policy_version,
+                guard_policy_locked=confirmation.guard_policy_locked,
+            )
+        if not decision.allowed:
+            result = self._confirmation(
+                allowed=False,
+                title=(
+                    "Launch blocked by provider quota"
+                    if decision.status == "quota_blocked"
+                    else "Launch blocked by budget policy"
+                ),
+                message=(
+                    "Reduce the generation scope or refresh provider quota."
+                    if decision.status == "quota_blocked"
+                    else "Reduce the scope, update the budget policy or create a time-bound exception."
+                ),
+                status=(
+                    "quota_guard_blocked"
+                    if decision.status == "quota_blocked"
+                    else "budget_guard_blocked"
+                ),
+                state=state,
+                settings=settings,
+                checks=checks,
+            )
+            return replace(
+                result,
+                budget_guard_decision=decision,
+                budget_approval_id=decision.approval_id,
+                guard_candidate_fingerprint=confirmation.guard_candidate_fingerprint,
+                guard_baseline_receipt_id=confirmation.guard_baseline_receipt_id,
+                guard_change_keys=confirmation.guard_change_keys,
+                guard_approval_id=confirmation.guard_approval_id,
+                guard_policy_profile_id=confirmation.guard_policy_profile_id,
+                guard_policy_version=confirmation.guard_policy_version,
+                guard_policy_locked=confirmation.guard_policy_locked,
+            )
+        required = any(item.requires_acknowledgement for item in checks)
+        result = self._confirmation(
+            allowed=True,
+            title=(
+                "Budget exception review"
+                if decision.status == "approved_exception"
+                else "Budget and quota review"
+                if decision.requires_acknowledgement
+                else confirmation.title
+            ),
+            message=decision.summary if decision.requires_acknowledgement else confirmation.message,
+            status="confirmation_required" if required else confirmation.status,
+            state=state,
+            settings=settings,
+            checks=checks,
+        )
+        return replace(
+            result,
+            budget_guard_decision=decision,
+            budget_approval_id=decision.approval_id,
+            guard_candidate_fingerprint=confirmation.guard_candidate_fingerprint,
+            guard_baseline_receipt_id=confirmation.guard_baseline_receipt_id,
+            guard_change_keys=confirmation.guard_change_keys,
+            guard_approval_id=confirmation.guard_approval_id,
+            guard_policy_profile_id=confirmation.guard_policy_profile_id,
+            guard_policy_version=confirmation.guard_policy_version,
+            guard_policy_locked=confirmation.guard_policy_locked,
+        )
+
     def write_receipt(
         self,
         confirmation: GenerationConfirmation,
@@ -510,6 +689,15 @@ class GenerationConfirmationCoordinator:
                     "protected_change_keys": list(confirmation.guard_change_keys),
                 }
                 if confirmation.guard_approval_id
+                else None
+            ),
+            "budget_guard": (
+                {
+                    **asdict(confirmation.budget_guard_decision),
+                    "approval_id": confirmation.budget_approval_id,
+                    "reservation_id": confirmation.budget_reservation_id,
+                }
+                if confirmation.budget_guard_decision is not None
                 else None
             ),
             "execution": {
@@ -630,6 +818,9 @@ class GenerationConfirmationCoordinator:
             f"- Guard policy version: {(payload.get('guard_policy') or {}).get('version', 0)}",
             f"- Guard policy locked: {(payload.get('guard_policy') or {}).get('locked', False)}",
             f"- Guard exception: {(payload.get('guard_exception') or {}).get('approval_id', 'None')}",
+            f"- Budget guard: {(payload.get('budget_guard') or {}).get('status', 'Not recorded')}",
+            f"- Budget approval: {(payload.get('budget_guard') or {}).get('approval_id', 'None') or 'None'}",
+            f"- Budget reservation: {(payload.get('budget_guard') or {}).get('reservation_id', 'None') or 'None'}",
             f"- Run ID: `{(payload.get('execution') or {}).get('run_id', '')}`",
             f"- Execution session: {(payload.get('execution') or {}).get('session_path', 'Not recorded') or 'Not recorded'}",
             f"- Files: {scope['files']:,}",

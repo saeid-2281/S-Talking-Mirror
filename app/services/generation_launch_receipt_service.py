@@ -138,6 +138,7 @@ class GenerationLaunchReceiptService:
         settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
         plan = payload.get("generation_plan") if isinstance(payload.get("generation_plan"), dict) else {}
         guard_policy = payload.get("guard_policy") if isinstance(payload.get("guard_policy"), dict) else {}
+        budget_guard = payload.get("budget_guard") if isinstance(payload.get("budget_guard"), dict) else {}
         execution = payload.get("execution") if isinstance(payload.get("execution"), dict) else {}
         unified_decision = (
             payload.get("unified_decision")
@@ -188,6 +189,13 @@ class GenerationLaunchReceiptService:
             guard_policy_profile_id=str(guard_policy.get("profile_id") or ""),
             guard_policy_version=max(0, self._integer(guard_policy.get("version"))),
             guard_policy_locked=self._boolean(guard_policy.get("locked")),
+            budget_guard_status=str(budget_guard.get("status") or ""),
+            budget_guard_fingerprint=str(budget_guard.get("fingerprint") or ""),
+            budget_approval_id=str(budget_guard.get("approval_id") or ""),
+            budget_reservation_id=str(budget_guard.get("reservation_id") or ""),
+            budget_projected_daily_spend=self._number(budget_guard.get("projected_daily_spend")),
+            budget_projected_weekly_spend=self._number(budget_guard.get("projected_weekly_spend")),
+            budget_projected_monthly_spend=self._number(budget_guard.get("projected_monthly_spend")),
             decision_status=str(unified_decision.get("status") or ""),
             decision_trace_id=str(unified_decision.get("trace_id") or ""),
             decision_summary=str(unified_decision.get("summary") or ""),
@@ -1805,6 +1813,10 @@ class GenerationLaunchReceiptService:
                 receipt.guard_approval_id,
                 receipt.guard_policy_profile_id,
                 str(receipt.guard_policy_version),
+                receipt.budget_guard_status,
+                receipt.budget_guard_fingerprint,
+                receipt.budget_approval_id,
+                receipt.budget_reservation_id,
                 receipt.decision_status,
                 receipt.decision_trace_id,
                 receipt.decision_summary,
@@ -1864,6 +1876,13 @@ class GenerationLaunchReceiptService:
             "guard_policy_profile_id": receipt.guard_policy_profile_id,
             "guard_policy_version": receipt.guard_policy_version,
             "guard_policy_locked": receipt.guard_policy_locked,
+            "budget_guard_status": receipt.budget_guard_status,
+            "budget_guard_fingerprint": receipt.budget_guard_fingerprint,
+            "budget_approval_id": receipt.budget_approval_id,
+            "budget_reservation_id": receipt.budget_reservation_id,
+            "budget_projected_daily_spend": receipt.budget_projected_daily_spend,
+            "budget_projected_weekly_spend": receipt.budget_projected_weekly_spend,
+            "budget_projected_monthly_spend": receipt.budget_projected_monthly_spend,
             "decision_status": receipt.decision_status,
             "decision_trace_id": receipt.decision_trace_id,
             "decision_summary": receipt.decision_summary,

@@ -380,6 +380,9 @@ class GenerationLaunchReceiptDialog(QDialog):
                     f"Required acknowledgements: {required}",
                     f"Guard policy: {receipt.guard_policy_profile_id or 'Custom'} · v{receipt.guard_policy_version} · {'Locked' if receipt.guard_policy_locked else 'Unlocked'}",
                     f"Guard exception approval: {receipt.guard_approval_id or 'None'}",
+                    f"Budget guard: {receipt.budget_guard_status or 'Not recorded'} · approval {receipt.budget_approval_id or 'None'}",
+                    f"Budget reservation: {receipt.budget_reservation_id or 'None'}",
+                    f"Projected spend: daily {receipt.currency} {receipt.budget_projected_daily_spend:,.4f} · weekly {receipt.budget_projected_weekly_spend:,.4f} · monthly {receipt.budget_projected_monthly_spend:,.4f}",
                     f"Output: {receipt.output_directory or 'Unavailable'}",
                     f"JSON: {receipt.path}",
                 )

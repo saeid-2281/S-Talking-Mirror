@@ -45,6 +45,13 @@ class GenerationLaunchReceipt:
     guard_policy_profile_id: str = ""
     guard_policy_version: int = 0
     guard_policy_locked: bool = False
+    budget_guard_status: str = ""
+    budget_guard_fingerprint: str = ""
+    budget_approval_id: str = ""
+    budget_reservation_id: str = ""
+    budget_projected_daily_spend: float = 0.0
+    budget_projected_weekly_spend: float = 0.0
+    budget_projected_monthly_spend: float = 0.0
     decision_status: str = ""
     decision_trace_id: str = ""
     decision_summary: str = ""
@@ -61,6 +68,7 @@ class GenerationLaunchReceipt:
             self.integrity_status in {"mismatch", "unreadable"}
             or self.risk_level == "high"
             or self.decision_status in {"blocked", "approval_required"}
+            or self.budget_guard_status in {"warning", "approved_exception"}
         )
 
 
