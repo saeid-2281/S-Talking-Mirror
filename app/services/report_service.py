@@ -67,6 +67,8 @@ class ReportService:
             monitor_metrics=monitor_metrics or {},
             provider_diagnostics=summary.get("provider_diagnostics", {}),
         )
+        if summary.get("run_id"):
+            summary_data["run_id"] = self.sanitize_text(str(summary.get("run_id") or ""))
         report = GenerationReport(
             report_dir=report_dir,
             summary=self.sanitize(summary_data),

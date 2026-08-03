@@ -136,6 +136,7 @@ class GenerationLaunchReceiptService:
         settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
         plan = payload.get("generation_plan") if isinstance(payload.get("generation_plan"), dict) else {}
         guard_policy = payload.get("guard_policy") if isinstance(payload.get("guard_policy"), dict) else {}
+        execution = payload.get("execution") if isinstance(payload.get("execution"), dict) else {}
         unified_decision = (
             payload.get("unified_decision")
             if isinstance(payload.get("unified_decision"), dict)
@@ -187,6 +188,8 @@ class GenerationLaunchReceiptService:
             decision_status=str(unified_decision.get("status") or ""),
             decision_trace_id=str(unified_decision.get("trace_id") or ""),
             decision_summary=str(unified_decision.get("summary") or ""),
+            run_id=str(execution.get("run_id") or ""),
+            execution_session_path=str(execution.get("session_path") or ""),
         )
 
     @classmethod
@@ -1802,6 +1805,8 @@ class GenerationLaunchReceiptService:
                 receipt.decision_status,
                 receipt.decision_trace_id,
                 receipt.decision_summary,
+                receipt.run_id,
+                receipt.execution_session_path,
             )
         ).casefold()
 
@@ -1858,6 +1863,8 @@ class GenerationLaunchReceiptService:
             "decision_status": receipt.decision_status,
             "decision_trace_id": receipt.decision_trace_id,
             "decision_summary": receipt.decision_summary,
+            "run_id": receipt.run_id,
+            "execution_session_path": receipt.execution_session_path,
             "receipt_path": str(receipt.path),
             "markdown_path": str(receipt.markdown_path),
             "output_directory": receipt.output_directory,

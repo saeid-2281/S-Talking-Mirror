@@ -331,6 +331,8 @@ class GenerationLaunchReceiptDialog(QDialog):
                         item.model_id,
                         item.voice_id,
                         item.output_directory,
+                        item.run_id,
+                        item.execution_session_path,
                     )
                 ).casefold()
             ]
@@ -369,6 +371,8 @@ class GenerationLaunchReceiptDialog(QDialog):
                     f"Preflight / review: {receipt.preflight_status} / {receipt.review_status}",
                     f"Unified decision: {receipt.decision_status or 'Not recorded'} · {receipt.decision_summary or 'Legacy receipt'}",
                     f"Decision trace: {receipt.decision_trace_id or 'Unavailable'}",
+                    f"Run ID: {receipt.run_id or 'Not recorded'}",
+                    f"Execution session: {receipt.execution_session_path or 'Not recorded'}",
                     f"Provider: {receipt.provider} · Model: {receipt.model_id or 'Default'} · Voice: {receipt.voice_id or 'Default'}",
                     f"Scope: {receipt.files:,} files · {receipt.characters:,} characters · {receipt.provider_requests:,} requests",
                     f"Risk / cost: {receipt.risk_level} · {receipt.currency} {receipt.estimated_cost:,.4f}",

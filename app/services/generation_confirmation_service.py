@@ -472,6 +472,9 @@ class GenerationConfirmationCoordinator:
         output_dir: Path,
         acknowledged_codes: tuple[str, ...] = (),
         receipt_service: GenerationLaunchReceiptService | None = None,
+        run_id: str = "",
+        execution_session_path: Path | None = None,
+        consume_guard_approval: bool = True,
     ) -> Path:
         """Persist the exact launch decision without API keys or credentials."""
 
@@ -509,6 +512,10 @@ class GenerationConfirmationCoordinator:
                 if confirmation.guard_approval_id
                 else None
             ),
+            "execution": {
+                "run_id": str(run_id or ""),
+                "session_path": str(execution_session_path or ""),
+            },
             "unified_decision": (
                 asdict(confirmation.unified_decision)
                 if confirmation.unified_decision is not None
@@ -547,7 +554,7 @@ class GenerationConfirmationCoordinator:
             self._receipt_markdown(payload),
             encoding="utf-8",
         )
-        if receipt_service is not None and confirmation.guard_approval_id:
+        if receipt_service is not None and confirmation.guard_approval_id and consume_guard_approval:
             receipt_service.consume_guard_approval(
                 confirmation.guard_approval_id,
                 receipt_id=str(payload.get("receipt_id") or ""),
@@ -623,6 +630,8 @@ class GenerationConfirmationCoordinator:
             f"- Guard policy version: {(payload.get('guard_policy') or {}).get('version', 0)}",
             f"- Guard policy locked: {(payload.get('guard_policy') or {}).get('locked', False)}",
             f"- Guard exception: {(payload.get('guard_exception') or {}).get('approval_id', 'None')}",
+            f"- Run ID: `{(payload.get('execution') or {}).get('run_id', '')}`",
+            f"- Execution session: {(payload.get('execution') or {}).get('session_path', 'Not recorded') or 'Not recorded'}",
             f"- Files: {scope['files']:,}",
             f"- Characters: {scope['characters']:,}",
             f"- Requests: {scope['provider_requests']:,}",

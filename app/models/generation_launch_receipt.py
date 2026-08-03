@@ -47,6 +47,8 @@ class GenerationLaunchReceipt:
     decision_status: str = ""
     decision_trace_id: str = ""
     decision_summary: str = ""
+    run_id: str = ""
+    execution_session_path: str = ""
 
     @property
     def integrity_ok(self) -> bool:
