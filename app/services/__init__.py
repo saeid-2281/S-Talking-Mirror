@@ -1,5 +1,6 @@
 from app.services.distribution_readiness_service import DistributionReadinessService
 from app.services.final_release_service import FinalReleaseService
+from app.services.upgrade_recovery_service import UpgradeRecoveryService
 from app.services.activity_timeline_service import ActivityTimelineService
 from app.services.notification_center_service import NotificationCenterService
 from app.services.workspace_profile_service import WorkspaceProfileService
@@ -52,6 +53,7 @@ from app.services.generation_recovery_service import GenerationRecoveryService
 __all__ = [
     "DistributionReadinessService",
     "FinalReleaseService",
+    "UpgradeRecoveryService",
     "ActivityTimelineService",
     "ApiProfileService",
     "NotificationCenterService",

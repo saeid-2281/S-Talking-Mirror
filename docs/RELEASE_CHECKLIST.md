@@ -64,3 +64,12 @@
 - Verify `final-release-manifest.json`, `S-Talking-preview.json`, `update-feed.sha256`, and final `SHA256SUMS.txt`.
 - Confirm prerelease versions cannot be published to the stable channel.
 - Confirm update URLs are safe relative filenames and downloaded artifacts match SHA-256 before publication.
+
+## Upgrade and recovery validation
+
+- [ ] Run `scripts/upgrade-validation.ps1 -CreateBackup -ValidateMigration`.
+- [ ] Confirm the backup manifest verifies and the disposable database reaches schema 22.
+- [ ] Test portable-to-installed preservation with a copied portable data directory.
+- [ ] Confirm a newer unsupported schema is blocked.
+- [ ] Review the dry-run restore plan; perform an actual restore only while S Talking is closed.
+- [ ] Verify an existing project and one mock-provider output after upgrade or recovery.

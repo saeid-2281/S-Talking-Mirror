@@ -59,9 +59,94 @@ def excepthook(exc_type: type[BaseException], exc: BaseException, tb) -> None:
         sys.__excepthook__(exc_type, exc, tb)
 
 
+
+def _handle_recovery_command(argv: list[str]) -> int | None:
+    recovery_flags = {
+        "--upgrade-snapshot",
+        "--create-upgrade-backup",
+        "--validate-upgrade-migration",
+        "--verify-backup",
+        "--restore-backup",
+    }
+    if not any(flag in argv for flag in recovery_flags):
+        return None
+
+    import argparse
+
+    from app.database.connection import Database
+    from app.services.upgrade_recovery_service import UpgradeRecoveryService
+
+    parser = argparse.ArgumentParser(prog="S-Talking.exe", description="S Talking upgrade and recovery tool")
+    parser.add_argument("--upgrade-snapshot", action="store_true")
+    parser.add_argument("--create-upgrade-backup", action="store_true")
+    parser.add_argument("--validate-upgrade-migration", action="store_true")
+    parser.add_argument("--verify-backup", type=Path)
+    parser.add_argument("--restore-backup", type=Path)
+    parser.add_argument("--acknowledge-restore", action="store_true")
+    parser.add_argument("--source-version", default="")
+    parser.add_argument(
+        "--upgrade-mode",
+        choices=("auto", "in_place", "portable_to_installed", "installed_to_portable", "rollback"),
+        default="auto",
+    )
+    parser.add_argument("--source-root", type=Path)
+    args = parser.parse_args(argv[1:])
+
+    runtime = RuntimeConfig.from_frozen() if getattr(sys, "frozen", False) else RuntimeConfig.from_root()
+    runtime.ensure_directories()
+    service = UpgradeRecoveryService(runtime, Database(runtime.database_path))
+    snapshot = service.snapshot(
+        source_version=args.source_version or None,
+        mode=args.upgrade_mode,
+        source_root=args.source_root,
+    )
+    print(f"Status:   {snapshot.status}")
+    print(f"Versions: {snapshot.source_version} -> {snapshot.target_version}")
+    print(f"Mode:     {snapshot.mode}")
+    print(f"Schema:   {snapshot.current_schema}/{snapshot.target_schema}")
+    for gate in snapshot.gates:
+        if not gate.passed:
+            print(f" - {gate.label} [{gate.severity}]: {gate.detail}")
+    if snapshot.blocker_count and not (args.verify_backup or args.restore_backup):
+        return 1
+    if args.create_upgrade_backup:
+        created = service.create_backup(
+            source_version=args.source_version or None,
+            mode=args.upgrade_mode,
+            source_root=args.source_root,
+        )
+        print(f"Backup:   {created.backup_dir}")
+    if args.validate_upgrade_migration:
+        result = service.validate_migration(
+            source_root=args.source_root,
+            source_version=args.source_version or None,
+        )
+        print(f"Migration: {result.get('status')} — {result.get('detail')}")
+        if result.get("status") != "ready":
+            return 1
+    if args.verify_backup:
+        ok, detail = service.verify_backup(args.verify_backup)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        if not ok:
+            return 1
+    if args.restore_backup:
+        result = service.restore_backup(
+            args.restore_backup,
+            dry_run=not args.acknowledge_restore,
+            acknowledge=args.acknowledge_restore,
+        )
+        print(f"Restore: {result.get('status')} — {result.get('detail')}")
+        if not args.acknowledge_restore:
+            print("Dry run only. Re-run with --acknowledge-restore after closing the GUI.")
+    return 0
+
+
 def main() -> int:
     sys.excepthook = excepthook
     try:
+        recovery_exit = _handle_recovery_command(sys.argv)
+        if recovery_exit is not None:
+            return recovery_exit
         from PySide6.QtWidgets import QApplication, QMessageBox
         from app.bootstrap import create_application_context
         from app.container import create_service_container

@@ -1,4 +1,5 @@
 from app.models.distribution_readiness import DistributionArtifact, DistributionGate, DistributionSnapshot
+from app.models.upgrade_recovery import UpgradeArtifact, UpgradeGate, UpgradeSnapshot
 from app.models.final_release import (
     FinalReleaseArtifact,
     FinalReleaseGate,
@@ -182,6 +183,9 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "UpgradeArtifact",
+    "UpgradeGate",
+    "UpgradeSnapshot",
     "FinalReleaseArtifact",
     "FinalReleaseGate",
     "FinalReleaseSnapshot",

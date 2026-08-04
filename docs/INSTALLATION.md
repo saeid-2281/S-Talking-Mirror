@@ -43,3 +43,13 @@ Back up `%LOCALAPPDATA%\S-Talking` before an upgrade. Program files and writable
 ## Provider Setup
 
 Mock works without extra setup. ElevenLabs requires an API key. Piper requires the Piper executable and a local `.onnx` model.
+
+## Upgrade, portable migration and rollback
+
+Before changing versions, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\upgrade-validation.ps1 -CreateBackup -ValidateMigration
+```
+
+For a portable-to-installed transition, pass the extracted portable directory through `-SourceRoot` and use `-Mode portable_to_installed`. The source portable directory is never modified. Restore a verified backup only while S Talking is closed and only with the explicit `-AcknowledgeRestore` switch.

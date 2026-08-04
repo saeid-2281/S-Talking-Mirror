@@ -66,6 +66,7 @@ from app.services.release_readiness_service import ReleaseReadinessService
 from app.services.release_candidate_service import ReleaseCandidateService
 from app.services.distribution_readiness_service import DistributionReadinessService
 from app.services.final_release_service import FinalReleaseService
+from app.services.upgrade_recovery_service import UpgradeRecoveryService
 from app.services.statistics_service import StatisticsService
 from app.services.startup_recovery_service import SessionRestoreService, StartupRecoveryService
 from app.services.source_import_service import SourceImportService
@@ -98,6 +99,7 @@ class ServiceContainer:
     release_candidate_service: ReleaseCandidateService
     distribution_readiness_service: DistributionReadinessService
     final_release_service: FinalReleaseService
+    upgrade_recovery_service: UpgradeRecoveryService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -242,6 +244,7 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
         config,
         distribution_readiness_service,
     )
+    upgrade_recovery_service = UpgradeRecoveryService(config, database)
     generation_performance_policy_service = GenerationPerformancePolicyService(
         product_event_repository
     )
@@ -298,6 +301,7 @@ def create_service_container(runtime: RuntimeConfig | None = None) -> ServiceCon
         release_candidate_service=release_candidate_service,
         distribution_readiness_service=distribution_readiness_service,
         final_release_service=final_release_service,
+        upgrade_recovery_service=upgrade_recovery_service,
         git_service=git_service,
         diagnostics_service=diagnostics_service,
         task_prompt_service=TaskPromptService(config.app_root),
