@@ -60,6 +60,9 @@ if ($script:LastStepExitCode -ne 0) { $exitCode = 1 }
 $result.stage = "ruff"
 Invoke-Step "ruff" @("-m","ruff","check","app","tests")
 if ($script:LastStepExitCode -ne 0) { $exitCode = 1 }
+$result.stage = "ux_certification"
+Invoke-Step "ux_certification" @("-m","app.frozen_main","--ux-certification","--ux-certification-export")
+if ($script:LastStepExitCode -ne 0) { $exitCode = 1 }
 
 $smoke = @'
 from pathlib import Path

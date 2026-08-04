@@ -359,6 +359,51 @@ def _handle_security_command(argv: list[str]) -> int | None:
     return 0
 
 
+
+def _handle_ux_certification_command(argv: list[str]) -> int | None:
+    flags = {"--ux-certification", "--ux-certification-export"}
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.gui.theme import DARK_TOKENS, GRAPHITE_TOKENS, LIGHT_TOKENS
+    from app.services.ux_accessibility_certification_service import (
+        UxAccessibilityCertificationService,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking UX, accessibility and theme certification tool",
+    )
+    parser.add_argument("--ux-certification", action="store_true")
+    parser.add_argument("--ux-certification-export", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = RuntimeConfig.from_frozen() if getattr(sys, "frozen", False) else RuntimeConfig.from_root()
+    runtime.ensure_directories()
+    service = UxAccessibilityCertificationService(runtime)
+    snapshot = service.certification_snapshot(
+        themes={"Dark": DARK_TOKENS, "Graphite": GRAPHITE_TOKENS, "Light": LIGHT_TOKENS},
+        active_theme="certification-all-themes",
+        preference_summary="High contrast · Text 110% · Enhanced focus · Reduced motion · Status announcements on",
+        focus_regions=service.CORE_REGIONS,
+    )
+    print(f"Status:       {snapshot.status}")
+    print(f"Themes:       {len(service.REQUIRED_THEME_NAMES)}")
+    print(f"Contrast:     {len(snapshot.contrast_results)} checks")
+    print(f"Display:      {len(snapshot.display_profiles)} profiles")
+    print(f"Blockers:     {snapshot.blocker_count}")
+    print(f"Warnings:     {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        if gate.status in {"warn", "block"}:
+            print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+    if args.ux_certification_export:
+        json_path, csv_path = service.export_snapshot(snapshot)
+        print(f"JSON:         {json_path}")
+        print(f"CSV:          {csv_path}")
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -380,6 +425,9 @@ def main() -> int:
         security_exit = _handle_security_command(sys.argv)
         if security_exit is not None:
             return security_exit
+        ux_exit = _handle_ux_certification_command(sys.argv)
+        if ux_exit is not None:
+            return ux_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

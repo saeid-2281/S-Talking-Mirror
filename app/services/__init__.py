@@ -1,3 +1,4 @@
+from app.services.ux_accessibility_certification_service import UxAccessibilityCertificationService
 from app.services.security_supply_chain_service import SecuritySupplyChainService
 from app.services.performance_stability_service import PerformanceStabilityService
 from app.services.crash_recovery_service import CrashRecoveryService
@@ -55,6 +56,7 @@ from app.services.voice_library_store import VoiceLibraryStore
 from app.services.generation_reliability_service import GenerationReliabilityService
 from app.services.generation_recovery_service import GenerationRecoveryService
 __all__ = [
+    "UxAccessibilityCertificationService",
     "SecuritySupplyChainService",
     "PerformanceStabilityService",
     "CrashRecoveryService",

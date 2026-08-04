@@ -120,3 +120,14 @@
 - [ ] Stable application and installer artifacts are signed and timestamped.
 - [ ] Frozen startup reports hardened DLL search directories.
 - [ ] Security JSON/CSV exports contain no local paths or secret values.
+
+## Phase 59 — UX, accessibility and theme certification
+
+- [ ] Run `scripts/ux-certification.ps1 -Export`.
+- [ ] Confirm Dark, Graphite and Light theme contrast gates pass.
+- [ ] Confirm selected-row text is readable in every certified theme.
+- [ ] Confirm all seven Ctrl+number workspace focus routes and F6 cycling work.
+- [ ] Confirm icon-only controls expose accessible names or tooltips.
+- [ ] Confirm 100%, 125%, 150% and 200% display profiles remain scroll-safe.
+- [ ] Review shortcut conflicts and target-size warnings.
+- [ ] Store the generated JSON and CSV evidence with release artifacts.

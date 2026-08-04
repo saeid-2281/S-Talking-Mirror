@@ -30,7 +30,7 @@ from app.gui.responsive_workspace import (
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
 from app.gui.update_delivery_controller import UpdateDeliveryController
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,DistributionReadinessDialog,FinalReleaseDialog,UpgradeRecoveryDialog,UpdateDeliveryDialog,CrashRecoveryDialog,PerformanceStabilityDialog,SecuritySupplyChainDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,DistributionReadinessDialog,FinalReleaseDialog,UpgradeRecoveryDialog,UpdateDeliveryDialog,CrashRecoveryDialog,PerformanceStabilityDialog,SecuritySupplyChainDialog,UxAccessibilityCertificationDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -159,6 +159,7 @@ class MainWindow(QMainWindow):
         self.crash_recovery_service=context.crash_recovery_service; self.safe_mode=self.crash_recovery_service.safe_mode
         self.performance_stability_service=context.performance_stability_service
         self.security_supply_chain_service=context.security_supply_chain_service
+        self.ux_accessibility_certification_service=context.ux_accessibility_certification_service
         self.update_delivery_controller=UpdateDeliveryController(context.update_delivery_service,parent=self)
         self.update_delivery_controller.completed.connect(self._background_update_completed)
         self.update_delivery_controller.failed.connect(self._background_update_failed)
@@ -166,7 +167,7 @@ class MainWindow(QMainWindow):
         self.autosave_timer=QTimer(self); self.autosave_timer.setInterval(30000); self.autosave_timer.timeout.connect(self.autosave); self.autosave_timer.start()
         performance_policy=self.performance_stability_service.load_policy(); self.performance_sample_timer=QTimer(self); self.performance_sample_timer.setInterval(performance_policy.sample_interval_seconds*1000); self.performance_sample_timer.timeout.connect(self.capture_performance_sample)
         if performance_policy.background_sampling_enabled: self.performance_sample_timer.start()
-        self.build(); self.setup_responsive_workspace(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.apply_interface_preferences(self.interface_preferences,persist=False,announce=False); self.restore_layout_state(); self.run_startup_recovery()
+        self.build(); self.apply_accessibility_metadata(); self.setup_responsive_workspace(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.apply_interface_preferences(self.interface_preferences,persist=False,announce=False); self.restore_layout_state(); self.run_startup_recovery()
         if not self.safe_mode:
             self.restore_previous_session(); QTimer.singleShot(0,self.offer_generation_recovery); QTimer.singleShot(5000,self.check_updates_on_startup)
         self.update_window_title(); self.update_status_bar()
@@ -374,7 +375,7 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
@@ -523,6 +524,39 @@ class MainWindow(QMainWindow):
         for column in range(3): layout.setColumnStretch(column,1 if column<count else 0)
         self.sources_action_card.setProperty('columns',str(count))
         self.sources_action_card.style().unpolish(self.sources_action_card); self.sources_action_card.style().polish(self.sources_action_card)
+    def apply_accessibility_metadata(self):
+        self.setAccessibleName('S Talking AI Audio Studio')
+        metadata={
+            'main_toolbar':('Main application toolbar','Primary project, source and generation actions.'),
+            'left_dock':('Provider and source workspace','Configure the provider and manage project sources.'),
+            'right_dock':('Queue inspector workspace','Inspect the selected generation queue item.'),
+            'queue_workspace':('Generation queue workspace','Filter, review and operate on generation jobs.'),
+            'table':('Generation queue','Generation jobs and their current processing status.'),
+            'sources_table':('Project sources','Imported project sources and validation status.'),
+            'activity_tabs':('Activity, output and error center','Review application activity and generated outputs.'),
+            'startb':('Start generation','Start generation after required validation and confirmation.'),
+            'pauseb':('Pause or resume generation','Pause or resume the active generation run.'),
+            'stopb':('Stop generation','Stop the active generation run safely.'),
+            'preflightb':('Run preflight','Validate provider, source, output and quota readiness.'),
+            'provider':('Provider','Select the active text-to-speech provider.'),
+            'voice':('Voice identifier','Choose or enter the provider voice identifier.'),
+            'csv':('Current source path','Path of the active source used to prepare the queue.'),
+            'out':('Output folder','Folder where generated audio will be written.'),
+        }
+        for attribute,(name,description) in metadata.items():
+            widget=getattr(self,attribute,None)
+            if widget is None: continue
+            widget.setAccessibleName(name); widget.setAccessibleDescription(description)
+        if hasattr(self,'main_toolbar'):
+            for action in self.main_toolbar.actions():
+                widget=self.main_toolbar.widgetForAction(action)
+                if widget is None: continue
+                label=(action.text() or action.iconText() or action.toolTip()).replace('&','').strip()
+                if label and not widget.accessibleName(): widget.setAccessibleName(label)
+                if action.toolTip() and not widget.accessibleDescription(): widget.setAccessibleDescription(action.toolTip())
+        if hasattr(self,'toolbar_overflow_button'):
+            self.toolbar_overflow_button.setProperty('accessibleIconOnly',True)
+        return metadata
     def open_interface_preferences(self):
         dialog=InterfacePreferencesDialog(self.interface_preferences,self)
         if dialog.exec()==QDialog.Accepted:
@@ -544,6 +578,12 @@ class MainWindow(QMainWindow):
         if hasattr(self,'table'):
             scroll_mode=QAbstractItemView.ScrollPerItem if value.reduce_motion else QAbstractItemView.ScrollPerPixel
             self.table.setVerticalScrollMode(scroll_mode); self.table.setHorizontalScrollMode(scroll_mode)
+        for dialog in tuple(getattr(self,'report_dialogs',())):
+            try:
+                for key,property_value in value.stylesheet_properties().items(): dialog.setProperty(key,property_value)
+                dialog.style().unpolish(dialog); dialog.style().polish(dialog); dialog.update()
+            except RuntimeError:
+                continue
         if persist: value.save(QSettings('S Talking','S Talking'))
         # Reapplying the active theme reliably refreshes descendant selectors
         # after changing dynamic properties on the main window.
@@ -681,7 +721,7 @@ class MainWindow(QMainWindow):
             action=self.generation_menu.addAction(action_icon(ic),text); action.triggered.connect(handler); action.setShortcut(QKeySequence(shortcut)); self.actions_by_name[text]=action
     def build_reports_menu(self):
         self.reports_menu=QMenu('Reports',self); self.menuBar().addMenu(self.reports_menu)
-        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Artifact Retention',self.open_generation_artifact_retention,'report'),('UI Runtime Health',self.open_qt_runtime_health,'health'),('Release Candidate',self.open_release_candidate,'health'),('Distribution Readiness',self.open_distribution_readiness,'health'),('Final Release & Updates',self.open_final_release,'health'),('Update Delivery',self.open_update_delivery,'health'),('Upgrade & Recovery',self.open_upgrade_recovery,'history'),('Crash Recovery & Diagnostics',self.open_crash_recovery,'warning'),('Performance & Stability',self.open_performance_stability,'health'),('Security & Supply Chain',self.open_security_supply_chain,'health'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Budget & Quota Guard',self.open_generation_budget_guard,'warning'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Estimate vs Actual',self.open_generation_estimate_actual,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
+        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Artifact Retention',self.open_generation_artifact_retention,'report'),('UI Runtime Health',self.open_qt_runtime_health,'health'),('Release Candidate',self.open_release_candidate,'health'),('Distribution Readiness',self.open_distribution_readiness,'health'),('Final Release & Updates',self.open_final_release,'health'),('Update Delivery',self.open_update_delivery,'health'),('Upgrade & Recovery',self.open_upgrade_recovery,'history'),('Crash Recovery & Diagnostics',self.open_crash_recovery,'warning'),('Performance & Stability',self.open_performance_stability,'health'),('Security & Supply Chain',self.open_security_supply_chain,'health'),('UX & Accessibility Certification',self.open_ux_accessibility_certification,'health'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Budget & Quota Guard',self.open_generation_budget_guard,'warning'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Estimate vs Actual',self.open_generation_estimate_actual,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
     def build_developer_tools_menu(self):
         self.developer_menu=QMenu('Developer Tools',self); self.menuBar().addMenu(self.developer_menu); self.actions_by_name.update(self.developer_tools.populate_menu(self.developer_menu))
     def build_help_menu(self):
@@ -2612,6 +2652,9 @@ class MainWindow(QMainWindow):
     def _show_report_dialog(self, dialog, *, category="report"):
         if dialog not in self.report_dialogs:
             self.report_dialogs.append(dialog)
+        for key,property_value in self.interface_preferences.stylesheet_properties().items():
+            dialog.setProperty(key,property_value)
+        dialog.style().unpolish(dialog); dialog.style().polish(dialog)
         self.qt_runtime_health_service.register_dialog(dialog, category=category)
         dialog.finished.connect(self._release_report_dialog)
         dialog.show()
@@ -2669,6 +2712,35 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('Safe mode is active: automatic project restore, generation recovery prompts and startup update checks were skipped.',15000)
         elif self.crash_recovery_service.previous_unclean_shutdown or self.crash_recovery_service.unacknowledged_report_count():
             self.statusBar().showMessage('Recovery evidence is available. Open Reports → Crash Recovery & Diagnostics to review it.',15000)
+    def ux_certification_themes(self):
+        return {
+            name: self.theme_manager.tokens(name)
+            for name in ("Dark", "Graphite", "Light")
+        }
+    def ux_certification_widget_records(self):
+        return self.ux_accessibility_certification_service.collect_widget_records(self)
+    def ux_certification_shortcuts(self):
+        return self.ux_accessibility_certification_service.collect_shortcuts(self)
+    def ux_certification_focus_regions(self):
+        return ("provider", "queue", "inspector", "activity", "generation", "output", "text-studio")
+    def apply_certified_accessibility_preset(self):
+        preferences=self.ux_accessibility_certification_service.recommended_preferences(self.interface_preferences)
+        self.apply_interface_preferences(preferences,persist=True)
+        self.announce_interface_status('Certified accessibility preset applied',preferences.summary())
+    def open_ux_accessibility_certification(self):
+        dialog=UxAccessibilityCertificationDialog(
+            self.ux_accessibility_certification_service,
+            self,
+            themes_provider=self.ux_certification_themes,
+            active_theme_provider=self.theme_manager.current,
+            preference_summary_provider=lambda:self.interface_preferences.summary(),
+            widget_records_provider=self.ux_certification_widget_records,
+            shortcut_provider=self.ux_certification_shortcuts,
+            focus_regions_provider=self.ux_certification_focus_regions,
+            apply_recommended_preset=self.apply_certified_accessibility_preset,
+            open_path=self.open_path,
+        )
+        return self._show_report_dialog(dialog,category='ux-accessibility-certification')
     def open_generation_orchestration(self):
         project=self.project_controller.current_project; dialog=GenerationOrchestrationDialog(self.context.generation_orchestration_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',settings_provider=self.settings,export_dir=self.context.container.runtime.reports_dir/'orchestration'); self._show_report_dialog(dialog)
     def open_generation_maintenance(self):
@@ -2794,6 +2866,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Reports: Crash Recovery & Diagnostics',act('Crash Recovery & Diagnostics')),
             PaletteCommand('Reports: Performance & Stability',act('Performance & Stability')),
             PaletteCommand('Reports: Security & Supply Chain',act('Security & Supply Chain')),
+            PaletteCommand('Reports: UX & Accessibility Certification',act('UX & Accessibility Certification')),
             PaletteCommand('Reports: Execution Sessions',act('Execution Sessions')),
             PaletteCommand('Reports: Execution Receipts',act('Execution Receipts')),
             PaletteCommand('Reports: Estimate vs Actual',act('Estimate vs Actual')),

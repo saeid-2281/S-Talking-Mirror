@@ -2539,3 +2539,51 @@ QDialog#voiceBrowserDialog QToolButton {
 DARK_STYLE += _PHASE51_VISUAL_SYSTEM_STYLE
 LIGHT_STYLE += _PHASE51_VISUAL_SYSTEM_STYLE
 GRAPHITE_STYLE += _PHASE51_VISUAL_SYSTEM_STYLE
+
+# Phase 59 certification rules are deliberately shared across all themes so
+# keyboard focus, selection and target-size contracts do not drift by palette.
+_PHASE59_CERTIFICATION_STYLE = r"""
+QMainWindow[focusMode="enhanced"] QAbstractButton:focus,
+QMainWindow[focusMode="enhanced"] QAbstractItemView:focus,
+QMainWindow[focusMode="enhanced"] QComboBox:focus,
+QMainWindow[focusMode="enhanced"] QLineEdit:focus,
+QMainWindow[focusMode="enhanced"] QAbstractSpinBox:focus,
+QDialog[focusMode="enhanced"] QAbstractButton:focus,
+QDialog[focusMode="enhanced"] QAbstractItemView:focus,
+QDialog[focusMode="enhanced"] QComboBox:focus,
+QDialog[focusMode="enhanced"] QLineEdit:focus,
+QDialog[focusMode="enhanced"] QAbstractSpinBox:focus {
+    border: 2px solid palette(highlight);
+    padding: 4px;
+}
+QMenu::item:selected,
+QComboBox QAbstractItemView::item:selected,
+QListView::item:selected,
+QTreeView::item:selected,
+QTableView::item:selected,
+QTableWidget::item:selected {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+}
+QToolButton[accessibleIconOnly="true"],
+QPushButton[accessibleIconOnly="true"] {
+    min-width: 32px;
+    min-height: 32px;
+    padding: 4px;
+}
+QDialog#uxAccessibilityCertificationDialog QTabWidget::pane {
+    border: 1px solid palette(midlight);
+    border-radius: 8px;
+}
+QDialog#uxAccessibilityCertificationDialog QTableWidget {
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+}
+QMainWindow[contrastMode="high"] QMenu::item:selected,
+QMainWindow[contrastMode="high"] QAbstractItemView::item:selected {
+    border: 1px solid palette(highlighted-text);
+}
+"""
+DARK_STYLE += _PHASE59_CERTIFICATION_STYLE
+LIGHT_STYLE += _PHASE59_CERTIFICATION_STYLE
+GRAPHITE_STYLE += _PHASE59_CERTIFICATION_STYLE

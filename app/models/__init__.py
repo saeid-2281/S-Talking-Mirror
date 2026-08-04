@@ -1,3 +1,10 @@
+from app.models.ux_accessibility import (
+    AccessibilityIssue,
+    DisplayCertificationProfile,
+    ThemeContrastResult,
+    UxAccessibilitySnapshot,
+    UxCertificationGate,
+)
 from app.models.security_supply_chain import (
     SecurityArtifact,
     SecurityAuditReceipt,
@@ -409,4 +416,9 @@ __all__ = [
     "SecurityComponent",
     "SecurityAuditReceipt",
     "SecurityArtifact",
+    "AccessibilityIssue",
+    "DisplayCertificationProfile",
+    "ThemeContrastResult",
+    "UxAccessibilitySnapshot",
+    "UxCertificationGate",
 ]
