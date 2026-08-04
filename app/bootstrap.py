@@ -50,6 +50,7 @@ from app.services.report_service import ReportService
 from app.services.release_readiness_service import ReleaseReadinessService
 from app.services.release_candidate_service import ReleaseCandidateService
 from app.services.distribution_readiness_service import DistributionReadinessService
+from app.services.final_release_service import FinalReleaseService
 from app.services.statistics_service import StatisticsService
 from app.services.startup_recovery_service import SessionRestoreService, StartupRecoveryService
 from app.services.source_import_service import SourceImportService
@@ -70,6 +71,7 @@ class ApplicationContext:
     release_readiness_service: ReleaseReadinessService
     release_candidate_service: ReleaseCandidateService
     distribution_readiness_service: DistributionReadinessService
+    final_release_service: FinalReleaseService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -128,6 +130,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         release_readiness_service=services.release_readiness_service,
         release_candidate_service=services.release_candidate_service,
         distribution_readiness_service=services.distribution_readiness_service,
+        final_release_service=services.final_release_service,
         git_service=services.git_service,
         diagnostics_service=services.diagnostics_service,
         task_prompt_service=services.task_prompt_service,

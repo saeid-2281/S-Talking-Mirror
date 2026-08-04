@@ -135,7 +135,8 @@ def test_phase52_inno_contract_is_per_user_upgrade_safe_and_non_destructive() ->
 
 def test_phase52_build_script_never_creates_fake_installer_exe() -> None:
     build = Path("scripts/build.ps1").read_text(encoding="utf-8")
-    assert "schema_version = 2" in build
+    assert "schema_version = 3" in build
+    assert "signing-result.json" in build
     assert "Test-PortableExecutable" in build
     assert "S-Talking-$version-installer-unavailable.txt" in build
     assert 'artifact_kind = "placeholder"' in build

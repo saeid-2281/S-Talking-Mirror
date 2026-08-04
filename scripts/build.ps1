@@ -1,5 +1,6 @@
 param(
-    [string]$Python = ".\.venv\Scripts\python.exe"
+    [string]$Python = ".\.venv\Scripts\python.exe",
+    [switch]$RequireSigning
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,10 +10,11 @@ if (!(Test-Path $pythonPath)) { $pythonPath = $Python }
 $packageRoot = Join-Path $repo "artifacts\package"
 $resultPath = Join-Path $packageRoot "build-result.json"
 $installerResultPath = Join-Path $packageRoot "installer-result.json"
+$signingResultPath = Join-Path $packageRoot "signing-result.json"
 New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
 $started = Get-Date
 $result = [ordered]@{
-    schema_version = 2
+    schema_version = 3
     started_at = $started.ToString("o")
     finished_at = $null
     elapsed_seconds = 0
@@ -22,6 +24,8 @@ $result = [ordered]@{
     exe_path = $null
     zip_path = $null
     installer_result_path = $installerResultPath
+    signing_result_path = $signingResultPath
+    signing_required = [bool]$RequireSigning
     installer_available = $false
     smoke_test = [ordered]@{}
     warnings = @()
@@ -64,6 +68,99 @@ function Finish-Build {
     Write-JsonUtf8NoBom $result $resultPath
 }
 
+function Resolve-SignTool {
+    if ($env:S_TALKING_SIGNTOOL_PATH -and (Test-Path $env:S_TALKING_SIGNTOOL_PATH)) {
+        return (Resolve-Path $env:S_TALKING_SIGNTOOL_PATH).Path
+    }
+    $command = Get-Command "signtool.exe" -ErrorAction SilentlyContinue
+    if ($command) { return $command.Source }
+    $kits = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
+    if (Test-Path $kits) {
+        $candidate = Get-ChildItem -Path $kits -Filter signtool.exe -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\x64\\signtool\.exe$" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+        if ($candidate) { return $candidate.FullName }
+    }
+    return $null
+}
+
+function Get-SignatureEvidence {
+    param([string]$Role, [string]$Path, [string]$FallbackStatus = "unavailable", [string]$Detail = "")
+    $record = [ordered]@{
+        role = $Role
+        path = $Path
+        status = $FallbackStatus
+        sha256 = Get-Sha256 $Path
+        subject = ""
+        thumbprint = ""
+        timestamped = $false
+        detail = $Detail
+    }
+    if (!(Test-Path $Path)) { return $record }
+    try {
+        $signature = Get-AuthenticodeSignature -FilePath $Path
+        if ($signature.Status -eq [System.Management.Automation.SignatureStatus]::Valid) {
+            $record.status = "verified"
+            $record.subject = [string]$signature.SignerCertificate.Subject
+            $record.thumbprint = [string]$signature.SignerCertificate.Thumbprint
+            $record.timestamped = ($null -ne $signature.TimeStamperCertificate)
+            $record.detail = "Authenticode signature verified."
+        } elseif ($signature.Status -eq [System.Management.Automation.SignatureStatus]::NotSigned) {
+            $record.status = "unsigned"
+            $record.detail = "Artifact is not Authenticode signed."
+        } else {
+            $record.status = "failed"
+            $record.detail = "Authenticode status: $($signature.Status) - $($signature.StatusMessage)"
+        }
+    } catch {
+        $record.status = "failed"
+        $record.detail = "Signature inspection failed: $($_.Exception.Message)"
+    }
+    return $record
+}
+
+function Invoke-CodeSigning {
+    param([string]$Role, [string]$Path)
+    $signTool = Resolve-SignTool
+    $thumbprint = ([string]$env:S_TALKING_SIGN_CERT_THUMBPRINT).Replace(" ", "")
+    if ($RequireSigning -and !$env:S_TALKING_TIMESTAMP_URL) {
+        throw "Code signing requires S_TALKING_TIMESTAMP_URL for durable timestamp evidence."
+    }
+    if (!$signTool -or !$thumbprint) {
+        $missing = if (!$signTool) { "SignTool was not found." } else { "S_TALKING_SIGN_CERT_THUMBPRINT is not configured." }
+        if ($RequireSigning) { throw "Code signing is required: $missing" }
+        return Get-SignatureEvidence $Role $Path "unsigned" $missing
+    }
+    $arguments = @("sign", "/sha1", $thumbprint, "/fd", "sha256")
+    if ($env:S_TALKING_TIMESTAMP_URL) {
+        $arguments += @("/tr", $env:S_TALKING_TIMESTAMP_URL, "/td", "sha256")
+    }
+    $arguments += $Path
+    & $signTool @arguments
+    if ($LASTEXITCODE -ne 0) { throw "SignTool failed for $Role." }
+    & $signTool verify /pa /v $Path
+    if ($LASTEXITCODE -ne 0) { throw "SignTool verification failed for $Role." }
+    $evidence = Get-SignatureEvidence $Role $Path
+    if ($evidence.status -ne "verified") { throw "PowerShell could not verify the signed $Role artifact." }
+    if ($RequireSigning -and $env:S_TALKING_TIMESTAMP_URL -and !$evidence.timestamped) {
+        throw "A timestamped signature is required for $Role."
+    }
+    return $evidence
+}
+
+$signingResult = [ordered]@{
+    schema_version = 1
+    started_at = $started.ToString("o")
+    finished_at = $null
+    required = [bool]$RequireSigning
+    tool = "Microsoft SignTool"
+    certificate_thumbprint = ([string]$env:S_TALKING_SIGN_CERT_THUMBPRINT).Replace(" ", "")
+    timestamp_url_configured = [bool]$env:S_TALKING_TIMESTAMP_URL
+    artifacts = @()
+    errors = @()
+}
+
 try {
     $result.stage = "pyinstaller_check"
     $previousErrorPreference = $ErrorActionPreference
@@ -100,6 +197,13 @@ try {
     $exe = Join-Path $repo "dist\S-Talking\S-Talking.exe"
     if (!(Test-Path $exe)) { throw "Expected executable not found: $exe" }
     $result.exe_path = $exe
+
+    $result.stage = "application_signing"
+    $applicationEvidence = Invoke-CodeSigning "application_executable" $exe
+    $signingResult.artifacts += $applicationEvidence
+    if ($applicationEvidence.status -ne "verified") {
+        $result.warnings += "Application executable is not signed and timestamped."
+    }
 
     $result.stage = "frozen_smoke"
     try {
@@ -174,7 +278,7 @@ exit /b 0
     $placeholder = Join-Path $installerDir "S-Talking-$version-installer-unavailable.txt"
     Remove-Item -Force $installerExe, $placeholder -ErrorAction SilentlyContinue
     $installerResult = [ordered]@{
-        schema_version = 2
+        schema_version = 3
         started_at = (Get-Date).ToString("o")
         finished_at = $null
         success = $false
@@ -189,6 +293,11 @@ exit /b 0
         size_bytes = 0
         tool = "Inno Setup"
         unsigned = $true
+        signature_status = "unavailable"
+        signature_subject = ""
+        signature_thumbprint = ""
+        timestamped = $false
+        signing_result_path = $signingResultPath
         errors = @()
     }
     $iscc = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
@@ -199,6 +308,9 @@ exit /b 0
         if (!(Test-PortableExecutable $installerExe)) {
             throw "Compiled installer is missing or is not a valid Windows PE executable: $installerExe"
         }
+        $installerResult.stage = "signing"
+        $installerEvidence = Invoke-CodeSigning "windows_installer" $installerExe
+        $signingResult.artifacts += $installerEvidence
         $installerResult.success = $true
         $installerResult.available = $true
         $installerResult.distributable = $true
@@ -207,6 +319,14 @@ exit /b 0
         $installerResult.artifact_kind = "installer"
         $installerResult.sha256 = Get-Sha256 $installerExe
         $installerResult.size_bytes = (Get-Item -LiteralPath $installerExe).Length
+        $installerResult.unsigned = ($installerEvidence.status -ne "verified")
+        $installerResult.signature_status = $installerEvidence.status
+        $installerResult.signature_subject = $installerEvidence.subject
+        $installerResult.signature_thumbprint = $installerEvidence.thumbprint
+        $installerResult.timestamped = $installerEvidence.timestamped
+        if ($installerEvidence.status -ne "verified") {
+            $result.warnings += "Compiled installer is not signed and timestamped."
+        }
         $result.installer_available = $true
     } else {
         $installerResult.stage = "unavailable"
@@ -225,14 +345,31 @@ $zip
         $installerResult.size_bytes = (Get-Item -LiteralPath $placeholder).Length
         $installerResult.errors += "Inno Setup not installed; portable package built successfully, installer unavailable."
         $result.warnings += "Compiled installer unavailable; portable package remains valid."
+        $signingResult.artifacts += [ordered]@{
+            role = "windows_installer"
+            path = ""
+            status = "unavailable"
+            sha256 = ""
+            subject = ""
+            thumbprint = ""
+            timestamped = $false
+            detail = "Installer was not compiled because Inno Setup is unavailable."
+        }
+        if ($RequireSigning) { throw "Signed installer is required but Inno Setup is unavailable." }
     }
     $installerResult.finished_at = (Get-Date).ToString("o")
     Write-JsonUtf8NoBom $installerResult $installerResultPath
+    $signingResult.finished_at = (Get-Date).ToString("o")
+    Write-JsonUtf8NoBom $signingResult $signingResultPath
 
     Finish-Build $true "complete"
     Write-Output $zip
 } catch {
-    $result.errors += [string]$_
+    $message = [string]$_
+    $result.errors += $message
+    $signingResult.errors += $message
+    $signingResult.finished_at = (Get-Date).ToString("o")
+    Write-JsonUtf8NoBom $signingResult $signingResultPath
     Finish-Build $false $result.stage
     Write-Error $_
     exit 1

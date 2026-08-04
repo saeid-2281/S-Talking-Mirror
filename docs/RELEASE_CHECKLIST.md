@@ -52,4 +52,15 @@
 - [ ] Restore is tested against a disposable copy.
 - [ ] Retention preview contains only expected records.
 - [ ] Incident-linked sessions are preserved by retention.
-- [ ] Full Quality Gate passes after Phase 52.
+- [ ] Full Quality Gate passes after Phase 53.
+
+## Signing and Update Channel
+
+- Configure `S_TALKING_SIGN_CERT_THUMBPRINT` with a code-signing certificate in the Windows certificate store.
+- Configure `S_TALKING_TIMESTAMP_URL` for timestamped Authenticode signatures.
+- Use `S_TALKING_SIGNTOOL_PATH` only when SignTool is not discoverable from PATH or the Windows SDK.
+- Run `scripts/build.ps1 -RequireSigning` and confirm `signing-result.json` verifies both `application_executable` and `windows_installer`.
+- Run `scripts/final-release.ps1 -RequireInstaller -RequireSigning -Channel preview`.
+- Verify `final-release-manifest.json`, `S-Talking-preview.json`, `update-feed.sha256`, and final `SHA256SUMS.txt`.
+- Confirm prerelease versions cannot be published to the stable channel.
+- Confirm update URLs are safe relative filenames and downloaded artifacts match SHA-256 before publication.

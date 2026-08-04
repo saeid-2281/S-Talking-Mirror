@@ -1,4 +1,11 @@
 from app.models.distribution_readiness import DistributionArtifact, DistributionGate, DistributionSnapshot
+from app.models.final_release import (
+    FinalReleaseArtifact,
+    FinalReleaseGate,
+    FinalReleaseSnapshot,
+    SigningEvidence,
+    UpdateArtifact,
+)
 from app.models.domain import AppSettings, JobStatus, TTSJob
 from app.models.api_profile import ApiProfile, ApiProfileFailoverMode, ApiProfileStatus, ProfileSwitchDecision
 from app.models.audio_player_state import AudioPlayerState
@@ -175,6 +182,11 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "FinalReleaseArtifact",
+    "FinalReleaseGate",
+    "FinalReleaseSnapshot",
+    "SigningEvidence",
+    "UpdateArtifact",
     "DistributionArtifact",
     "DistributionGate",
     "DistributionSnapshot",

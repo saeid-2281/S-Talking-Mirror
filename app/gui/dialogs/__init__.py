@@ -1,4 +1,5 @@
 from app.gui.dialogs.distribution_readiness_dialog import DistributionReadinessDialog
+from app.gui.dialogs.final_release_dialog import FinalReleaseDialog
 from app.gui.dialogs.generation_artifact_retention_dialog import GenerationArtifactRetentionDialog
 from app.gui.dialogs.generation_budget_guard_dialog import GenerationBudgetGuardDialog
 from app.gui.dialogs.about_dialog import AboutDialog
@@ -68,6 +69,7 @@ from app.gui.dialogs.text_source_dialog import TextSourceDialog
 
 __all__ = [
     "DistributionReadinessDialog",
+    "FinalReleaseDialog",
     "GenerationArtifactRetentionDialog",
     "GenerationBudgetGuardDialog",
     "CsvImportReviewDialog",
