@@ -52,7 +52,7 @@
 - [ ] Restore is tested against a disposable copy.
 - [ ] Retention preview contains only expected records.
 - [ ] Incident-linked sessions are preserved by retention.
-- [ ] Full Quality Gate passes after Phase 53.
+- [ ] Full Quality Gate passes after Phase 55.
 
 ## Signing and Update Channel
 
@@ -73,3 +73,15 @@
 - [ ] Confirm a newer unsupported schema is blocked.
 - [ ] Review the dry-run restore plan; perform an actual restore only while S Talking is closed.
 - [ ] Verify an existing project and one mock-provider output after upgrade or recovery.
+
+## Update delivery client
+
+- [ ] Publish `latest.json` and `latest.sha256` for each enabled channel.
+- [ ] Confirm the feed product is `S Talking` and the channel matches the configured client channel.
+- [ ] Confirm release notes are copied beside the published feed and match `release_notes_sha256`.
+- [ ] Test one client inside and one client outside a staged rollout assignment.
+- [ ] Confirm a tampered feed, unsafe relative URL, wrong channel, invalid artifact size, or wrong SHA-256 is blocked.
+- [ ] Confirm a verified portable ZIP downloads without extraction or restart.
+- [ ] Confirm a signed installer is rechecked with Authenticode and is never launched automatically.
+- [ ] Confirm disabling update checks prevents startup network access.
+- [ ] Review the exported update-check snapshot and download receipt for secret-free metadata.

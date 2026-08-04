@@ -354,6 +354,10 @@ class FinalReleaseService:
             for item in copied
             if item.role in {"portable_package", "windows_installer"}
         ]
+        release_notes_artifact = next(
+            (item for item in copied if item.role == "release_notes"),
+            None,
+        )
         feed_payload = {
             "schema_version": 1,
             "product": "S Talking",
@@ -366,6 +370,12 @@ class FinalReleaseService:
             "source_distribution_id": self._json(
                 initial.source_distribution / self.distribution_service.MANIFEST_NAME
             ).get("distribution_id", ""),
+            "release_notes_url": (
+                release_notes_artifact.path.name if release_notes_artifact else ""
+            ),
+            "release_notes_sha256": (
+                release_notes_artifact.sha256 if release_notes_artifact else ""
+            ),
             "artifacts": [item.to_dict() for item in update_artifacts],
         }
         self._write_json(feed, feed_payload)
@@ -464,14 +474,26 @@ class FinalReleaseService:
             if not isinstance(artifacts, list) or not artifacts:
                 return False, "Update feed contains no downloadable artifacts."
             for item in artifacts:
-                filename = Path(str(item["filename"])).name
-                if str(item.get("url") or "") != filename:
+                raw_filename = str(item["filename"])
+                filename = Path(raw_filename).name
+                if not self._safe_relative_name(raw_filename) or str(item.get("url") or "") != filename:
                     return False, f"Update URL must be a safe relative filename: {filename}"
                 artifact = path.parent / filename
                 if not artifact.exists():
                     return False, f"Update artifact is missing: {filename}"
                 if self._sha256(artifact) != str(item["sha256"]):
                     return False, f"SHA-256 mismatch for update artifact: {filename}"
+            notes_raw = str(payload.get("release_notes_url") or "")
+            if notes_raw:
+                notes_name = Path(notes_raw).name
+                notes_sha = str(payload.get("release_notes_sha256") or "")
+                if not self._safe_relative_name(notes_raw) or len(notes_sha) != 64:
+                    return False, "Release notes metadata is unsafe or incomplete."
+                notes_path = path.parent / notes_name
+                if not notes_path.exists():
+                    return False, f"Release notes are missing: {notes_name}"
+                if self._sha256(notes_path) != notes_sha:
+                    return False, f"SHA-256 mismatch for release notes: {notes_name}"
             digest_path = (
                 path.with_suffix(".sha256")
                 if path.name == "latest.json"
@@ -689,9 +711,20 @@ class FinalReleaseService:
                 source = feed.parent / name
                 if name and source.exists():
                     shutil.copy2(source, target.parent / name)
+        release_notes_name = Path(str(payload.get("release_notes_url") or "")).name
+        release_notes_source = feed.parent / release_notes_name
+        if release_notes_name and release_notes_source.exists():
+            shutil.copy2(release_notes_source, target.parent / release_notes_name)
         shutil.copy2(feed, target)
         digest = target.with_suffix(".sha256")
         digest.write_text(f"{self._sha256(target)}  {target.name}\n", encoding="ascii")
+
+    @staticmethod
+    def _safe_relative_name(value: str) -> bool:
+        if not value or "/" in value or "\\" in value:
+            return False
+        path = Path(value)
+        return path.name == value and not path.is_absolute() and ".." not in path.parts
 
     @staticmethod
     def _json(path: Path) -> dict[str, Any]:

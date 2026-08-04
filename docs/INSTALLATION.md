@@ -53,3 +53,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\upgrade-validation.ps1 -Creat
 ```
 
 For a portable-to-installed transition, pass the extracted portable directory through `-SourceRoot` and use `-Mode portable_to_installed`. The source portable directory is never modified. Restore a verified backup only while S Talking is closed and only with the explicit `-AcknowledgeRestore` switch.
+
+## Updating from inside S Talking
+
+Open **Reports → Update Delivery** to configure a preview, beta, or stable feed. The application verifies feed and artifact SHA-256 values before a download is accepted. Signed Windows installers are rechecked with Authenticode. S Talking does not silently install, close, restart, or extract an update; the final action remains explicit and user-controlled.

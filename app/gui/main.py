@@ -27,7 +27,8 @@ from app.gui.responsive_workspace import (
 )
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,DistributionReadinessDialog,FinalReleaseDialog,UpgradeRecoveryDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.update_delivery_controller import UpdateDeliveryController
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,DistributionReadinessDialog,FinalReleaseDialog,UpgradeRecoveryDialog,UpdateDeliveryDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -152,9 +153,12 @@ class MainWindow(QMainWindow):
         self.audio_player_service=context.audio_player_service
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
+        self.update_delivery_controller=UpdateDeliveryController(context.update_delivery_service,parent=self)
+        self.update_delivery_controller.completed.connect(self._background_update_completed)
+        self.update_delivery_controller.failed.connect(self._background_update_failed)
         self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]; self.qt_runtime_health_service=QtRuntimeHealthService(self); self.last_launch_receipt=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.palette=None; self.actions_by_name={}; self.job_pronunciation_overrides={}; self.project_sources=[]
         self.autosave_timer=QTimer(self); self.autosave_timer.setInterval(30000); self.autosave_timer.timeout.connect(self.autosave); self.autosave_timer.start()
-        self.build(); self.setup_responsive_workspace(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.apply_interface_preferences(self.interface_preferences,persist=False,announce=False); self.restore_layout_state(); self.run_startup_recovery(); self.restore_previous_session(); self.update_window_title(); self.update_status_bar(); QTimer.singleShot(0,self.offer_generation_recovery)
+        self.build(); self.setup_responsive_workspace(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.apply_interface_preferences(self.interface_preferences,persist=False,announce=False); self.restore_layout_state(); self.run_startup_recovery(); self.restore_previous_session(); self.update_window_title(); self.update_status_bar(); QTimer.singleShot(0,self.offer_generation_recovery); QTimer.singleShot(5000,self.check_updates_on_startup)
     def set_initial_geometry(self):
         screen=QApplication.primaryScreen(); available=screen.availableGeometry() if screen else None
         if not available:
@@ -664,7 +668,7 @@ class MainWindow(QMainWindow):
             action=self.generation_menu.addAction(action_icon(ic),text); action.triggered.connect(handler); action.setShortcut(QKeySequence(shortcut)); self.actions_by_name[text]=action
     def build_reports_menu(self):
         self.reports_menu=QMenu('Reports',self); self.menuBar().addMenu(self.reports_menu)
-        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Artifact Retention',self.open_generation_artifact_retention,'report'),('UI Runtime Health',self.open_qt_runtime_health,'health'),('Release Candidate',self.open_release_candidate,'health'),('Distribution Readiness',self.open_distribution_readiness,'health'),('Final Release & Updates',self.open_final_release,'health'),('Upgrade & Recovery',self.open_upgrade_recovery,'history'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Budget & Quota Guard',self.open_generation_budget_guard,'warning'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Estimate vs Actual',self.open_generation_estimate_actual,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
+        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Artifact Retention',self.open_generation_artifact_retention,'report'),('UI Runtime Health',self.open_qt_runtime_health,'health'),('Release Candidate',self.open_release_candidate,'health'),('Distribution Readiness',self.open_distribution_readiness,'health'),('Final Release & Updates',self.open_final_release,'health'),('Update Delivery',self.open_update_delivery,'health'),('Upgrade & Recovery',self.open_upgrade_recovery,'history'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Budget & Quota Guard',self.open_generation_budget_guard,'warning'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Estimate vs Actual',self.open_generation_estimate_actual,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
     def build_developer_tools_menu(self):
         self.developer_menu=QMenu('Developer Tools',self); self.menuBar().addMenu(self.developer_menu); self.actions_by_name.update(self.developer_tools.populate_menu(self.developer_menu))
     def build_help_menu(self):
@@ -2607,6 +2611,23 @@ class MainWindow(QMainWindow):
     def open_final_release(self):
         dialog=FinalReleaseDialog(self.context.final_release_service,self,open_path=self.open_path,copy_path=self.copy_path)
         return self._show_report_dialog(dialog,category='final-release')
+    def open_update_delivery(self):
+        dialog=UpdateDeliveryDialog(self.context.update_delivery_service,self,open_path=self.open_path,copy_path=self.copy_path)
+        return self._show_report_dialog(dialog,category='update-delivery')
+    def check_updates_on_startup(self):
+        service=self.context.update_delivery_service
+        if service.should_check_on_startup():
+            self.update_delivery_controller.check(force=False)
+    def _background_update_completed(self,operation,result):
+        if operation!='check': return
+        status=getattr(result,'status','')
+        version=getattr(result,'latest_version','')
+        if status=='available':
+            self.statusBar().showMessage(f'Update {version} is available. Open Reports → Update Delivery to review it.',12000)
+        elif status=='blocked':
+            self.statusBar().showMessage('Automatic update check was blocked by verification gates.',8000)
+    def _background_update_failed(self,operation,message):
+        if operation=='check': self.statusBar().showMessage(f'Background update check failed: {message}',8000)
     def open_upgrade_recovery(self):
         dialog=UpgradeRecoveryDialog(self.context.upgrade_recovery_service,self,open_path=self.open_path,copy_path=self.copy_path)
         return self._show_report_dialog(dialog,category='upgrade-recovery')
@@ -2730,6 +2751,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Reports: Release Candidate',act('Release Candidate')),
             PaletteCommand('Reports: Distribution Readiness',act('Distribution Readiness')),
             PaletteCommand('Reports: Final Release & Updates',act('Final Release & Updates')),
+            PaletteCommand('Reports: Update Delivery',act('Update Delivery')),
             PaletteCommand('Reports: Upgrade & Recovery',act('Upgrade & Recovery')),
             PaletteCommand('Reports: Execution Sessions',act('Execution Sessions')),
             PaletteCommand('Reports: Execution Receipts',act('Execution Receipts')),

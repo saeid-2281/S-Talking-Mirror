@@ -217,6 +217,10 @@ def test_phase53_build_writes_final_manifest_feed_digest_and_latest(tmp_path: Pa
     assert (snapshot.bundle_dir / service.CHECKSUM_NAME).exists()
     assert (snapshot.bundle_dir / service.FEED_DIGEST_NAME).exists()
     assert (snapshot.bundle_dir / service.SIGNING_RESULT_NAME).exists()
+    feed_payload = json.loads(snapshot.update_feed.read_text(encoding="utf-8"))
+    assert feed_payload["release_notes_url"] == "RELEASE-NOTES.md"
+    assert len(feed_payload["release_notes_sha256"]) == 64
+    assert (service.latest_channel_feed("preview").parent / "RELEASE-NOTES.md").exists()
     assert (service.latest_release_dir() / service.MANIFEST_NAME).exists()
     assert service.latest_channel_feed("preview").exists()
     ok, _detail = service.verify_update_feed(service.latest_channel_feed("preview"))

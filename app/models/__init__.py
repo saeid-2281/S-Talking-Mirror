@@ -1,5 +1,12 @@
 from app.models.distribution_readiness import DistributionArtifact, DistributionGate, DistributionSnapshot
 from app.models.upgrade_recovery import UpgradeArtifact, UpgradeGate, UpgradeSnapshot
+from app.models.update_delivery import (
+    UpdateCheckSnapshot,
+    UpdateDeliveryGate,
+    UpdateDownloadArtifact,
+    UpdateDownloadReceipt,
+    UpdatePreferences,
+)
 from app.models.final_release import (
     FinalReleaseArtifact,
     FinalReleaseGate,
@@ -191,6 +198,11 @@ __all__ = [
     "FinalReleaseSnapshot",
     "SigningEvidence",
     "UpdateArtifact",
+    "UpdateCheckSnapshot",
+    "UpdateDeliveryGate",
+    "UpdateDownloadArtifact",
+    "UpdateDownloadReceipt",
+    "UpdatePreferences",
     "DistributionArtifact",
     "DistributionGate",
     "DistributionSnapshot",
