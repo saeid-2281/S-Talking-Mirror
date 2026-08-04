@@ -295,9 +295,79 @@ def _handle_performance_command(argv: list[str]) -> int | None:
     return 0
 
 
+
+def _handle_security_command(argv: list[str]) -> int | None:
+    flags = {
+        "--security-snapshot",
+        "--generate-sbom",
+        "--security-audit-package",
+        "--security-vulnerability-scan",
+        "--security-export",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.services.secure_credentials import SecureCredentialStore
+    from app.services.security_supply_chain_service import SecuritySupplyChainService
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking security and supply-chain audit tool",
+    )
+    parser.add_argument("--security-snapshot", action="store_true")
+    parser.add_argument("--generate-sbom", action="store_true")
+    parser.add_argument("--security-audit-package", type=Path)
+    parser.add_argument("--security-vulnerability-scan", action="store_true")
+    parser.add_argument("--security-export", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = RuntimeConfig.from_frozen() if getattr(sys, "frozen", False) else RuntimeConfig.from_root()
+    runtime.ensure_directories()
+    credential_store = SecureCredentialStore(runtime.settings_path.parent / "credentials")
+    service = SecuritySupplyChainService(runtime, credential_store)
+    package = args.security_audit_package
+    if args.generate_sbom:
+        path = service.generate_sbom()
+        print(f"SBOM:         {path}")
+        print(f"SHA-256:      {service._sha256(path)}")
+    if args.security_vulnerability_scan:
+        path = service.run_vulnerability_scan()
+        print(f"Vulnerability:{path}")
+    if package:
+        receipt = service.audit_package(package)
+        print(f"Package audit:{receipt.status}")
+        print(f"Report:       {receipt.report_path}")
+        print(f"Issues:       {receipt.issue_count}")
+        if receipt.status != "verified":
+            return 1
+    if args.security_snapshot or args.generate_sbom or args.security_vulnerability_scan:
+        snapshot = service.snapshot(package)
+        print(f"Status:       {snapshot.status}")
+        print(f"Credentials:  {snapshot.credential_backend}")
+        print(f"Components:   {snapshot.component_count}")
+        for gate in snapshot.gates:
+            if gate.status in {"warn", "block"}:
+                print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+        if snapshot.blocker_count:
+            return 1
+    if args.security_export:
+        json_path, csv_path = service.export_snapshot(package)
+        print(f"JSON:         {json_path}")
+        print(f"CSV:          {csv_path}")
+    return 0
+
+
 def main() -> int:
     crash_service = None
     try:
+        runtime_for_hardening = RuntimeConfig.from_frozen() if getattr(sys, "frozen", False) else RuntimeConfig.from_root()
+        from app.security_runtime import harden_windows_dll_search
+
+        hardening_status, hardening_detail = harden_windows_dll_search(runtime_for_hardening)
+        if hardening_status == "block":
+            raise RuntimeError(hardening_detail)
         recovery_exit = _handle_recovery_command(sys.argv)
         if recovery_exit is not None:
             return recovery_exit
@@ -307,6 +377,9 @@ def main() -> int:
         performance_exit = _handle_performance_command(sys.argv)
         if performance_exit is not None:
             return performance_exit
+        security_exit = _handle_security_command(sys.argv)
+        if security_exit is not None:
+            return security_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

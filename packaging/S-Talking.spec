@@ -13,6 +13,7 @@ datas = [
     (str(root / "docs" / "DISTRIBUTION_READINESS_PHASE52.md"), "docs"),
     (str(root / "docs" / "TROUBLESHOOTING.md"), "docs"),
     (str(root / "docs" / "RELEASE_CHECKLIST.md"), "docs"),
+    (str(root / "docs" / "SECURITY_SUPPLY_CHAIN_HARDENING_PHASE58.md"), "docs"),
     (str(root / "docs" / "MULTI_SOURCE_PROJECTS.md"), "docs"),
     (str(root / "docs" / "PROVIDERS.md"), "docs"),
     (str(root / "docs" / "PROVIDER_CAPABILITIES.md"), "docs"),

@@ -1,3 +1,10 @@
+from app.models.security_supply_chain import (
+    SecurityArtifact,
+    SecurityAuditReceipt,
+    SecurityComponent,
+    SecurityGate,
+    SecuritySupplyChainSnapshot,
+)
 from app.models.performance_stability import (
     PerformanceGate,
     PerformanceObservationRun,
@@ -397,4 +404,9 @@ __all__ = [
     "PerformanceSample",
     "PerformanceStabilityPolicy",
     "PerformanceStabilitySnapshot",
+    "SecuritySupplyChainSnapshot",
+    "SecurityGate",
+    "SecurityComponent",
+    "SecurityAuditReceipt",
+    "SecurityArtifact",
 ]

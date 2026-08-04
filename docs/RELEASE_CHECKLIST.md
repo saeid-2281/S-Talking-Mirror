@@ -109,3 +109,14 @@
 - [ ] Active observations are finished as `interrupted` during application shutdown.
 - [ ] Full pytest, Ruff and Quality Gate pass.
 - [ ] Database schema remains 22.
+
+## Phase 58 security and supply-chain gate
+
+- [ ] `Reports → Security & Supply Chain` has no blocker gates.
+- [ ] Windows production credentials report `windows-credential-manager`.
+- [ ] The SPDX 2.3 SBOM is generated and verified.
+- [ ] The current portable ZIP passes path, privacy, PE and DLL-layout audits.
+- [ ] The latest vulnerability report is reviewed; high/critical findings are zero.
+- [ ] Stable application and installer artifacts are signed and timestamped.
+- [ ] Frozen startup reports hardened DLL search directories.
+- [ ] Security JSON/CSV exports contain no local paths or secret values.

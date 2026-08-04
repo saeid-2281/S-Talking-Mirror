@@ -270,6 +270,10 @@ exit /b 0
     Compress-Archive -Path (Join-Path $portable "*") -DestinationPath $zip -Force
     $result.zip_path = $zip
 
+    $result.stage = "security_supply_chain"
+    & $pythonPath -m app.frozen_main --generate-sbom --security-audit-package $zip --security-export
+    if ($LASTEXITCODE -ne 0) { throw "Security and supply-chain verification failed." }
+
     $result.stage = "installer"
     $installerDir = Join-Path $packageRoot "installer"
     New-Item -ItemType Directory -Force -Path $installerDir | Out-Null

@@ -63,3 +63,21 @@ Open **Reports → Update Delivery** to configure a preview, beta, or stable fee
 If S Talking repeatedly fails during startup, launch it once with `--safe-mode`. Safe mode skips automatic project/session restore, the generation recovery prompt and startup update checks while preserving access to **Reports → Crash Recovery & Diagnostics** and **Reports → Upgrade & Recovery**.
 
 Structured crash reports and verified support bundles are stored under the writable diagnostics directory. They exclude settings, API profiles, credentials, databases, project sources and generated audio. Use `scripts\crash-diagnostics.ps1` from a source checkout to inspect or export the same evidence.
+
+## Security verification
+
+Before distributing a portable or installed build, generate the SPDX SBOM and
+run the package audit:
+
+```powershell
+powershell -ExecutionPolicy Bypass `
+  -File .\scripts\security-audit.ps1 `
+  -GenerateSbom `
+  -AuditPackage .\artifacts\package\S-Talking-0.18.2-rc1-portable.zip `
+  -Export
+```
+
+Production Windows builds store provider credentials in Windows Credential
+Manager. Do not copy the local `credentials` directory between users or include
+it in installers, portable archives, backups intended for support, or release
+artifacts.
