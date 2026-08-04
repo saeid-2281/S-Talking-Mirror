@@ -24,8 +24,15 @@ $result = [ordered]@{
     artifact_directory = $artifactDir
     application_version = ""
     release_channel = "rc"
+    source_commit = ""
+    working_tree_clean = $false
     steps = [ordered]@{}
 }
+
+$commitText = (& git rev-parse HEAD 2>$null | Out-String).Trim()
+$statusText = (& git status --porcelain 2>$null | Out-String).Trim()
+$result.source_commit = $commitText
+$result.working_tree_clean = (-not $statusText)
 
 function Invoke-Step {
     param(

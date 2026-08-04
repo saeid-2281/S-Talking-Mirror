@@ -131,3 +131,12 @@
 - [ ] Confirm 100%, 125%, 150% and 200% display profiles remain scroll-safe.
 - [ ] Review shortcut conflicts and target-size warnings.
 - [ ] Store the generated JSON and CSV evidence with release artifacts.
+
+## Phase 60 — Production certification
+
+- Run `scripts/production-certification.ps1 -TargetVersion 1.0.0 -ExpectedTests 849` from the exact clean commit intended for promotion.
+- Require zero production-certification blockers.
+- Verify `artifacts/production-certification/production-release-attestation.json` before preparing a promotion plan.
+- Treat preview/beta channel evidence as an explicit warning; promotion to stable remains manual.
+- Never edit the version, create a tag, publish an update feed or upload artifacts from the certification command.
+- After approval, perform the version/channel change in a separate reviewed commit and rebuild every distributable artifact from that commit.

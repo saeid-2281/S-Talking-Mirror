@@ -1,3 +1,8 @@
+from app.models.production_release import (
+    ProductionCertificationGate,
+    ProductionCertificationSnapshot,
+    ProductionEvidenceArtifact,
+)
 from app.models.ux_accessibility import (
     AccessibilityIssue,
     DisplayCertificationProfile,
@@ -421,4 +426,7 @@ __all__ = [
     "ThemeContrastResult",
     "UxAccessibilitySnapshot",
     "UxCertificationGate",
+    "ProductionCertificationGate",
+    "ProductionCertificationSnapshot",
+    "ProductionEvidenceArtifact",
 ]

@@ -404,6 +404,83 @@ def _handle_ux_certification_command(argv: list[str]) -> int | None:
         print(f"CSV:          {csv_path}")
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_production_certification_command(argv: list[str]) -> int | None:
+    flags = {
+        "--production-certification",
+        "--production-certification-export",
+        "--verify-production-attestation",
+        "--prepare-production-promotion-plan",
+        "--refresh-production-evidence",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.services.production_release_certification_service import (
+        ProductionReleaseCertificationService,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking production release certification and promotion guard",
+    )
+    parser.add_argument("--production-certification", action="store_true")
+    parser.add_argument("--production-certification-export", action="store_true")
+    parser.add_argument("--verify-production-attestation", type=Path)
+    parser.add_argument("--prepare-production-promotion-plan", action="store_true")
+    parser.add_argument("--refresh-production-evidence", action="store_true")
+    parser.add_argument("--acknowledge-production-plan", action="store_true")
+    parser.add_argument("--target-version", default="1.0.0")
+    parser.add_argument("--source-commit", default="")
+    parser.add_argument("--expected-tests", type=int, default=849)
+    args = parser.parse_args(argv[1:])
+
+    runtime = RuntimeConfig.from_frozen() if getattr(sys, "frozen", False) else RuntimeConfig.from_root()
+    runtime.ensure_directories()
+    service = ProductionReleaseCertificationService(runtime)
+    if args.verify_production_attestation:
+        ok, detail = service.verify_attestation(args.verify_production_attestation)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+
+    if args.refresh_production_evidence:
+        for evidence_path in service.refresh_runtime_evidence():
+            print(f"Refreshed:    {evidence_path}")
+
+    snapshot = service.certify_and_write(
+        target_version=args.target_version,
+        source_commit=args.source_commit,
+        expected_test_count=args.expected_tests,
+    )
+    print(f"Status:       {snapshot.status}")
+    print(f"Source:       {snapshot.source_version}")
+    print(f"Target:       {snapshot.target_version}")
+    print(f"Commit:       {snapshot.source_commit}")
+    print(f"Tests:        {snapshot.observed_test_count}/{snapshot.expected_test_count}")
+    print(f"Blockers:     {snapshot.blocker_count}")
+    print(f"Warnings:     {snapshot.warning_count}")
+    print(f"Attestation:  {snapshot.attestation_path}")
+    for gate in snapshot.gates:
+        if gate.status in {"warn", "block"}:
+            print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+    if args.production_certification_export:
+        attestation, summary = service.export_snapshot(snapshot)
+        print(f"Evidence:     {attestation}")
+        print(f"Summary:      {summary}")
+    if args.prepare_production_promotion_plan:
+        result = service.create_promotion_plan(
+            snapshot,
+            acknowledge=args.acknowledge_production_plan,
+        )
+        print(f"Plan:         {result.get('status')} — {result.get('detail')}")
+        if result.get("path"):
+            print(f"Plan path:    {result.get('path')}")
+        if result.get("status") == "blocked":
+            return 1
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -428,6 +505,9 @@ def main() -> int:
         ux_exit = _handle_ux_certification_command(sys.argv)
         if ux_exit is not None:
             return ux_exit
+        production_exit = _handle_production_certification_command(sys.argv)
+        if production_exit is not None:
+            return production_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context
