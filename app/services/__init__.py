@@ -1,3 +1,4 @@
+from app.services.crash_recovery_service import CrashRecoveryService
 from app.services.distribution_readiness_service import DistributionReadinessService
 from app.services.final_release_service import FinalReleaseService
 from app.services.upgrade_recovery_service import UpgradeRecoveryService
@@ -52,6 +53,7 @@ from app.services.voice_library_store import VoiceLibraryStore
 from app.services.generation_reliability_service import GenerationReliabilityService
 from app.services.generation_recovery_service import GenerationRecoveryService
 __all__ = [
+    "CrashRecoveryService",
     "DistributionReadinessService",
     "FinalReleaseService",
     "UpgradeRecoveryService",

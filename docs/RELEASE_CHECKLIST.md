@@ -85,3 +85,15 @@
 - [ ] Confirm a signed installer is rechecked with Authenticode and is never launched automatically.
 - [ ] Confirm disabling update checks prevents startup network access.
 - [ ] Review the exported update-check snapshot and download receipt for secret-free metadata.
+
+## Phase 56 crash-recovery checks
+
+- [ ] Unhandled Python and thread exceptions create integrity-protected structured reports.
+- [ ] Qt critical/fatal capture is installed only during production startup.
+- [ ] Normal window close removes the active-session marker.
+- [ ] A stale marker is reported as an unclean prior shutdown.
+- [ ] `--safe-mode` skips automatic project/session restore, generation recovery prompts and startup update checks.
+- [ ] Diagnostics bundles verify every included artifact against the internal manifest.
+- [ ] Bundles contain no settings, API profiles, credentials, databases, project sources or generated audio.
+- [ ] Report tampering blocks acknowledgement and marks recovery status as blocked.
+- [ ] Database quick check remains read-only.

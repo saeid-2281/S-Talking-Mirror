@@ -57,3 +57,9 @@ For a portable-to-installed transition, pass the extracted portable directory th
 ## Updating from inside S Talking
 
 Open **Reports → Update Delivery** to configure a preview, beta, or stable feed. The application verifies feed and artifact SHA-256 values before a download is accepted. Signed Windows installers are rechecked with Authenticode. S Talking does not silently install, close, restart, or extract an update; the final action remains explicit and user-controlled.
+
+## Crash recovery and safe mode
+
+If S Talking repeatedly fails during startup, launch it once with `--safe-mode`. Safe mode skips automatic project/session restore, the generation recovery prompt and startup update checks while preserving access to **Reports → Crash Recovery & Diagnostics** and **Reports → Upgrade & Recovery**.
+
+Structured crash reports and verified support bundles are stored under the writable diagnostics directory. They exclude settings, API profiles, credentials, databases, project sources and generated audio. Use `scripts\crash-diagnostics.ps1` from a source checkout to inspect or export the same evidence.

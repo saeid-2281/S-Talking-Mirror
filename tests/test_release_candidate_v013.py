@@ -186,13 +186,17 @@ def test_startup_exception_logging(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     from app.frozen_main import _write_crash
 
     try:
-        raise RuntimeError("startup boom")
+        raise RuntimeError(
+            "startup boom; Authorization: Bearer startup-secret-token-123456789"
+        )
     except RuntimeError as exc:
         _write_crash(type(exc), exc, exc.__traceback__)
 
     crash = exe_dir / "S-Talking-Data" / "logs" / "startup-crash.log"
     text = crash.read_text(encoding="utf-8")
     assert "startup boom" in text
+    assert "startup-secret-token" not in text
+    assert "Authorization=[REDACTED]" in text
     assert "0.18.2-rc1" in text
     assert "S-Talking-Data" in text
 

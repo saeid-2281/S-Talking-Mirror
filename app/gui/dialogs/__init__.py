@@ -1,3 +1,4 @@
+from app.gui.dialogs.crash_recovery_dialog import CrashRecoveryDialog
 from app.gui.dialogs.distribution_readiness_dialog import DistributionReadinessDialog
 from app.gui.dialogs.final_release_dialog import FinalReleaseDialog
 from app.gui.dialogs.upgrade_recovery_dialog import UpgradeRecoveryDialog
@@ -70,6 +71,7 @@ from app.gui.dialogs.source_import_review_dialog import SourceImportReviewDialog
 from app.gui.dialogs.text_source_dialog import TextSourceDialog
 
 __all__ = [
+    "CrashRecoveryDialog",
     "DistributionReadinessDialog",
     "FinalReleaseDialog",
     "UpgradeRecoveryDialog",

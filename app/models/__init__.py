@@ -1,3 +1,4 @@
+from app.models.crash_recovery import CrashDiagnosticsBundle, CrashRecoveryGate, CrashRecoverySnapshot, CrashReportRecord
 from app.models.distribution_readiness import DistributionArtifact, DistributionGate, DistributionSnapshot
 from app.models.upgrade_recovery import UpgradeArtifact, UpgradeGate, UpgradeSnapshot
 from app.models.update_delivery import (
@@ -190,6 +191,10 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "CrashDiagnosticsBundle",
+    "CrashRecoveryGate",
+    "CrashRecoverySnapshot",
+    "CrashReportRecord",
     "UpgradeArtifact",
     "UpgradeGate",
     "UpgradeSnapshot",
