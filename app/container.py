@@ -69,6 +69,7 @@ from app.services.final_release_service import FinalReleaseService
 from app.services.upgrade_recovery_service import UpgradeRecoveryService
 from app.services.update_delivery_service import UpdateDeliveryService
 from app.services.crash_recovery_service import CrashRecoveryService
+from app.services.performance_stability_service import PerformanceStabilityService
 from app.services.statistics_service import StatisticsService
 from app.services.startup_recovery_service import SessionRestoreService, StartupRecoveryService
 from app.services.source_import_service import SourceImportService
@@ -104,6 +105,7 @@ class ServiceContainer:
     upgrade_recovery_service: UpgradeRecoveryService
     update_delivery_service: UpdateDeliveryService
     crash_recovery_service: CrashRecoveryService
+    performance_stability_service: PerformanceStabilityService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -255,6 +257,7 @@ def create_service_container(
     upgrade_recovery_service = UpgradeRecoveryService(config, database)
     update_delivery_service = UpdateDeliveryService(config)
     crash_recovery = crash_recovery_service or CrashRecoveryService(config)
+    performance_stability_service = PerformanceStabilityService(config)
     generation_performance_policy_service = GenerationPerformancePolicyService(
         product_event_repository
     )
@@ -314,6 +317,7 @@ def create_service_container(
         upgrade_recovery_service=upgrade_recovery_service,
         update_delivery_service=update_delivery_service,
         crash_recovery_service=crash_recovery,
+        performance_stability_service=performance_stability_service,
         git_service=git_service,
         diagnostics_service=diagnostics_service,
         task_prompt_service=TaskPromptService(config.app_root),

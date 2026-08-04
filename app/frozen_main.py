@@ -234,6 +234,67 @@ def _handle_crash_recovery_command(argv: list[str]) -> int | None:
             return 1
     return 0
 
+
+def _handle_performance_command(argv: list[str]) -> int | None:
+    flags = {
+        "--performance-snapshot",
+        "--performance-export",
+        "--performance-soak-minutes",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.services.performance_stability_service import PerformanceStabilityService
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking performance and long-run stability tool",
+    )
+    parser.add_argument("--performance-snapshot", action="store_true")
+    parser.add_argument("--performance-export", action="store_true")
+    parser.add_argument("--performance-soak-minutes", type=float, default=None)
+    parser.add_argument("--performance-sample-interval", type=float, default=15.0)
+    parser.add_argument("--performance-max-samples", type=int)
+    parser.add_argument("--performance-label", default="command-line soak")
+    args = parser.parse_args(argv[1:])
+
+    runtime = RuntimeConfig.from_frozen() if getattr(sys, "frozen", False) else RuntimeConfig.from_root()
+    runtime.ensure_directories()
+    service = PerformanceStabilityService(runtime)
+    service.mark_startup_ready()
+    if args.performance_soak_minutes is not None:
+        run = service.run_soak(
+            duration_seconds=max(0.0, args.performance_soak_minutes * 60.0),
+            sample_interval_seconds=args.performance_sample_interval,
+            label=args.performance_label,
+            max_samples=args.performance_max_samples,
+        )
+        print(f"Run:          {run.run_id}")
+        print(f"Status:       {run.status}")
+        print(f"Duration:     {run.duration_seconds:.1f} second(s)")
+        print(f"Samples:      {run.sample_count}")
+        print(f"Peak RSS:     {run.peak_rss_bytes / 1024**2:.1f} MB")
+        print(f"RSS growth:   {run.rss_growth_bytes / 1024**2:+.1f} MB")
+        print(f"Growth/hour:  {run.growth_mb_per_hour:.2f} MB/hour")
+    if args.performance_snapshot or args.performance_soak_minutes is not None:
+        snapshot = service.snapshot()
+        print(f"Readiness:    {snapshot.status}")
+        print(f"Startup:      {snapshot.current_sample.startup_elapsed_ms} ms")
+        print(f"Working set:  {snapshot.current_sample.rss_bytes / 1024**2:.1f} MB")
+        for gate in snapshot.gates:
+            if gate.status in {"warn", "block"}:
+                print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+        if snapshot.blocker_count:
+            return 1
+    if args.performance_export:
+        json_path, csv_path = service.export_snapshot()
+        print(f"JSON:         {json_path}")
+        print(f"CSV:          {csv_path}")
+    return 0
+
+
 def main() -> int:
     crash_service = None
     try:
@@ -243,6 +304,9 @@ def main() -> int:
         crash_exit = _handle_crash_recovery_command(sys.argv)
         if crash_exit is not None:
             return crash_exit
+        performance_exit = _handle_performance_command(sys.argv)
+        if performance_exit is not None:
+            return performance_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

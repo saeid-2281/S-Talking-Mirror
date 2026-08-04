@@ -97,3 +97,15 @@
 - [ ] Bundles contain no settings, API profiles, credentials, databases, project sources or generated audio.
 - [ ] Report tampering blocks acknowledgement and marks recovery status as blocked.
 - [ ] Database quick check remains read-only.
+
+## Phase 57 — Performance and long-run stability
+
+- [ ] Reports → Performance & Stability opens and displays seven budget gates.
+- [ ] Startup readiness is marked after the first event-loop turn without delaying the window.
+- [ ] Background sampling interval is at least 15 seconds and retained history is bounded.
+- [ ] A manual observation records start/end/peak RSS and MB/hour growth.
+- [ ] `scripts/performance-soak.ps1 -Quick -Export` completes successfully.
+- [ ] Performance evidence contains no project text, filenames, API profiles, credentials, database rows or generated audio.
+- [ ] Active observations are finished as `interrupted` during application shutdown.
+- [ ] Full pytest, Ruff and Quality Gate pass.
+- [ ] Database schema remains 22.

@@ -1,3 +1,10 @@
+from app.models.performance_stability import (
+    PerformanceGate,
+    PerformanceObservationRun,
+    PerformanceSample,
+    PerformanceStabilityPolicy,
+    PerformanceStabilitySnapshot,
+)
 from app.models.crash_recovery import CrashDiagnosticsBundle, CrashRecoveryGate, CrashRecoverySnapshot, CrashReportRecord
 from app.models.distribution_readiness import DistributionArtifact, DistributionGate, DistributionSnapshot
 from app.models.upgrade_recovery import UpgradeArtifact, UpgradeGate, UpgradeSnapshot
@@ -385,4 +392,9 @@ __all__ = [
     "WorkspaceProfile",
     "QtDialogLifecycleRecord",
     "QtRuntimeHealthSnapshot",
+    "PerformanceGate",
+    "PerformanceObservationRun",
+    "PerformanceSample",
+    "PerformanceStabilityPolicy",
+    "PerformanceStabilitySnapshot",
 ]
