@@ -85,7 +85,7 @@ class ProductionReleaseCertificationDialog(QDialog):
         self.expected_tests.setObjectName("productionExpectedTests")
         self.expected_tests.setAccessibleName("Minimum passing test count")
         self.expected_tests.setRange(1, 100_000)
-        self.expected_tests.setValue(849)
+        self.expected_tests.setValue(850)
         form.addRow("Minimum passed tests", self.expected_tests)
         settings.add_widget(form_widget)
         self.workspace.add_body_widget(settings)

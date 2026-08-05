@@ -231,6 +231,10 @@ def test_phase60_cli_script_dialog_container_and_release_contracts() -> None:
     script = (root / "scripts" / "production-certification.ps1").read_text(encoding="utf-8")
     docs = (root / "docs" / "PRODUCTION_RELEASE_READINESS_PHASE60.md").read_text(encoding="utf-8")
     assert "--production-certification" in frozen
+    assert "default=850" in frozen
+    assert "setValue(850)" in dialog
+    assert "[int]$ExpectedTests = 850" in script
+    assert "-ExpectedTests 850" in docs
     assert "--verify-production-attestation" in frozen
     assert "--acknowledge-production-plan" in frozen
     assert "never changes app.release" in service

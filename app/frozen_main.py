@@ -434,7 +434,7 @@ def _handle_production_certification_command(argv: list[str]) -> int | None:
     parser.add_argument("--acknowledge-production-plan", action="store_true")
     parser.add_argument("--target-version", default="1.0.0")
     parser.add_argument("--source-commit", default="")
-    parser.add_argument("--expected-tests", type=int, default=849)
+    parser.add_argument("--expected-tests", type=int, default=850)
     args = parser.parse_args(argv[1:])
 
     runtime = RuntimeConfig.from_frozen() if getattr(sys, "frozen", False) else RuntimeConfig.from_root()

@@ -11,6 +11,7 @@ from app.config.runtime import RuntimeConfig
 from app.database.connection import Database
 from app.gui.dialogs.upgrade_recovery_dialog import UpgradeRecoveryDialog
 from app.models.upgrade_recovery import UpgradeArtifact, UpgradeGate, UpgradeSnapshot
+from app.release import SCHEMA_VERSION as DATABASE_SCHEMA_VERSION
 from app.services.upgrade_recovery_service import UpgradeRecoveryService
 
 
@@ -54,6 +55,20 @@ def _drain(qt_app) -> None:
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     qt_app.processEvents()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+def test_phase54_default_target_schema_uses_application_database_schema(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    database = Database(runtime.database_path)
+    database.initialize()
+    service = UpgradeRecoveryService(runtime, database, version="0.18.2-rc1")
+
+    assert service.target_schema == DATABASE_SCHEMA_VERSION == 22
+    assert service.MANIFEST_SCHEMA_VERSION == 1
+    snapshot = service.snapshot(source_version="0.18.2-rc1")
+    assert snapshot.current_schema == 22
+    assert snapshot.target_schema == 22
+    assert snapshot.blocker_count == 0
 
 
 def test_phase54_models_and_transition_modes_are_deterministic(tmp_path: Path) -> None:

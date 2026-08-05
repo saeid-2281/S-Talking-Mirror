@@ -1,7 +1,7 @@
 param(
     [string]$Python = ".\.venv\Scripts\python.exe",
     [string]$TargetVersion = "1.0.0",
-    [int]$ExpectedTests = 849,
+    [int]$ExpectedTests = 850,
     [string]$SourceCommit = "",
     [switch]$SkipReleaseCheck,
     [switch]$PreparePromotionPlan,

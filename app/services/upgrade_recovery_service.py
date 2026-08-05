@@ -15,6 +15,7 @@ import app
 from app.config.runtime import RuntimeConfig
 from app.database.connection import Database
 from app.models.upgrade_recovery import UpgradeArtifact, UpgradeGate, UpgradeSnapshot
+from app.release import SCHEMA_VERSION as DATABASE_SCHEMA_VERSION
 
 
 class UpgradeRecoveryService:
@@ -24,7 +25,8 @@ class UpgradeRecoveryService:
     RESULT_NAME = "upgrade-backup-result.json"
     RESTORE_RESULT_NAME = "restore-result.json"
     INSTRUCTIONS_NAME = "RECOVERY.md"
-    SCHEMA_VERSION = 1
+    MANIFEST_SCHEMA_VERSION = 1
+    SCHEMA_VERSION = MANIFEST_SCHEMA_VERSION  # Backward-compatible manifest schema alias.
     MODES = {"auto", "in_place", "portable_to_installed", "installed_to_portable", "rollback"}
 
     def __init__(
@@ -33,7 +35,7 @@ class UpgradeRecoveryService:
         database: Database,
         *,
         version: str | None = None,
-        target_schema: int = SCHEMA_VERSION,
+        target_schema: int = DATABASE_SCHEMA_VERSION,
     ) -> None:
         self.runtime = runtime
         self.database = database
@@ -266,7 +268,7 @@ class UpgradeRecoveryService:
                     copied.append(self._file_record(role, target, backup, secret=secret))
 
             manifest = {
-                "schema_version": self.SCHEMA_VERSION,
+                "schema_version": self.MANIFEST_SCHEMA_VERSION,
                 "backup_id": initial.operation_id,
                 "created_at": self._now(),
                 "source_version": initial.source_version,
@@ -306,7 +308,7 @@ class UpgradeRecoveryService:
         backup = Path(backup_dir)
         manifest_path = backup / self.MANIFEST_NAME
         payload = self._json(manifest_path)
-        if int(payload.get("schema_version", 0) or 0) != self.SCHEMA_VERSION:
+        if int(payload.get("schema_version", 0) or 0) != self.MANIFEST_SCHEMA_VERSION:
             return False, "Backup manifest is missing or uses an unsupported schema."
         files = payload.get("files")
         if not isinstance(files, list):

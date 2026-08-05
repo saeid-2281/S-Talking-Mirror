@@ -27,7 +27,7 @@ Missing, invalid, stale or secret-bearing evidence blocks promotion. Preview or 
 powershell -ExecutionPolicy Bypass `
   -File .\scripts\production-certification.ps1 `
   -TargetVersion 1.0.0 `
-  -ExpectedTests 849
+  -ExpectedTests 850
 ```
 
 The script first runs the complete release check, refreshes privacy-safe runtime evidence and then writes the production attestation.
@@ -41,7 +41,7 @@ powershell -ExecutionPolicy Bypass `
   -File .\scripts\production-certification.ps1 `
   -SkipReleaseCheck `
   -TargetVersion 1.0.0 `
-  -ExpectedTests 849
+  -ExpectedTests 850
 ```
 
 ## Verify an attestation

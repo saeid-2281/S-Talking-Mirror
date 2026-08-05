@@ -134,7 +134,7 @@
 
 ## Phase 60 — Production certification
 
-- Run `scripts/production-certification.ps1 -TargetVersion 1.0.0 -ExpectedTests 849` from the exact clean commit intended for promotion.
+- Run `scripts/production-certification.ps1 -TargetVersion 1.0.0 -ExpectedTests 850` from the exact clean commit intended for promotion.
 - Require zero production-certification blockers.
 - Verify `artifacts/production-certification/production-release-attestation.json` before preparing a promotion plan.
 - Treat preview/beta channel evidence as an explicit warning; promotion to stable remains manual.
