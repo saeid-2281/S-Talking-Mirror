@@ -696,6 +696,110 @@ def _handle_post_ga_maintenance_command(argv: list[str]) -> int | None:
 
     return 1 if snapshot.blocker_count else 0
 
+
+
+def _handle_incident_support_command(argv: list[str]) -> int | None:
+    flags = {
+        "--incident-support-snapshot",
+        "--create-incident-support-bundle",
+        "--verify-incident-support-bundle",
+        "--verify-incident-support-receipt",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.services.crash_recovery_service import CrashRecoveryService
+    from app.services.incident_support_service import IncidentSupportService
+    from app.services.post_ga_maintenance_service import PostGaMaintenanceService
+    from app.services.production_release_certification_service import (
+        ProductionReleaseCertificationService,
+    )
+    from app.services.stable_release_promotion_service import (
+        StableReleasePromotionService,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking production incident response and privacy-safe support bundle",
+    )
+    parser.add_argument("--incident-support-snapshot", action="store_true")
+    parser.add_argument("--create-incident-support-bundle", action="store_true")
+    parser.add_argument("--verify-incident-support-bundle", type=Path)
+    parser.add_argument("--verify-incident-support-receipt", type=Path)
+    parser.add_argument("--incident-summary", default="")
+    parser.add_argument(
+        "--incident-severity",
+        choices=("low", "medium", "high", "critical"),
+        default="medium",
+    )
+    parser.add_argument("--post-ga-baseline", type=Path)
+    parser.add_argument("--exclude-support-logs", action="store_true")
+    parser.add_argument("--max-support-log-age-days", type=int, default=14)
+    parser.add_argument("--max-support-bundle-mb", type=int, default=16)
+    parser.add_argument("--acknowledge-incident-support", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    crash = CrashRecoveryService(runtime)
+    production = ProductionReleaseCertificationService(runtime)
+    stable = StableReleasePromotionService(runtime, production)
+    post_ga = PostGaMaintenanceService(runtime, stable)
+    service = IncidentSupportService(runtime, crash, post_ga)
+
+    if args.verify_incident_support_bundle:
+        ok, detail = service.verify_bundle(args.verify_incident_support_bundle)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_incident_support_receipt:
+        ok, detail = service.verify_receipt(args.verify_incident_support_receipt)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+
+    snapshot = service.snapshot(
+        summary=args.incident_summary,
+        severity=args.incident_severity,
+        baseline_path=args.post_ga_baseline,
+        include_logs=not args.exclude_support_logs,
+        max_log_age_days=args.max_support_log_age_days,
+        max_bundle_mb=args.max_support_bundle_mb,
+    )
+    print(f"Status:       {snapshot.status}")
+    print(f"Incident:     {snapshot.incident_id}")
+    print(f"Severity:     {snapshot.severity}")
+    print(f"Version:      {snapshot.version}/{snapshot.channel}")
+    print(f"Crash reports:{snapshot.crash_count}")
+    print(f"Eligible logs:{snapshot.eligible_log_count}")
+    print(f"Blockers:     {snapshot.blocker_count}")
+    print(f"Warnings:     {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        if gate.status in {"warn", "block"}:
+            print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_incident_support_bundle:
+        result = service.create_bundle(
+            snapshot,
+            baseline_path=args.post_ga_baseline,
+            include_logs=not args.exclude_support_logs,
+            max_log_age_days=args.max_support_log_age_days,
+            acknowledge=args.acknowledge_incident_support,
+        )
+        if isinstance(result, dict):
+            print(f"Bundle:       {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Bundle:       {result.path}")
+        print(f"Receipt:      {result.receipt_path}")
+        print(f"SHA-256:      {result.sha256}")
+        return 0
+
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -729,6 +833,9 @@ def main() -> int:
         post_ga_exit = _handle_post_ga_maintenance_command(sys.argv)
         if post_ga_exit is not None:
             return post_ga_exit
+        incident_support_exit = _handle_incident_support_command(sys.argv)
+        if incident_support_exit is not None:
+            return incident_support_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

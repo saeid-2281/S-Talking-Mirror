@@ -1,3 +1,4 @@
+from app.gui.dialogs.incident_support_dialog import IncidentSupportDialog
 from app.gui.dialogs.post_ga_maintenance_dialog import PostGaMaintenanceDialog
 from app.gui.dialogs.stable_release_promotion_dialog import StableReleasePromotionDialog
 from app.gui.dialogs.production_release_certification_dialog import ProductionReleaseCertificationDialog
@@ -77,6 +78,7 @@ from app.gui.dialogs.source_import_review_dialog import SourceImportReviewDialog
 from app.gui.dialogs.text_source_dialog import TextSourceDialog
 
 __all__ = [
+    "IncidentSupportDialog",
     "PostGaMaintenanceDialog",
     "StableReleasePromotionDialog",
     "ProductionReleaseCertificationDialog",

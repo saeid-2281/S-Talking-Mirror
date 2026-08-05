@@ -1,3 +1,9 @@
+from app.models.incident_support import (
+    IncidentSupportArtifact,
+    IncidentSupportBundle,
+    IncidentSupportGate,
+    IncidentSupportSnapshot,
+)
 from app.models.post_ga_maintenance import (
     PostGaMaintenanceArtifact,
     PostGaMaintenanceGate,
@@ -227,6 +233,10 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "IncidentSupportArtifact",
+    "IncidentSupportBundle",
+    "IncidentSupportGate",
+    "IncidentSupportSnapshot",
     "PostGaMaintenanceArtifact",
     "PostGaMaintenanceGate",
     "PostGaMaintenanceSnapshot",

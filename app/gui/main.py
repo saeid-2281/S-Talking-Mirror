@@ -30,7 +30,7 @@ from app.gui.responsive_workspace import (
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
 from app.gui.update_delivery_controller import UpdateDeliveryController
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,DistributionReadinessDialog,FinalReleaseDialog,UpgradeRecoveryDialog,UpdateDeliveryDialog,CrashRecoveryDialog,PerformanceStabilityDialog,SecuritySupplyChainDialog,UxAccessibilityCertificationDialog,ProductionReleaseCertificationDialog,StableReleasePromotionDialog,PostGaMaintenanceDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,DistributionReadinessDialog,FinalReleaseDialog,UpgradeRecoveryDialog,UpdateDeliveryDialog,CrashRecoveryDialog,PerformanceStabilityDialog,SecuritySupplyChainDialog,UxAccessibilityCertificationDialog,ProductionReleaseCertificationDialog,StableReleasePromotionDialog,PostGaMaintenanceDialog,IncidentSupportDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -163,6 +163,7 @@ class MainWindow(QMainWindow):
         self.production_release_certification_service=context.production_release_certification_service
         self.stable_release_promotion_service=context.stable_release_promotion_service
         self.post_ga_maintenance_service=context.post_ga_maintenance_service
+        self.incident_support_service=context.incident_support_service
         self.update_delivery_controller=UpdateDeliveryController(context.update_delivery_service,parent=self)
         self.update_delivery_controller.completed.connect(self._background_update_completed)
         self.update_delivery_controller.failed.connect(self._background_update_failed)
@@ -378,7 +379,7 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
@@ -724,7 +725,7 @@ class MainWindow(QMainWindow):
             action=self.generation_menu.addAction(action_icon(ic),text); action.triggered.connect(handler); action.setShortcut(QKeySequence(shortcut)); self.actions_by_name[text]=action
     def build_reports_menu(self):
         self.reports_menu=QMenu('Reports',self); self.menuBar().addMenu(self.reports_menu)
-        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Artifact Retention',self.open_generation_artifact_retention,'report'),('UI Runtime Health',self.open_qt_runtime_health,'health'),('Release Candidate',self.open_release_candidate,'health'),('Distribution Readiness',self.open_distribution_readiness,'health'),('Final Release & Updates',self.open_final_release,'health'),('Update Delivery',self.open_update_delivery,'health'),('Upgrade & Recovery',self.open_upgrade_recovery,'history'),('Crash Recovery & Diagnostics',self.open_crash_recovery,'warning'),('Performance & Stability',self.open_performance_stability,'health'),('Security & Supply Chain',self.open_security_supply_chain,'health'),('UX & Accessibility Certification',self.open_ux_accessibility_certification,'health'),('Production Release Certification',self.open_production_release_certification,'health'),('Stable Release Promotion',self.open_stable_release_promotion,'health'),('Post-GA Maintenance',self.open_post_ga_maintenance,'health'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Budget & Quota Guard',self.open_generation_budget_guard,'warning'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Estimate vs Actual',self.open_generation_estimate_actual,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
+        for tx,fn,ic in [('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Artifact Retention',self.open_generation_artifact_retention,'report'),('UI Runtime Health',self.open_qt_runtime_health,'health'),('Release Candidate',self.open_release_candidate,'health'),('Distribution Readiness',self.open_distribution_readiness,'health'),('Final Release & Updates',self.open_final_release,'health'),('Update Delivery',self.open_update_delivery,'health'),('Upgrade & Recovery',self.open_upgrade_recovery,'history'),('Crash Recovery & Diagnostics',self.open_crash_recovery,'warning'),('Performance & Stability',self.open_performance_stability,'health'),('Security & Supply Chain',self.open_security_supply_chain,'health'),('UX & Accessibility Certification',self.open_ux_accessibility_certification,'health'),('Production Release Certification',self.open_production_release_certification,'health'),('Stable Release Promotion',self.open_stable_release_promotion,'health'),('Post-GA Maintenance',self.open_post_ga_maintenance,'health'),('Production Incident Support',self.open_incident_support,'warning'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Budget & Quota Guard',self.open_generation_budget_guard,'warning'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Estimate vs Actual',self.open_generation_estimate_actual,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
     def build_developer_tools_menu(self):
         self.developer_menu=QMenu('Developer Tools',self); self.menuBar().addMenu(self.developer_menu); self.actions_by_name.update(self.developer_tools.populate_menu(self.developer_menu))
     def build_help_menu(self):
@@ -2620,6 +2621,7 @@ class MainWindow(QMainWindow):
             'final-release':self.open_final_release,
             'upgrade-recovery':self.open_upgrade_recovery,
             'post-ga-maintenance':self.open_post_ga_maintenance,
+            'incident-support':self.open_incident_support,
             'crash-recovery':self.open_crash_recovery,
             'generation-cost-capacity':self.open_generation_cost_capacity,
             'generation-budget-guard':self.open_generation_budget_guard,
@@ -2766,6 +2768,13 @@ class MainWindow(QMainWindow):
             open_path=self.open_path,
         )
         return self._show_report_dialog(dialog,category='post-ga-maintenance')
+    def open_incident_support(self):
+        dialog=IncidentSupportDialog(
+            self.incident_support_service,
+            self,
+            open_path=self.open_path,
+        )
+        return self._show_report_dialog(dialog,category='incident-support')
     def open_generation_orchestration(self):
         project=self.project_controller.current_project; dialog=GenerationOrchestrationDialog(self.context.generation_orchestration_service,self,project_id=project.project_id if project else None,project_name=project.name if project else 'all-projects',settings_provider=self.settings,export_dir=self.context.container.runtime.reports_dir/'orchestration'); self._show_report_dialog(dialog)
     def open_generation_maintenance(self):
@@ -2894,6 +2903,8 @@ class MainWindow(QMainWindow):
             PaletteCommand('Reports: UX & Accessibility Certification',act('UX & Accessibility Certification')),
             PaletteCommand('Reports: Production Release Certification',act('Production Release Certification')),
             PaletteCommand('Reports: Stable Release Promotion',act('Stable Release Promotion')),
+            PaletteCommand('Reports: Post-GA Maintenance',act('Post-GA Maintenance')),
+            PaletteCommand('Reports: Production Incident Support',act('Production Incident Support')),
             PaletteCommand('Reports: Execution Sessions',act('Execution Sessions')),
             PaletteCommand('Reports: Execution Receipts',act('Execution Receipts')),
             PaletteCommand('Reports: Estimate vs Actual',act('Estimate vs Actual')),
