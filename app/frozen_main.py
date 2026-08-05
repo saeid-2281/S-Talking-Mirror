@@ -587,6 +587,115 @@ def _handle_stable_promotion_command(argv: list[str]) -> int | None:
         return 0 if result.get("status") == "verified" else 1
     return 1 if snapshot.blocker_count else 0
 
+
+
+def _handle_post_ga_maintenance_command(argv: list[str]) -> int | None:
+    flags = {
+        "--post-ga-maintenance-snapshot",
+        "--write-post-ga-baseline",
+        "--verify-post-ga-baseline",
+        "--prepare-post-ga-maintenance-plan",
+        "--verify-post-ga-maintenance-plan",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.services.post_ga_maintenance_service import PostGaMaintenanceService
+    from app.services.production_release_certification_service import (
+        ProductionReleaseCertificationService,
+    )
+    from app.services.stable_release_promotion_service import (
+        StableReleasePromotionService,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking post-GA reliability and maintenance evidence",
+    )
+    parser.add_argument("--post-ga-maintenance-snapshot", action="store_true")
+    parser.add_argument("--write-post-ga-baseline", action="store_true")
+    parser.add_argument("--verify-post-ga-baseline", type=Path)
+    parser.add_argument("--prepare-post-ga-maintenance-plan", action="store_true")
+    parser.add_argument("--verify-post-ga-maintenance-plan", type=Path)
+    parser.add_argument("--promotion-receipt", type=Path)
+    parser.add_argument("--stable-feed", type=Path)
+    parser.add_argument("--rollback-manifest", type=Path)
+    parser.add_argument("--post-ga-baseline", type=Path)
+    parser.add_argument("--max-evidence-age-days", type=int, default=30)
+    parser.add_argument("--minimum-free-space-mb", type=int, default=512)
+    parser.add_argument("--expected-stable-rollout", type=int, default=100)
+    parser.add_argument("--acknowledge-post-ga-maintenance", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    production = ProductionReleaseCertificationService(runtime)
+    stable = StableReleasePromotionService(runtime, production)
+    service = PostGaMaintenanceService(runtime, stable)
+
+    if args.verify_post_ga_baseline:
+        ok, detail = service.verify_baseline(args.verify_post_ga_baseline)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_post_ga_maintenance_plan:
+        ok, detail = service.verify_maintenance_plan(
+            args.verify_post_ga_maintenance_plan
+        )
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+
+    snapshot = service.snapshot(
+        promotion_receipt_path=args.promotion_receipt,
+        stable_feed_path=args.stable_feed,
+        rollback_manifest_path=args.rollback_manifest,
+        max_evidence_age_days=args.max_evidence_age_days,
+        minimum_free_space_mb=args.minimum_free_space_mb,
+        expected_rollout_percentage=args.expected_stable_rollout,
+    )
+    print(f"Status:       {snapshot.status}")
+    print(f"Version:      {snapshot.version}")
+    print(f"Channel:      {snapshot.channel}")
+    print(f"Rollout:      {snapshot.rollout_percentage}%")
+    print(f"Evidence age: {snapshot.evidence_age_days} day(s)")
+    print(f"Blockers:     {snapshot.blocker_count}")
+    print(f"Warnings:     {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        if gate.status in {"warn", "block"}:
+            print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    baseline_path = args.post_ga_baseline
+    if args.write_post_ga_baseline:
+        result = service.write_baseline(
+            snapshot,
+            acknowledge=args.acknowledge_post_ga_maintenance,
+        )
+        print(f"Baseline:     {result.get('status')} — {result.get('detail')}")
+        if result.get("path"):
+            baseline_path = Path(str(result["path"]))
+            print(f"Baseline path:{baseline_path}")
+        if result.get("status") != "verified":
+            return 1
+
+    if args.prepare_post_ga_maintenance_plan:
+        baseline = baseline_path or service.default_baseline_path()
+        result = service.prepare_maintenance_plan(
+            snapshot,
+            baseline_path=baseline,
+            acknowledge=args.acknowledge_post_ga_maintenance,
+        )
+        print(f"Plan:         {result.get('status')} — {result.get('detail')}")
+        if result.get("path"):
+            print(f"Plan path:    {result.get('path')}")
+        return 0 if result.get("status") == "prepared" else 1
+
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -617,6 +726,9 @@ def main() -> int:
         stable_promotion_exit = _handle_stable_promotion_command(sys.argv)
         if stable_promotion_exit is not None:
             return stable_promotion_exit
+        post_ga_exit = _handle_post_ga_maintenance_command(sys.argv)
+        if post_ga_exit is not None:
+            return post_ga_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

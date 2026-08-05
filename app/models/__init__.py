@@ -1,3 +1,8 @@
+from app.models.post_ga_maintenance import (
+    PostGaMaintenanceArtifact,
+    PostGaMaintenanceGate,
+    PostGaMaintenanceSnapshot,
+)
 from app.models.stable_release_promotion import (
     StablePromotionArtifact,
     StablePromotionGate,
@@ -222,6 +227,9 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "PostGaMaintenanceArtifact",
+    "PostGaMaintenanceGate",
+    "PostGaMaintenanceSnapshot",
     "StablePromotionArtifact",
     "StablePromotionGate",
     "StablePromotionSnapshot",
