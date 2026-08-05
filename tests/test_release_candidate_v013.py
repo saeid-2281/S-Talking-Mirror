@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 import sys
@@ -25,9 +25,9 @@ def _context(tmp_path: Path):
 
 def test_version_identity_and_release_channel() -> None:
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
-    assert app.__version__ == "0.18.2-rc1"
-    assert app.__release_channel__ == "rc"
-    assert 'version = "0.18.2rc1"' in pyproject
+    assert app.__version__ == "1.0.0"
+    assert app.__release_channel__ == "stable"
+    assert 'version = "1.0.0"' in pyproject
 
 
 def test_startup_recovery_cleans_temp_malformed_settings_and_running_jobs(tmp_path: Path) -> None:
@@ -79,8 +79,8 @@ def test_release_readiness_redacts_and_reads_repaired_csv(tmp_path: Path) -> Non
         output_dir=tmp_path / "output",
     )
 
-    assert state.version == "0.18.2-rc1"
-    assert state.release_channel == "rc"
+    assert state.version == "1.0.0"
+    assert state.release_channel == "stable"
     assert state.valid_rows == 1
     assert state.rejected_rows == 0
     assert state.provider_status.connection_state == "ready"
@@ -197,7 +197,7 @@ def test_startup_exception_logging(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     assert "startup boom" in text
     assert "startup-secret-token" not in text
     assert "Authorization=[REDACTED]" in text
-    assert "0.18.2-rc1" in text
+    assert "1.0.0" in text
     assert "S-Talking-Data" in text
 
 

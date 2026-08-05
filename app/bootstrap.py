@@ -58,6 +58,7 @@ from app.services.performance_stability_service import PerformanceStabilityServi
 from app.services.security_supply_chain_service import SecuritySupplyChainService
 from app.services.ux_accessibility_certification_service import UxAccessibilityCertificationService
 from app.services.production_release_certification_service import ProductionReleaseCertificationService
+from app.services.stable_release_promotion_service import StableReleasePromotionService
 from app.services.statistics_service import StatisticsService
 from app.services.startup_recovery_service import SessionRestoreService, StartupRecoveryService
 from app.services.source_import_service import SourceImportService
@@ -86,6 +87,7 @@ class ApplicationContext:
     security_supply_chain_service: SecuritySupplyChainService
     ux_accessibility_certification_service: UxAccessibilityCertificationService
     production_release_certification_service: ProductionReleaseCertificationService
+    stable_release_promotion_service: StableReleasePromotionService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -152,6 +154,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         security_supply_chain_service=services.security_supply_chain_service,
         ux_accessibility_certification_service=services.ux_accessibility_certification_service,
         production_release_certification_service=services.production_release_certification_service,
+        stable_release_promotion_service=services.stable_release_promotion_service,
         git_service=services.git_service,
         diagnostics_service=services.diagnostics_service,
         task_prompt_service=services.task_prompt_service,

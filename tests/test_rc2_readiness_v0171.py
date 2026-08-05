@@ -12,11 +12,11 @@ from app.services.provider_catalog_service import ProviderCatalogService
 from app.services.source_import_service import SourceImportService
 
 
-def test_rc2_version_identity() -> None:
-    assert app.__version__ == "0.18.2-rc1"
-    assert app.__release_channel__ == "rc"
-    assert 'version = "0.18.2rc1"' in Path("pyproject.toml").read_text(encoding="utf-8")
-    assert "0.18.2-rc1" in Path("packaging/windows/version_info.txt").read_text(encoding="utf-8")
+def test_stable_version_identity() -> None:
+    assert app.__version__ == "1.0.0"
+    assert app.__release_channel__ == "stable"
+    assert 'version = "1.0.0"' in Path("pyproject.toml").read_text(encoding="utf-8")
+    assert "1.0.0" in Path("packaging/windows/version_info.txt").read_text(encoding="utf-8")
 
 
 def test_build_script_writes_installer_result_contract() -> None:

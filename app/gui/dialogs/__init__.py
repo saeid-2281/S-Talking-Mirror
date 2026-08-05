@@ -1,3 +1,4 @@
+from app.gui.dialogs.stable_release_promotion_dialog import StableReleasePromotionDialog
 from app.gui.dialogs.production_release_certification_dialog import ProductionReleaseCertificationDialog
 from app.gui.dialogs.ux_accessibility_certification_dialog import UxAccessibilityCertificationDialog
 from app.gui.dialogs.security_supply_chain_dialog import SecuritySupplyChainDialog
@@ -75,6 +76,7 @@ from app.gui.dialogs.source_import_review_dialog import SourceImportReviewDialog
 from app.gui.dialogs.text_source_dialog import TextSourceDialog
 
 __all__ = [
+    "StableReleasePromotionDialog",
     "ProductionReleaseCertificationDialog",
     "UxAccessibilityCertificationDialog",
     "SecuritySupplyChainDialog",

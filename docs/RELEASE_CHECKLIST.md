@@ -2,8 +2,8 @@
 
 ## Identity
 
-- Version is `0.18.2-rc1`.
-- Release channel is `rc`.
+- Version is `1.0.0`.
+- Release channel is `stable`.
 - Runtime information, diagnostics, reports, Health Center, installer metadata, and `pyproject.toml` use the shared version.
 
 ## Checks
@@ -52,7 +52,7 @@
 - [ ] Restore is tested against a disposable copy.
 - [ ] Retention preview contains only expected records.
 - [ ] Incident-linked sessions are preserved by retention.
-- [ ] Full Quality Gate passes after Phase 55.
+- [ ] Full Quality Gate passes after Phase 61.
 
 ## Signing and Update Channel
 
@@ -60,7 +60,7 @@
 - Configure `S_TALKING_TIMESTAMP_URL` for timestamped Authenticode signatures.
 - Use `S_TALKING_SIGNTOOL_PATH` only when SignTool is not discoverable from PATH or the Windows SDK.
 - Run `scripts/build.ps1 -RequireSigning` and confirm `signing-result.json` verifies both `application_executable` and `windows_installer`.
-- Run `scripts/final-release.ps1 -RequireInstaller -RequireSigning -Channel preview`.
+- Run `scripts/final-release.ps1 -RequireInstaller -RequireSigning -Channel stable`.
 - Verify `final-release-manifest.json`, `S-Talking-preview.json`, `update-feed.sha256`, and final `SHA256SUMS.txt`.
 - Confirm prerelease versions cannot be published to the stable channel.
 - Confirm update URLs are safe relative filenames and downloaded artifacts match SHA-256 before publication.
@@ -140,3 +140,15 @@
 - Treat preview/beta channel evidence as an explicit warning; promotion to stable remains manual.
 - Never edit the version, create a tag, publish an update feed or upload artifacts from the certification command.
 - After approval, perform the version/channel change in a separate reviewed commit and rebuild every distributable artifact from that commit.
+
+
+## Phase 61 — Stable 1.0 promotion
+
+- [ ] Confirm `app.release`, `pyproject.toml`, Inno Setup defaults and Windows version metadata all identify `1.0.0`/`stable`.
+- [ ] Confirm the stable promotion commit directly follows the verified Phase 60 attested commit.
+- [ ] Run `scripts/stable-release.ps1` without acknowledgement and review the dry-run preflight.
+- [ ] Run `scripts/stable-release.ps1 -AcknowledgePromotion -BuildPackages` to create the rollback point, build local artifacts and write the verified promotion receipt.
+- [ ] Use `-RequireInstaller -RequireSigning` when stable publication requires a compiled, signed and timestamped installer.
+- [ ] Verify the stable final manifest, stable `latest.json`, feed digest, portable ZIP, installer when present and SPDX SBOM.
+- [ ] Confirm the promotion receipt records `automatic_tag=false`, `automatic_push=false`, `automatic_publish=false` and `automatic_install=false`.
+- [ ] Keep Git tag creation, push, release upload and rollout activation as separate human-controlled operations.

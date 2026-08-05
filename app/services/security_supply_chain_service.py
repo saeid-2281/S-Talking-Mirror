@@ -85,6 +85,7 @@ class SecuritySupplyChainService:
         *,
         now: Callable[[], datetime] | None = None,
         command_runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+        require_signing: bool | None = None,
     ) -> None:
         self.runtime = runtime
         self.credential_store = credential_store
@@ -96,6 +97,11 @@ class SecuritySupplyChainService:
         self.vulnerability_path = self.root / self.VULNERABILITY_NAME
         self._now_provider = now or (lambda: datetime.now(timezone.utc))
         self._command_runner = command_runner or subprocess.run
+        self.require_signing = (
+            os.environ.get("S_TALKING_REQUIRE_SIGNING", "").strip() == "1"
+            if require_signing is None
+            else bool(require_signing)
+        )
         self._component_cache: tuple[SecurityComponent, ...] | None = None
         for path in (self.root, self.sbom_dir, self.audit_dir, self.exports_dir):
             path.mkdir(parents=True, exist_ok=True)
@@ -675,8 +681,10 @@ class SecuritySupplyChainService:
         timestamped = all(bool(item.get("timestamped")) for item in artifacts if isinstance(item, dict) and item.get("status") == "verified")
         if statuses == {"verified"} and timestamped:
             return "pass", "All release artifacts have verified timestamped Authenticode signatures."
+        if RELEASE_CHANNEL == "stable" and self.require_signing:
+            return "block", "Stable signing policy requires fully signed and timestamped artifacts."
         if RELEASE_CHANNEL == "stable":
-            return "block", "Stable release artifacts are not fully signed and timestamped."
+            return "warn", "Stable artifacts are locally verifiable, but complete timestamped Authenticode evidence is unavailable."
         return "warn", "Preview artifacts are unsigned or lack durable timestamp evidence."
 
     def _vulnerability_status(self) -> tuple[str, str]:

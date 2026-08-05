@@ -73,7 +73,7 @@ run the package audit:
 powershell -ExecutionPolicy Bypass `
   -File .\scripts\security-audit.ps1 `
   -GenerateSbom `
-  -AuditPackage .\artifacts\package\S-Talking-0.18.2-rc1-portable.zip `
+  -AuditPackage .\artifacts\package\S-Talking-1.0.0-portable.zip `
   -Export
 ```
 

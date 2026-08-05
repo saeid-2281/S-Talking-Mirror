@@ -21,6 +21,7 @@ $result = [ordered]@{
     success = $false
     stage = "starting"
     version = $null
+    release_channel = $null
     exe_path = $null
     zip_path = $null
     installer_result_path = $installerResultPath
@@ -178,6 +179,8 @@ try {
 
     $version = (& $pythonPath -c "import app; print(app.__version__)").Trim()
     $result.version = $version
+    $channel = (& $pythonPath -c "import app; print(app.__release_channel__)").Trim()
+    $result.release_channel = $channel
     $buildDir = Join-Path $repo "build"
     $distDir = Join-Path $repo "dist"
     foreach ($path in @($buildDir, $distDir)) {
@@ -243,7 +246,7 @@ try {
     Copy-Item -Recurse -Force (Join-Path $repo "dist\S-Talking\*") $portable
     New-Item -ItemType File -Force -Path (Join-Path $portable "portable.mode") | Out-Null
     @"
-S Talking $version portable release candidate
+S Talking $version portable $channel package
 
 Run S-Talking.exe directly, or double-click RUN.cmd.
 Writable data is stored beside this executable in S-Talking-Data because portable.mode is present.
@@ -271,8 +274,13 @@ exit /b 0
     $result.zip_path = $zip
 
     $result.stage = "security_supply_chain"
-    & $pythonPath -m app.frozen_main --generate-sbom --security-audit-package $zip --security-export
-    if ($LASTEXITCODE -ne 0) { throw "Security and supply-chain verification failed." }
+    $env:S_TALKING_REQUIRE_SIGNING = if ($RequireSigning) { "1" } else { "0" }
+    try {
+        & $pythonPath -m app.frozen_main --generate-sbom --security-audit-package $zip --security-export
+        if ($LASTEXITCODE -ne 0) { throw "Security and supply-chain verification failed." }
+    } finally {
+        Remove-Item Env:S_TALKING_REQUIRE_SIGNING -ErrorAction SilentlyContinue
+    }
 
     $result.stage = "installer"
     $installerDir = Join-Path $packageRoot "installer"

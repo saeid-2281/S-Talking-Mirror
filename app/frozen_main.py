@@ -481,6 +481,112 @@ def _handle_production_certification_command(argv: list[str]) -> int | None:
             return 1
     return 1 if snapshot.blocker_count else 0
 
+
+
+def _handle_stable_promotion_command(argv: list[str]) -> int | None:
+    flags = {
+        "--stable-promotion-snapshot",
+        "--stable-promotion-verify-artifacts",
+        "--prepare-stable-rollback",
+        "--write-stable-promotion-receipt",
+        "--verify-stable-promotion-receipt",
+        "--verify-stable-rollback",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.services.production_release_certification_service import (
+        ProductionReleaseCertificationService,
+    )
+    from app.services.stable_release_promotion_service import (
+        StableReleasePromotionService,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking stable release promotion, rollback and receipt verification",
+    )
+    parser.add_argument("--stable-promotion-snapshot", action="store_true")
+    parser.add_argument("--stable-promotion-verify-artifacts", action="store_true")
+    parser.add_argument("--prepare-stable-rollback", action="store_true")
+    parser.add_argument("--write-stable-promotion-receipt", action="store_true")
+    parser.add_argument("--verify-stable-promotion-receipt", type=Path)
+    parser.add_argument("--verify-stable-rollback", type=Path)
+    parser.add_argument("--acknowledge-stable-promotion", action="store_true")
+    parser.add_argument("--production-attestation", type=Path)
+    parser.add_argument("--rollback-manifest", type=Path)
+    parser.add_argument("--stable-rollout", type=int, default=100)
+    parser.add_argument("--require-stable-installer", action="store_true")
+    parser.add_argument("--require-stable-signatures", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = RuntimeConfig.from_frozen() if getattr(sys, "frozen", False) else RuntimeConfig.from_root()
+    runtime.ensure_directories()
+    production = ProductionReleaseCertificationService(runtime)
+    service = StableReleasePromotionService(runtime, production)
+
+    if args.verify_stable_promotion_receipt:
+        ok, detail = service.verify_promotion_receipt(args.verify_stable_promotion_receipt)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_stable_rollback:
+        ok, detail = service.verify_rollback_manifest(args.verify_stable_rollback)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+
+    snapshot = service.snapshot(
+        attestation_path=args.production_attestation,
+        rollout_percentage=args.stable_rollout,
+        include_artifact_gates=args.stable_promotion_verify_artifacts or args.write_stable_promotion_receipt,
+        require_installer=args.require_stable_installer,
+        require_signatures=args.require_stable_signatures,
+    )
+    print(f"Status:       {snapshot.status}")
+    print(f"Version:      {snapshot.version}")
+    print(f"Channel:      {snapshot.channel}")
+    print(f"Commit:       {snapshot.source_commit}")
+    print(f"Attested:     {snapshot.attested_commit}")
+    print(f"Rollout:      {snapshot.rollout_percentage}%")
+    print(f"Blockers:     {snapshot.blocker_count}")
+    print(f"Warnings:     {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        if gate.status in {"warn", "block"}:
+            print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    rollback_manifest = args.rollback_manifest
+    if args.prepare_stable_rollback:
+        result = service.create_rollback_point(
+            snapshot,
+            attestation_path=args.production_attestation,
+            acknowledge=args.acknowledge_stable_promotion,
+        )
+        print(f"Rollback:     {result.get('status')} — {result.get('detail')}")
+        if result.get("path"):
+            rollback_manifest = Path(str(result["path"]))
+            print(f"Rollback path:{rollback_manifest}")
+        if result.get("status") == "blocked":
+            return 1
+
+    if args.write_stable_promotion_receipt:
+        if rollback_manifest is None:
+            print("Receipt:      blocked — --rollback-manifest is required.")
+            return 1
+        result = service.write_promotion_receipt(
+            snapshot,
+            rollback_manifest=rollback_manifest,
+            attestation_path=args.production_attestation,
+            acknowledge=args.acknowledge_stable_promotion,
+            require_installer=args.require_stable_installer,
+            require_signatures=args.require_stable_signatures,
+        )
+        print(f"Receipt:      {result.get('status')} — {result.get('detail')}")
+        if result.get("path"):
+            print(f"Receipt path: {result.get('path')}")
+        return 0 if result.get("status") == "verified" else 1
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -508,6 +614,9 @@ def main() -> int:
         production_exit = _handle_production_certification_command(sys.argv)
         if production_exit is not None:
             return production_exit
+        stable_promotion_exit = _handle_stable_promotion_command(sys.argv)
+        if stable_promotion_exit is not None:
+            return stable_promotion_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

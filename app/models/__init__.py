@@ -1,3 +1,8 @@
+from app.models.stable_release_promotion import (
+    StablePromotionArtifact,
+    StablePromotionGate,
+    StablePromotionSnapshot,
+)
 from app.models.production_release import (
     ProductionCertificationGate,
     ProductionCertificationSnapshot,
@@ -217,6 +222,9 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "StablePromotionArtifact",
+    "StablePromotionGate",
+    "StablePromotionSnapshot",
     "CrashDiagnosticsBundle",
     "CrashRecoveryGate",
     "CrashRecoverySnapshot",

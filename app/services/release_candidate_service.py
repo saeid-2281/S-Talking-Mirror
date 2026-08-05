@@ -435,8 +435,13 @@ class ReleaseCandidateService:
         gates = "\n".join(
             f"- [{'x' if gate.passed else ' '}] {gate.label}: {gate.detail}" for gate in snapshot.gates
         )
+        release_label = (
+            "Stable Release"
+            if snapshot.release_channel == "stable"
+            else "Release Candidate"
+        )
         return (
-            f"# S-Talking {snapshot.version} Release Candidate\n\n"
+            f"# S-Talking {snapshot.version} {release_label}\n\n"
             f"- Channel: `{snapshot.release_channel}`\n"
             f"- Commit: `{snapshot.commit}`\n"
             f"- Branch: `{snapshot.branch}`\n"

@@ -1,6 +1,6 @@
 #define AppName "S Talking"
 #ifndef AppVersion
-#define AppVersion "0.18.2-rc1"
+#define AppVersion "1.0.0"
 #endif
 #ifndef SourceDir
 #define SourceDir "..\..\dist\S-Talking"
@@ -9,7 +9,7 @@
 #define OutputDir "..\..\artifacts\package\installer"
 #endif
 #ifndef OutputBaseFilename
-#define OutputBaseFilename "S-Talking-0.18.2-rc1-setup"
+#define OutputBaseFilename "S-Talking-1.0.0-setup"
 #endif
 #define AppIcon "..\\..\\app\\resources\\brand\\official\\S-Logo.ico"
 
