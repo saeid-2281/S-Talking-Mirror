@@ -1092,6 +1092,145 @@ def _handle_incident_prevention_command(argv: list[str]) -> int | None:
     print(f"Snapshot:     {path}")
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_prevention_effectiveness_command(argv: list[str]) -> int | None:
+    flags = {
+        "--prevention-effectiveness-snapshot",
+        "--create-prevention-effectiveness-review",
+        "--record-preventive-action-attestation",
+        "--verify-preventive-action-attestation",
+        "--verify-prevention-effectiveness-review",
+        "--verify-prevention-effectiveness-decision",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.services.prevention_effectiveness_service import (
+        PreventionEffectivenessService,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking preventive action effectiveness and residual-risk review",
+    )
+    parser.add_argument("--prevention-effectiveness-snapshot", action="store_true")
+    parser.add_argument("--create-prevention-effectiveness-review", action="store_true")
+    parser.add_argument("--record-preventive-action-attestation", action="store_true")
+    parser.add_argument("--verify-preventive-action-attestation", type=Path)
+    parser.add_argument("--verify-prevention-effectiveness-review", type=Path)
+    parser.add_argument("--verify-prevention-effectiveness-decision", type=Path)
+    parser.add_argument("--prevention-baseline", type=Path)
+    parser.add_argument("--preventive-action-register", type=Path)
+    parser.add_argument(
+        "--prevention-effectiveness-closure",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--prevention-observation-days",
+        type=int,
+        default=PreventionEffectivenessService.DEFAULT_OBSERVATION_DAYS,
+    )
+    parser.add_argument("--preventive-action-code", default="")
+    parser.add_argument(
+        "--preventive-action-status",
+        choices=PreventionEffectivenessService.ACTION_STATUSES,
+        default="completed",
+    )
+    parser.add_argument("--preventive-action-owner", default="")
+    parser.add_argument("--preventive-action-evidence", default="")
+    parser.add_argument("--preventive-action-reference", default="")
+    parser.add_argument(
+        "--prevention-review-decision",
+        choices=PreventionEffectivenessService.REVIEW_DECISIONS,
+        default="continue_monitoring",
+    )
+    parser.add_argument("--prevention-review-rationale", default="")
+    parser.add_argument("--acknowledge-prevention-effectiveness", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = PreventionEffectivenessService(runtime)
+
+    if args.verify_preventive_action_attestation:
+        ok, detail = service.verify_attestation(args.verify_preventive_action_attestation)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_prevention_effectiveness_review:
+        ok, detail = service.verify_review(args.verify_prevention_effectiveness_review)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_prevention_effectiveness_decision:
+        ok, detail = service.verify_decision(args.verify_prevention_effectiveness_decision)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+
+    baseline_path = args.prevention_baseline or service.default_baseline_path()
+    register_path = args.preventive_action_register or service.default_register_path(
+        baseline_path
+    )
+
+    if args.record_preventive_action_attestation:
+        result = service.create_action_attestation(
+            baseline_path=baseline_path,
+            register_path=register_path,
+            action_code=args.preventive_action_code,
+            status=args.preventive_action_status,
+            owner=args.preventive_action_owner,
+            evidence_summary=args.preventive_action_evidence,
+            evidence_reference=args.preventive_action_reference,
+            acknowledge=args.acknowledge_prevention_effectiveness,
+        )
+        if isinstance(result, dict):
+            print(f"Attestation:  {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Attestation:  {result}")
+        return 0
+
+    snapshot = service.snapshot(
+        baseline_path=baseline_path,
+        register_path=register_path,
+        closure_paths=args.prevention_effectiveness_closure,
+        observation_days=args.prevention_observation_days,
+    )
+    print(f"Status:       {snapshot.status}")
+    print(f"Actions:      {snapshot.completed_action_count} completed / {len(snapshot.actions)}")
+    print(f"Overdue:      {snapshot.overdue_action_count}")
+    print(f"Recurrence:   {snapshot.recurrent_pattern_count}")
+    print(f"Ineffective:  {snapshot.ineffective_pattern_count}")
+    print(f"Blockers:     {snapshot.blocker_count}")
+    print(f"Warnings:     {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        if gate.status in {"warn", "block"}:
+            print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_prevention_effectiveness_review:
+        result = service.create_review(
+            snapshot,
+            decision=args.prevention_review_decision,
+            rationale=args.prevention_review_rationale,
+            acknowledge=args.acknowledge_prevention_effectiveness,
+        )
+        if isinstance(result, dict):
+            print(f"Review:       {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Review:       {result.review_path}")
+        print(f"Decision:     {result.decision_path}")
+        return 0
+
+    path = service.export_snapshot(snapshot)
+    print(f"Snapshot:     {path}")
+    return 1 if snapshot.blocker_count else 0
+
+
 def main() -> int:
     crash_service = None
     try:
@@ -1137,6 +1276,9 @@ def main() -> int:
         incident_prevention_exit = _handle_incident_prevention_command(sys.argv)
         if incident_prevention_exit is not None:
             return incident_prevention_exit
+        prevention_effectiveness_exit = _handle_prevention_effectiveness_command(sys.argv)
+        if prevention_effectiveness_exit is not None:
+            return prevention_effectiveness_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

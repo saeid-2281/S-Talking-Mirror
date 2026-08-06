@@ -1,3 +1,10 @@
+from app.models.prevention_effectiveness import (
+    PreventionEffectivenessGate,
+    PreventionEffectivenessPattern,
+    PreventionEffectivenessRecord,
+    PreventionEffectivenessSnapshot,
+    PreventiveActionState,
+)
 from app.models.incident_prevention import (
     IncidentPreventionAction,
     IncidentPreventionGate,
@@ -254,6 +261,11 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "PreventionEffectivenessGate",
+    "PreventionEffectivenessPattern",
+    "PreventionEffectivenessRecord",
+    "PreventionEffectivenessSnapshot",
+    "PreventiveActionState",
     "IncidentPreventionAction",
     "IncidentPreventionGate",
     "IncidentPreventionPattern",
