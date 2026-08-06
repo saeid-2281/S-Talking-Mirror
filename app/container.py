@@ -74,6 +74,7 @@ from app.services.security_supply_chain_service import SecuritySupplyChainServic
 from app.services.ux_accessibility_certification_service import UxAccessibilityCertificationService
 from app.services.production_release_certification_service import ProductionReleaseCertificationService
 from app.services.incident_support_service import IncidentSupportService
+from app.services.incident_resolution_service import IncidentResolutionService
 from app.services.incident_triage_service import IncidentTriageService
 from app.services.post_ga_maintenance_service import PostGaMaintenanceService
 from app.services.stable_release_promotion_service import StableReleasePromotionService
@@ -120,6 +121,7 @@ class ServiceContainer:
     post_ga_maintenance_service: PostGaMaintenanceService
     incident_support_service: IncidentSupportService
     incident_triage_service: IncidentTriageService
+    incident_resolution_service: IncidentResolutionService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -287,6 +289,9 @@ def create_service_container(
     incident_triage_service = IncidentTriageService(
         config, incident_support_service
     )
+    incident_resolution_service = IncidentResolutionService(
+        config, incident_triage_service
+    )
     generation_performance_policy_service = GenerationPerformancePolicyService(
         product_event_repository
     )
@@ -354,6 +359,7 @@ def create_service_container(
         post_ga_maintenance_service=post_ga_maintenance_service,
         incident_support_service=incident_support_service,
         incident_triage_service=incident_triage_service,
+        incident_resolution_service=incident_resolution_service,
         git_service=git_service,
         diagnostics_service=diagnostics_service,
         task_prompt_service=TaskPromptService(config.app_root),

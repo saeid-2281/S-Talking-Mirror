@@ -893,6 +893,108 @@ def _handle_incident_triage_command(argv: list[str]) -> int | None:
 
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_incident_resolution_command(argv: list[str]) -> int | None:
+    flags = {
+        "--incident-resolution-snapshot",
+        "--create-incident-resolution",
+        "--verify-incident-resolution",
+        "--verify-incident-closure",
+        "--verify-incident-knowledge",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.services.incident_resolution_service import IncidentResolutionService
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking verified incident resolution and human-controlled closure",
+    )
+    parser.add_argument("--incident-resolution-snapshot", action="store_true")
+    parser.add_argument("--create-incident-resolution", action="store_true")
+    parser.add_argument("--verify-incident-resolution", type=Path)
+    parser.add_argument("--verify-incident-closure", type=Path)
+    parser.add_argument("--verify-incident-knowledge", type=Path)
+    parser.add_argument("--incident-resolution-case", type=Path)
+    parser.add_argument("--incident-resolution-plan", type=Path)
+    parser.add_argument("--incident-resolution-summary", default="")
+    parser.add_argument("--incident-customer-impact", default="")
+    parser.add_argument(
+        "--incident-resolution-type",
+        default="code_fix",
+        choices=sorted(IncidentResolutionService.RESOLUTION_TYPES),
+    )
+    parser.add_argument(
+        "--incident-resolution-evidence",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument("--acknowledge-incident-resolution", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = IncidentResolutionService(runtime)
+
+    if args.verify_incident_resolution:
+        ok, detail = service.verify_resolution(args.verify_incident_resolution)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_incident_closure:
+        ok, detail = service.verify_closure(args.verify_incident_closure)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_incident_knowledge:
+        ok, detail = service.verify_knowledge(args.verify_incident_knowledge)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+
+    case_path = args.incident_resolution_case or service.default_case_path()
+    plan_path = args.incident_resolution_plan or service.default_plan_path(case_path)
+    snapshot = service.snapshot(
+        case_path=case_path,
+        plan_path=plan_path,
+        resolution_summary=args.incident_resolution_summary,
+        customer_impact=args.incident_customer_impact,
+        resolution_type=args.incident_resolution_type,
+        evidence_paths=args.incident_resolution_evidence,
+    )
+    print(f"Status:       {snapshot.status}")
+    print(f"Resolution:   {snapshot.resolution_id}")
+    print(f"Case:         {snapshot.case_id}")
+    print(f"Priority:     {snapshot.priority}")
+    print(f"Component:    {snapshot.component}")
+    print(f"Type:         {snapshot.resolution_type}")
+    print(f"Evidence:     {len(snapshot.evidence)} verified record(s)")
+    print(f"Blockers:     {snapshot.blocker_count}")
+    print(f"Warnings:     {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        if gate.status in {"warn", "block"}:
+            print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_incident_resolution:
+        result = service.create_closure(
+            snapshot,
+            acknowledge=args.acknowledge_incident_resolution,
+        )
+        if isinstance(result, dict):
+            print(f"Closure:      {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Resolution:   {result.resolution_path}")
+        print(f"Closure:      {result.closure_path}")
+        print(f"Knowledge:    {result.knowledge_path}")
+        return 0
+
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -932,6 +1034,9 @@ def main() -> int:
         incident_triage_exit = _handle_incident_triage_command(sys.argv)
         if incident_triage_exit is not None:
             return incident_triage_exit
+        incident_resolution_exit = _handle_incident_resolution_command(sys.argv)
+        if incident_resolution_exit is not None:
+            return incident_resolution_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

@@ -1,3 +1,10 @@
+from app.models.incident_resolution import (
+    IncidentResolutionAction,
+    IncidentResolutionEvidence,
+    IncidentResolutionGate,
+    IncidentResolutionRecord,
+    IncidentResolutionSnapshot,
+)
 from app.models.incident_triage import (
     IncidentTriageAction,
     IncidentTriageCase,
@@ -239,6 +246,11 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "IncidentResolutionAction",
+    "IncidentResolutionEvidence",
+    "IncidentResolutionGate",
+    "IncidentResolutionRecord",
+    "IncidentResolutionSnapshot",
     "IncidentTriageAction",
     "IncidentTriageCase",
     "IncidentTriageGate",
