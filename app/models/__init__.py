@@ -1,3 +1,10 @@
+from app.models.recovery_replay import (
+    RecoveryReplayDegradationSource,
+    RecoveryReplayGate,
+    RecoveryReplayPlanSource,
+    RecoveryReplayRecord,
+    RecoveryReplaySnapshot,
+)
 from app.models.degradation_readiness import (
     DegradationCapacitySource,
     DegradationDrillRecord,
@@ -303,6 +310,11 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "RecoveryReplayDegradationSource",
+    "RecoveryReplayGate",
+    "RecoveryReplayPlanSource",
+    "RecoveryReplayRecord",
+    "RecoveryReplaySnapshot",
     "DegradationCapacitySource",
     "DegradationDrillRecord",
     "DegradationPlanSource",

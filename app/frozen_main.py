@@ -2199,6 +2199,167 @@ def _handle_degradation_readiness_command(argv: list[str]) -> int | None:
     print(f"Snapshot:      {path}")
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_recovery_replay_command(argv: list[str]) -> int | None:
+    flags = {
+        "--recovery-replay-snapshot",
+        "--create-recovery-replay-plan",
+        "--create-recovery-replay-result",
+        "--verify-recovery-replay-plan",
+        "--verify-recovery-replay-snapshot",
+        "--verify-recovery-replay-result",
+        "--verify-recovery-replay-attestation",
+        "--verify-recovery-replay-pack",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.container import create_service_container
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking recovery replay integrity and duplicate prevention evidence",
+    )
+    parser.add_argument("--recovery-replay-snapshot", action="store_true")
+    parser.add_argument("--create-recovery-replay-plan", action="store_true")
+    parser.add_argument("--create-recovery-replay-result", action="store_true")
+    parser.add_argument("--verify-recovery-replay-plan", type=Path)
+    parser.add_argument("--verify-recovery-replay-snapshot", type=Path)
+    parser.add_argument("--verify-recovery-replay-result", type=Path)
+    parser.add_argument("--verify-recovery-replay-attestation", type=Path)
+    parser.add_argument("--verify-recovery-replay-pack", type=Path)
+    parser.add_argument("--recovery-replay-receipt", type=Path)
+    parser.add_argument("--recovery-replay-plan", type=Path, action="append", default=[])
+    parser.add_argument("--recovery-replay-degradation-result", type=Path, action="append", default=[])
+    parser.add_argument("--recovery-replay-degradation-attestation", type=Path, action="append", default=[])
+    parser.add_argument("--recovery-replay-degradation-pack", type=Path, action="append", default=[])
+    parser.add_argument("--recovery-replay-degradation-receipt", type=Path, action="append", default=[])
+    parser.add_argument("--recovery-replay-result-plan", type=Path)
+    parser.add_argument("--recovery-replay-expected-jobs", type=int, default=10)
+    parser.add_argument("--recovery-replay-recovery-target", type=int, default=15)
+    parser.add_argument("--recovery-replay-max-duplicate-requests", type=int, default=0)
+    parser.add_argument("--recovery-replay-max-duplicate-outputs", type=int, default=0)
+    parser.add_argument("--recovery-replay-max-orphans", type=int, default=0)
+    parser.add_argument("--recovery-replay-max-manifest-mismatches", type=int, default=0)
+    parser.add_argument("--recovery-replay-max-cost-variance", type=float, default=1.0)
+    parser.add_argument("--recovery-replay-attempted-jobs", type=int, default=10)
+    parser.add_argument("--recovery-replay-resumed-jobs", type=int, default=10)
+    parser.add_argument("--recovery-replay-completed-jobs", type=int, default=10)
+    parser.add_argument("--recovery-replay-duplicate-requests", type=int, default=0)
+    parser.add_argument("--recovery-replay-duplicate-outputs", type=int, default=0)
+    parser.add_argument("--recovery-replay-orphans", type=int, default=0)
+    parser.add_argument("--recovery-replay-manifest-mismatches", type=int, default=0)
+    parser.add_argument("--recovery-replay-cost-variance", type=float, default=0.0)
+    parser.add_argument("--recovery-replay-recovery-minutes", type=int, default=10)
+    parser.add_argument("--recovery-replay-receipts-verified", action="store_true")
+    parser.add_argument("--recovery-replay-checksums-verified", action="store_true")
+    parser.add_argument("--recovery-replay-tests-passed", action="store_true")
+    parser.add_argument("--recovery-replay-owner", default="")
+    parser.add_argument("--recovery-replay-notes", default="")
+    parser.add_argument("--recovery-replay-statement", default="")
+    parser.add_argument("--acknowledge-recovery-replay", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = create_service_container(runtime).recovery_replay_service
+
+    for path, verifier in (
+        (args.verify_recovery_replay_plan, service.verify_plan),
+        (args.verify_recovery_replay_snapshot, service.verify_snapshot),
+        (args.verify_recovery_replay_result, service.verify_result),
+        (args.verify_recovery_replay_attestation, service.verify_attestation),
+    ):
+        if path is not None:
+            ok, detail = verifier(path)
+            print(detail)
+            return 0 if ok else 1
+    if args.verify_recovery_replay_pack is not None:
+        if args.recovery_replay_receipt is None:
+            print("--recovery-replay-receipt is required with --verify-recovery-replay-pack")
+            return 1
+        ok, detail = service.verify_audit_pack(
+            args.verify_recovery_replay_pack,
+            args.recovery_replay_receipt,
+        )
+        print(detail)
+        return 0 if ok else 1
+
+    if args.create_recovery_replay_plan:
+        result = service.create_plan(
+            expected_job_count=args.recovery_replay_expected_jobs,
+            recovery_target_minutes=args.recovery_replay_recovery_target,
+            max_duplicate_requests=args.recovery_replay_max_duplicate_requests,
+            max_duplicate_outputs=args.recovery_replay_max_duplicate_outputs,
+            max_orphan_artifacts=args.recovery_replay_max_orphans,
+            max_manifest_mismatches=args.recovery_replay_max_manifest_mismatches,
+            max_cost_variance_percent=args.recovery_replay_max_cost_variance,
+            owner=args.recovery_replay_owner,
+            notes=args.recovery_replay_notes,
+            acknowledge=args.acknowledge_recovery_replay,
+        )
+        if isinstance(result, dict):
+            print(f"Plan:          {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Plan:          {result.plan_path}")
+        return 0
+
+    snapshot = service.snapshot(
+        plan_paths=args.recovery_replay_plan,
+        degradation_result_paths=args.recovery_replay_degradation_result,
+        degradation_attestation_paths=args.recovery_replay_degradation_attestation,
+        degradation_pack_paths=args.recovery_replay_degradation_pack,
+        degradation_receipt_paths=args.recovery_replay_degradation_receipt,
+    )
+    print(f"Status:        {snapshot.status}")
+    print(f"Release gate:  {snapshot.release_gate}")
+    print(f"Blockers:      {snapshot.blocker_count}")
+    print(f"Warnings:      {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_recovery_replay_result:
+        if args.recovery_replay_result_plan is None:
+            print("--recovery-replay-result-plan is required")
+            return 1
+        result = service.create_replay_result(
+            snapshot,
+            plan_path=args.recovery_replay_result_plan,
+            attempted_jobs=args.recovery_replay_attempted_jobs,
+            resumed_jobs=args.recovery_replay_resumed_jobs,
+            completed_jobs=args.recovery_replay_completed_jobs,
+            duplicate_api_requests=args.recovery_replay_duplicate_requests,
+            duplicate_outputs=args.recovery_replay_duplicate_outputs,
+            orphan_artifacts=args.recovery_replay_orphans,
+            manifest_mismatches=args.recovery_replay_manifest_mismatches,
+            cost_variance_percent=args.recovery_replay_cost_variance,
+            recovery_minutes=args.recovery_replay_recovery_minutes,
+            receipt_chain_verified=args.recovery_replay_receipts_verified,
+            output_checksums_verified=args.recovery_replay_checksums_verified,
+            dedicated_tests_passed=args.recovery_replay_tests_passed,
+            owner=args.recovery_replay_owner,
+            statement=args.recovery_replay_statement,
+            acknowledge=args.acknowledge_recovery_replay,
+        )
+        if isinstance(result, dict):
+            print(f"Result:        {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Result:        {result.result_path}")
+        print(f"Attestation:   {result.attestation_path}")
+        print(f"Audit pack:    {result.audit_pack_path}")
+        print(f"Receipt:       {result.receipt_path}")
+        return 0 if result.outcome_status == "verified" else 1
+
+    path = service.export_snapshot(snapshot)
+    print(f"Snapshot:      {path}")
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -2267,6 +2428,9 @@ def main() -> int:
         degradation_exit = _handle_degradation_readiness_command(sys.argv)
         if degradation_exit is not None:
             return degradation_exit
+        recovery_replay_exit = _handle_recovery_replay_command(sys.argv)
+        if recovery_replay_exit is not None:
+            return recovery_replay_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

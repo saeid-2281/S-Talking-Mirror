@@ -69,6 +69,7 @@ from app.services.service_continuity_service import ServiceContinuityService
 from app.services.service_level_objectives_service import ServiceLevelObjectivesService
 from app.services.capacity_readiness_service import CapacityReadinessService
 from app.services.degradation_readiness_service import DegradationReadinessService
+from app.services.recovery_replay_service import RecoveryReplayService
 from app.services.incident_resolution_service import IncidentResolutionService
 from app.services.incident_triage_service import IncidentTriageService
 from app.services.post_ga_maintenance_service import PostGaMaintenanceService
@@ -114,6 +115,7 @@ class ApplicationContext:
     service_level_objectives_service: ServiceLevelObjectivesService
     capacity_readiness_service: CapacityReadinessService
     degradation_readiness_service: DegradationReadinessService
+    recovery_replay_service: RecoveryReplayService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -195,6 +197,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         service_level_objectives_service=services.service_level_objectives_service,
         capacity_readiness_service=services.capacity_readiness_service,
         degradation_readiness_service=services.degradation_readiness_service,
+        recovery_replay_service=services.recovery_replay_service,
         git_service=services.git_service,
         diagnostics_service=services.diagnostics_service,
         task_prompt_service=services.task_prompt_service,
