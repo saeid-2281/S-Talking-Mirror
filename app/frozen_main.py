@@ -1697,6 +1697,219 @@ def _handle_service_continuity_command(argv: list[str]) -> int | None:
     print(f"Snapshot:      {path}")
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_service_level_objectives_command(argv: list[str]) -> int | None:
+    flags = {
+        "--slo-snapshot",
+        "--create-slo-observation",
+        "--create-slo-decision",
+        "--verify-slo-observation",
+        "--verify-slo-snapshot",
+        "--verify-slo-decision",
+        "--verify-slo-pack",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.database.connection import Database
+    from app.services.reliability_assurance_renewal_service import (
+        ReliabilityAssuranceRenewalService,
+    )
+    from app.services.reliability_assurance_service import ReliabilityAssuranceService
+    from app.services.service_continuity_service import ServiceContinuityService
+    from app.services.service_level_objectives_service import (
+        ServiceLevelObjectivesService,
+    )
+    from app.services.upgrade_recovery_service import UpgradeRecoveryService
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking service-level objectives and error-budget evidence",
+    )
+    parser.add_argument("--slo-snapshot", action="store_true")
+    parser.add_argument("--create-slo-observation", action="store_true")
+    parser.add_argument("--create-slo-decision", action="store_true")
+    parser.add_argument("--verify-slo-observation", type=Path)
+    parser.add_argument("--verify-slo-snapshot", type=Path)
+    parser.add_argument("--verify-slo-decision", type=Path)
+    parser.add_argument("--verify-slo-pack", type=Path)
+    parser.add_argument("--slo-receipt", type=Path)
+    parser.add_argument(
+        "--slo-observation",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--slo-continuity-result",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--slo-continuity-attestation",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--slo-continuity-pack",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--slo-continuity-receipt",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--slo-window-days",
+        type=int,
+        default=ServiceLevelObjectivesService.DEFAULT_WINDOW_DAYS,
+    )
+    parser.add_argument(
+        "--slo-availability-target",
+        type=float,
+        default=ServiceLevelObjectivesService.DEFAULT_AVAILABILITY_TARGET,
+    )
+    parser.add_argument(
+        "--slo-success-target",
+        type=float,
+        default=ServiceLevelObjectivesService.DEFAULT_SUCCESS_TARGET,
+    )
+    parser.add_argument(
+        "--slo-p95-latency-target-ms",
+        type=int,
+        default=ServiceLevelObjectivesService.DEFAULT_P95_LATENCY_TARGET_MS,
+    )
+    parser.add_argument("--slo-window-start", default="")
+    parser.add_argument("--slo-window-end", default="")
+    parser.add_argument("--slo-total-operations", type=int, default=0)
+    parser.add_argument("--slo-successful-operations", type=int, default=0)
+    parser.add_argument("--slo-failed-operations", type=int, default=0)
+    parser.add_argument("--slo-unavailable-minutes", type=int, default=0)
+    parser.add_argument("--slo-observed-p95-latency-ms", type=int, default=0)
+    parser.add_argument(
+        "--slo-decision",
+        choices=ServiceLevelObjectivesService.DECISIONS,
+        default="hold",
+    )
+    parser.add_argument("--slo-owner", default="")
+    parser.add_argument("--slo-notes", default="")
+    parser.add_argument("--slo-statement", default="")
+    parser.add_argument("--acknowledge-slo", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    database = Database(runtime.database_path)
+    database.initialize()
+    assurance_service = ReliabilityAssuranceService(runtime)
+    renewal_service = ReliabilityAssuranceRenewalService(
+        runtime,
+        assurance_service,
+    )
+    upgrade_service = UpgradeRecoveryService(runtime, database)
+    continuity_service = ServiceContinuityService(
+        runtime,
+        renewal_service,
+        upgrade_service,
+    )
+    service = ServiceLevelObjectivesService(runtime, continuity_service)
+
+    if args.verify_slo_observation:
+        ok, detail = service.verify_observation(args.verify_slo_observation)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_slo_snapshot:
+        ok, detail = service.verify_snapshot(args.verify_slo_snapshot)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_slo_decision:
+        ok, detail = service.verify_decision(args.verify_slo_decision)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_slo_pack:
+        if args.slo_receipt is None:
+            print("Verification: failed — an SLO audit-pack receipt is required.")
+            return 1
+        ok, detail = service.verify_audit_pack(
+            args.verify_slo_pack,
+            args.slo_receipt,
+        )
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+
+    if args.create_slo_observation:
+        result = service.create_observation(
+            window_start=args.slo_window_start,
+            window_end=args.slo_window_end,
+            total_operations=args.slo_total_operations,
+            successful_operations=args.slo_successful_operations,
+            failed_operations=args.slo_failed_operations,
+            unavailable_minutes=args.slo_unavailable_minutes,
+            p95_latency_ms=args.slo_observed_p95_latency_ms,
+            owner=args.slo_owner,
+            notes=args.slo_notes,
+            acknowledge=args.acknowledge_slo,
+        )
+        if isinstance(result, dict):
+            print(f"Observation:   {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Observation:   {result.observation_path}")
+        return 0
+
+    snapshot = service.snapshot(
+        observation_paths=args.slo_observation,
+        continuity_result_paths=args.slo_continuity_result,
+        continuity_attestation_paths=args.slo_continuity_attestation,
+        continuity_pack_paths=args.slo_continuity_pack,
+        continuity_receipt_paths=args.slo_continuity_receipt,
+        window_days=args.slo_window_days,
+        availability_target_percent=args.slo_availability_target,
+        success_target_percent=args.slo_success_target,
+        p95_latency_target_ms=args.slo_p95_latency_target_ms,
+    )
+    print(f"Status:        {snapshot.status}")
+    print(f"Release gate:  {snapshot.release_gate}")
+    print(f"Availability:  {snapshot.availability_percent:.4f}%")
+    print(f"Success:       {snapshot.success_percent:.4f}%")
+    print(f"P95 latency:   {snapshot.p95_latency_ms} ms")
+    print(f"Budget burn:   {snapshot.error_budget_burn_rate:.3f}")
+    print(f"Blockers:      {snapshot.blocker_count}")
+    print(f"Warnings:      {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        if gate.status in {"warn", "block"}:
+            print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_slo_decision:
+        result = service.create_release_decision(
+            snapshot,
+            decision=args.slo_decision,
+            owner=args.slo_owner,
+            statement=args.slo_statement,
+            acknowledge=args.acknowledge_slo,
+        )
+        if isinstance(result, dict):
+            print(f"Decision:      {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Decision:      {result.decision_path}")
+        print(f"Audit pack:    {result.audit_pack_path}")
+        print(f"Receipt:       {result.receipt_path}")
+        return 0
+
+    path = service.export_snapshot(snapshot)
+    print(f"Snapshot:      {path}")
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -1756,6 +1969,9 @@ def main() -> int:
         continuity_exit = _handle_service_continuity_command(sys.argv)
         if continuity_exit is not None:
             return continuity_exit
+        slo_exit = _handle_service_level_objectives_command(sys.argv)
+        if slo_exit is not None:
+            return slo_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

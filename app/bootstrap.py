@@ -66,6 +66,7 @@ from app.services.reliability_assurance_renewal_service import (
     ReliabilityAssuranceRenewalService,
 )
 from app.services.service_continuity_service import ServiceContinuityService
+from app.services.service_level_objectives_service import ServiceLevelObjectivesService
 from app.services.incident_resolution_service import IncidentResolutionService
 from app.services.incident_triage_service import IncidentTriageService
 from app.services.post_ga_maintenance_service import PostGaMaintenanceService
@@ -108,6 +109,7 @@ class ApplicationContext:
     reliability_assurance_service: ReliabilityAssuranceService
     reliability_assurance_renewal_service: ReliabilityAssuranceRenewalService
     service_continuity_service: ServiceContinuityService
+    service_level_objectives_service: ServiceLevelObjectivesService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -186,6 +188,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
             services.reliability_assurance_renewal_service
         ),
         service_continuity_service=services.service_continuity_service,
+        service_level_objectives_service=services.service_level_objectives_service,
         git_service=services.git_service,
         diagnostics_service=services.diagnostics_service,
         task_prompt_service=services.task_prompt_service,

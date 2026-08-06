@@ -1,3 +1,10 @@
+from app.models.service_level_objectives import (
+    ServiceLevelContinuitySource,
+    ServiceLevelDecisionRecord,
+    ServiceLevelGate,
+    ServiceLevelObservationSource,
+    ServiceLevelObjectivesSnapshot,
+)
 from app.models.service_continuity import (
     ServiceContinuityBackupSource,
     ServiceContinuityDrillRecord,
@@ -282,6 +289,11 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "ServiceLevelContinuitySource",
+    "ServiceLevelDecisionRecord",
+    "ServiceLevelGate",
+    "ServiceLevelObservationSource",
+    "ServiceLevelObjectivesSnapshot",
     "ServiceContinuityBackupSource",
     "ServiceContinuityDrillRecord",
     "ServiceContinuityGate",

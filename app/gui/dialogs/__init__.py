@@ -1,3 +1,4 @@
+from app.gui.dialogs.service_level_objectives_dialog import ServiceLevelObjectivesDialog
 from app.gui.dialogs.service_continuity_dialog import ServiceContinuityDialog
 from app.gui.dialogs.reliability_assurance_renewal_dialog import (
     ReliabilityAssuranceRenewalDialog,
@@ -87,6 +88,7 @@ from app.gui.dialogs.source_import_review_dialog import SourceImportReviewDialog
 from app.gui.dialogs.text_source_dialog import TextSourceDialog
 
 __all__ = [
+    "ServiceLevelObjectivesDialog",
     "ServiceContinuityDialog",
     "ReliabilityAssuranceRenewalDialog",
     "IncidentPreventionDialog",
