@@ -77,6 +77,9 @@ from app.services.incident_support_service import IncidentSupportService
 from app.services.incident_prevention_service import IncidentPreventionService
 from app.services.prevention_effectiveness_service import PreventionEffectivenessService
 from app.services.reliability_assurance_service import ReliabilityAssuranceService
+from app.services.reliability_assurance_renewal_service import (
+    ReliabilityAssuranceRenewalService,
+)
 from app.services.incident_resolution_service import IncidentResolutionService
 from app.services.incident_triage_service import IncidentTriageService
 from app.services.post_ga_maintenance_service import PostGaMaintenanceService
@@ -128,6 +131,7 @@ class ServiceContainer:
     incident_prevention_service: IncidentPreventionService
     prevention_effectiveness_service: PreventionEffectivenessService
     reliability_assurance_service: ReliabilityAssuranceService
+    reliability_assurance_renewal_service: ReliabilityAssuranceRenewalService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -307,6 +311,9 @@ def create_service_container(
     reliability_assurance_service = ReliabilityAssuranceService(
         config, prevention_effectiveness_service
     )
+    reliability_assurance_renewal_service = ReliabilityAssuranceRenewalService(
+        config, reliability_assurance_service
+    )
     generation_performance_policy_service = GenerationPerformancePolicyService(
         product_event_repository
     )
@@ -378,6 +385,7 @@ def create_service_container(
         incident_prevention_service=incident_prevention_service,
         prevention_effectiveness_service=prevention_effectiveness_service,
         reliability_assurance_service=reliability_assurance_service,
+        reliability_assurance_renewal_service=reliability_assurance_renewal_service,
         git_service=git_service,
         diagnostics_service=diagnostics_service,
         task_prompt_service=TaskPromptService(config.app_root),

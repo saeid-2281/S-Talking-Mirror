@@ -1346,6 +1346,145 @@ def _handle_reliability_assurance_command(argv: list[str]) -> int | None:
     return 1 if snapshot.blocker_count else 0
 
 
+def _handle_reliability_assurance_renewal_command(argv: list[str]) -> int | None:
+    flags = {
+        "--reliability-renewal-snapshot",
+        "--create-reliability-renewal",
+        "--verify-reliability-renewal",
+        "--verify-reliability-renewal-follow-up",
+        "--verify-reliability-renewal-pack",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.services.reliability_assurance_renewal_service import (
+        ReliabilityAssuranceRenewalService,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking reliability assurance renewal and exception follow-up",
+    )
+    parser.add_argument("--reliability-renewal-snapshot", action="store_true")
+    parser.add_argument("--create-reliability-renewal", action="store_true")
+    parser.add_argument("--verify-reliability-renewal", type=Path)
+    parser.add_argument("--verify-reliability-renewal-follow-up", type=Path)
+    parser.add_argument("--verify-reliability-renewal-pack", type=Path)
+    parser.add_argument("--reliability-renewal-receipt", type=Path)
+    parser.add_argument(
+        "--reliability-renewal-attestation",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--reliability-renewal-audit-pack",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--reliability-renewal-source-receipt",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--reliability-renewal-validity-days",
+        type=int,
+        default=ReliabilityAssuranceRenewalService.DEFAULT_VALIDITY_DAYS,
+    )
+    parser.add_argument(
+        "--reliability-renewal-due-soon-days",
+        type=int,
+        default=ReliabilityAssuranceRenewalService.DEFAULT_DUE_SOON_DAYS,
+    )
+    parser.add_argument(
+        "--reliability-renewal-outcome",
+        choices=ReliabilityAssuranceRenewalService.RENEWAL_DECISIONS,
+        default="renew",
+    )
+    parser.add_argument("--reliability-renewal-owner", default="")
+    parser.add_argument("--reliability-renewal-statement", default="")
+    parser.add_argument("--reliability-renewal-follow-up-owner", default="")
+    parser.add_argument("--reliability-renewal-next-review", default="")
+    parser.add_argument("--acknowledge-reliability-renewal", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = ReliabilityAssuranceRenewalService(runtime)
+
+    if args.verify_reliability_renewal:
+        ok, detail = service.verify_renewal(args.verify_reliability_renewal)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_reliability_renewal_follow_up:
+        ok, detail = service.verify_follow_up(
+            args.verify_reliability_renewal_follow_up
+        )
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_reliability_renewal_pack:
+        if args.reliability_renewal_receipt is None:
+            print("Verification: failed — a renewal audit-pack receipt is required.")
+            return 1
+        ok, detail = service.verify_audit_pack(
+            args.verify_reliability_renewal_pack,
+            args.reliability_renewal_receipt,
+        )
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+
+    snapshot = service.snapshot(
+        attestation_paths=args.reliability_renewal_attestation,
+        audit_pack_paths=args.reliability_renewal_audit_pack,
+        receipt_paths=args.reliability_renewal_source_receipt,
+        validity_days=args.reliability_renewal_validity_days,
+        due_soon_days=args.reliability_renewal_due_soon_days,
+    )
+    print(f"Status:       {snapshot.status}")
+    print(f"Triplets:     {snapshot.verified_triplet_count}")
+    print(f"Current:      {snapshot.current_count}")
+    print(f"Due soon:     {snapshot.due_soon_count}")
+    print(f"Overdue:      {snapshot.overdue_count}")
+    print(f"Withheld:     {snapshot.withheld_count}")
+    print(f"Follow-up:    {snapshot.open_exception_count}")
+    print(f"Blockers:     {snapshot.blocker_count}")
+    print(f"Warnings:     {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        if gate.status in {"warn", "block"}:
+            print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_reliability_renewal:
+        result = service.create_renewal(
+            snapshot,
+            decision=args.reliability_renewal_outcome,
+            owner=args.reliability_renewal_owner,
+            statement=args.reliability_renewal_statement,
+            follow_up_owner=args.reliability_renewal_follow_up_owner,
+            next_review_date=args.reliability_renewal_next_review,
+            acknowledge=args.acknowledge_reliability_renewal,
+        )
+        if isinstance(result, dict):
+            print(f"Renewal:      {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Renewal:      {result.renewal_path}")
+        print(f"Follow-up:    {result.follow_up_path}")
+        print(f"Audit pack:   {result.audit_pack_path}")
+        print(f"Receipt:      {result.receipt_path}")
+        return 0
+
+    path = service.export_snapshot(snapshot)
+    print(f"Snapshot:     {path}")
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -1397,6 +1536,11 @@ def main() -> int:
         reliability_assurance_exit = _handle_reliability_assurance_command(sys.argv)
         if reliability_assurance_exit is not None:
             return reliability_assurance_exit
+        reliability_renewal_exit = _handle_reliability_assurance_renewal_command(
+            sys.argv
+        )
+        if reliability_renewal_exit is not None:
+            return reliability_renewal_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

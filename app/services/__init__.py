@@ -1,6 +1,9 @@
 from app.services.incident_prevention_service import IncidentPreventionService
 from app.services.prevention_effectiveness_service import PreventionEffectivenessService
 from app.services.reliability_assurance_service import ReliabilityAssuranceService
+from app.services.reliability_assurance_renewal_service import (
+    ReliabilityAssuranceRenewalService,
+)
 from app.services.incident_resolution_service import IncidentResolutionService
 from app.services.incident_triage_service import IncidentTriageService
 from app.services.incident_support_service import IncidentSupportService
@@ -65,6 +68,7 @@ from app.services.voice_library_store import VoiceLibraryStore
 from app.services.generation_reliability_service import GenerationReliabilityService
 from app.services.generation_recovery_service import GenerationRecoveryService
 __all__ = [
+    "ReliabilityAssuranceRenewalService",
     "ReliabilityAssuranceService",
     "PreventionEffectivenessService",
     "IncidentPreventionService",

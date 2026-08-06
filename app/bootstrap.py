@@ -62,6 +62,9 @@ from app.services.incident_support_service import IncidentSupportService
 from app.services.incident_prevention_service import IncidentPreventionService
 from app.services.prevention_effectiveness_service import PreventionEffectivenessService
 from app.services.reliability_assurance_service import ReliabilityAssuranceService
+from app.services.reliability_assurance_renewal_service import (
+    ReliabilityAssuranceRenewalService,
+)
 from app.services.incident_resolution_service import IncidentResolutionService
 from app.services.incident_triage_service import IncidentTriageService
 from app.services.post_ga_maintenance_service import PostGaMaintenanceService
@@ -102,6 +105,7 @@ class ApplicationContext:
     incident_prevention_service: IncidentPreventionService
     prevention_effectiveness_service: PreventionEffectivenessService
     reliability_assurance_service: ReliabilityAssuranceService
+    reliability_assurance_renewal_service: ReliabilityAssuranceRenewalService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -176,6 +180,9 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         incident_prevention_service=services.incident_prevention_service,
         prevention_effectiveness_service=services.prevention_effectiveness_service,
         reliability_assurance_service=services.reliability_assurance_service,
+        reliability_assurance_renewal_service=(
+            services.reliability_assurance_renewal_service
+        ),
         git_service=services.git_service,
         diagnostics_service=services.diagnostics_service,
         task_prompt_service=services.task_prompt_service,

@@ -1,3 +1,10 @@
+from app.models.reliability_assurance_renewal import (
+    ReliabilityAssuranceRenewalException,
+    ReliabilityAssuranceRenewalGate,
+    ReliabilityAssuranceRenewalRecord,
+    ReliabilityAssuranceRenewalSnapshot,
+    ReliabilityAssuranceRenewalSource,
+)
 from app.models.reliability_assurance import (
     ReliabilityAssuranceException,
     ReliabilityAssuranceGate,
@@ -268,6 +275,11 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "ReliabilityAssuranceRenewalException",
+    "ReliabilityAssuranceRenewalGate",
+    "ReliabilityAssuranceRenewalRecord",
+    "ReliabilityAssuranceRenewalSnapshot",
+    "ReliabilityAssuranceRenewalSource",
     "ReliabilityAssuranceException",
     "ReliabilityAssuranceGate",
     "ReliabilityAssuranceRecord",
