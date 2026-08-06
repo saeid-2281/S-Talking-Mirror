@@ -1,3 +1,4 @@
+from app.gui.dialogs.reliability_assurance_dialog import ReliabilityAssuranceDialog
 from app.gui.dialogs.incident_prevention_dialog import IncidentPreventionDialog
 from app.gui.dialogs.prevention_effectiveness_dialog import PreventionEffectivenessDialog
 from app.gui.dialogs.incident_resolution_dialog import IncidentResolutionDialog
@@ -83,6 +84,7 @@ from app.gui.dialogs.text_source_dialog import TextSourceDialog
 
 __all__ = [
     "IncidentPreventionDialog",
+    "ReliabilityAssuranceDialog",
     "PreventionEffectivenessDialog",
     "IncidentResolutionDialog",
     "IncidentTriageDialog",

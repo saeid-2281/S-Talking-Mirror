@@ -1,3 +1,10 @@
+from app.models.reliability_assurance import (
+    ReliabilityAssuranceException,
+    ReliabilityAssuranceGate,
+    ReliabilityAssuranceRecord,
+    ReliabilityAssuranceSnapshot,
+    ReliabilityAssuranceSource,
+)
 from app.models.prevention_effectiveness import (
     PreventionEffectivenessGate,
     PreventionEffectivenessPattern,
@@ -261,6 +268,11 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "ReliabilityAssuranceException",
+    "ReliabilityAssuranceGate",
+    "ReliabilityAssuranceRecord",
+    "ReliabilityAssuranceSnapshot",
+    "ReliabilityAssuranceSource",
     "PreventionEffectivenessGate",
     "PreventionEffectivenessPattern",
     "PreventionEffectivenessRecord",

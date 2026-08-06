@@ -1231,6 +1231,121 @@ def _handle_prevention_effectiveness_command(argv: list[str]) -> int | None:
     return 1 if snapshot.blocker_count else 0
 
 
+def _handle_reliability_assurance_command(argv: list[str]) -> int | None:
+    flags = {
+        "--reliability-assurance-snapshot",
+        "--create-reliability-assurance",
+        "--verify-reliability-assurance-attestation",
+        "--verify-reliability-assurance-pack",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.services.reliability_assurance_service import ReliabilityAssuranceService
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking reliability assurance, exception governance and audit pack",
+    )
+    parser.add_argument("--reliability-assurance-snapshot", action="store_true")
+    parser.add_argument("--create-reliability-assurance", action="store_true")
+    parser.add_argument("--verify-reliability-assurance-attestation", type=Path)
+    parser.add_argument("--verify-reliability-assurance-pack", type=Path)
+    parser.add_argument("--reliability-assurance-receipt", type=Path)
+    parser.add_argument(
+        "--reliability-assurance-review",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--reliability-assurance-decision",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--reliability-assurance-window-days",
+        type=int,
+        default=ReliabilityAssuranceService.DEFAULT_ASSURANCE_WINDOW_DAYS,
+    )
+    parser.add_argument(
+        "--reliability-assurance-outcome",
+        choices=ReliabilityAssuranceService.ASSURANCE_DECISIONS,
+        default="assure",
+    )
+    parser.add_argument("--reliability-assurance-owner", default="")
+    parser.add_argument("--reliability-assurance-statement", default="")
+    parser.add_argument("--reliability-assurance-exception-owner", default="")
+    parser.add_argument("--reliability-assurance-next-review", default="")
+    parser.add_argument("--acknowledge-reliability-assurance", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = ReliabilityAssuranceService(runtime)
+
+    if args.verify_reliability_assurance_attestation:
+        ok, detail = service.verify_attestation(
+            args.verify_reliability_assurance_attestation
+        )
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_reliability_assurance_pack:
+        if args.reliability_assurance_receipt is None:
+            print("Verification: failed — an audit-pack receipt is required.")
+            return 1
+        ok, detail = service.verify_audit_pack(
+            args.verify_reliability_assurance_pack,
+            args.reliability_assurance_receipt,
+        )
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+
+    snapshot = service.snapshot(
+        review_paths=args.reliability_assurance_review,
+        decision_paths=args.reliability_assurance_decision,
+        assurance_window_days=args.reliability_assurance_window_days,
+    )
+    print(f"Status:       {snapshot.status}")
+    print(f"Pairs:        {snapshot.verified_pair_count}")
+    print(f"Exceptions:   {snapshot.open_exception_count}")
+    print(f"High/Critical:{snapshot.high_exception_count}")
+    print(f"Blockers:     {snapshot.blocker_count}")
+    print(f"Warnings:     {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        if gate.status in {"warn", "block"}:
+            print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_reliability_assurance:
+        result = service.create_assurance(
+            snapshot,
+            decision=args.reliability_assurance_outcome,
+            owner=args.reliability_assurance_owner,
+            statement=args.reliability_assurance_statement,
+            exception_owner=args.reliability_assurance_exception_owner,
+            next_review_date=args.reliability_assurance_next_review,
+            acknowledge=args.acknowledge_reliability_assurance,
+        )
+        if isinstance(result, dict):
+            print(f"Assurance:    {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Attestation:  {result.attestation_path}")
+        print(f"Audit pack:   {result.audit_pack_path}")
+        print(f"Receipt:      {result.receipt_path}")
+        return 0
+
+    path = service.export_snapshot(snapshot)
+    print(f"Snapshot:     {path}")
+    return 1 if snapshot.blocker_count else 0
+
+
 def main() -> int:
     crash_service = None
     try:
@@ -1279,6 +1394,9 @@ def main() -> int:
         prevention_effectiveness_exit = _handle_prevention_effectiveness_command(sys.argv)
         if prevention_effectiveness_exit is not None:
             return prevention_effectiveness_exit
+        reliability_assurance_exit = _handle_reliability_assurance_command(sys.argv)
+        if reliability_assurance_exit is not None:
+            return reliability_assurance_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context
