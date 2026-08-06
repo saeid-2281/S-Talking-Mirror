@@ -2051,6 +2051,154 @@ def _handle_capacity_readiness_command(argv: list[str]) -> int | None:
     print(f"Snapshot:       {path}")
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_degradation_readiness_command(argv: list[str]) -> int | None:
+    flags = {
+        "--degradation-snapshot",
+        "--create-degradation-plan",
+        "--create-degradation-result",
+        "--verify-degradation-plan",
+        "--verify-degradation-snapshot",
+        "--verify-degradation-result",
+        "--verify-degradation-attestation",
+        "--verify-degradation-pack",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.container import create_service_container
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking controlled degradation drill and recovery evidence",
+    )
+    parser.add_argument("--degradation-snapshot", action="store_true")
+    parser.add_argument("--create-degradation-plan", action="store_true")
+    parser.add_argument("--create-degradation-result", action="store_true")
+    parser.add_argument("--verify-degradation-plan", type=Path)
+    parser.add_argument("--verify-degradation-snapshot", type=Path)
+    parser.add_argument("--verify-degradation-result", type=Path)
+    parser.add_argument("--verify-degradation-attestation", type=Path)
+    parser.add_argument("--verify-degradation-pack", type=Path)
+    parser.add_argument("--degradation-receipt", type=Path)
+    parser.add_argument("--degradation-plan", type=Path, action="append", default=[])
+    parser.add_argument("--degradation-capacity-snapshot", type=Path, action="append", default=[])
+    parser.add_argument("--degradation-capacity-decision", type=Path, action="append", default=[])
+    parser.add_argument("--degradation-capacity-pack", type=Path, action="append", default=[])
+    parser.add_argument("--degradation-capacity-receipt", type=Path, action="append", default=[])
+    parser.add_argument("--degradation-result-plan", type=Path)
+    parser.add_argument("--degradation-scenario", default="provider_throttle")
+    parser.add_argument("--degradation-target-reduction", type=float, default=20.0)
+    parser.add_argument("--degradation-max-queue", type=int, default=100)
+    parser.add_argument("--degradation-recovery-target", type=int, default=15)
+    parser.add_argument("--degradation-max-failed", type=int, default=0)
+    parser.add_argument("--degradation-achieved-reduction", type=float, default=20.0)
+    parser.add_argument("--degradation-observed-queue", type=int, default=0)
+    parser.add_argument("--degradation-recovery-minutes", type=int, default=10)
+    parser.add_argument("--degradation-failed-requests", type=int, default=0)
+    parser.add_argument("--degradation-data-loss", type=int, default=0)
+    parser.add_argument("--degradation-health-passed", action="store_true")
+    parser.add_argument("--degradation-tests-passed", action="store_true")
+    parser.add_argument("--degradation-owner", default="")
+    parser.add_argument("--degradation-notes", default="")
+    parser.add_argument("--degradation-statement", default="")
+    parser.add_argument("--acknowledge-degradation", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = create_service_container(runtime).degradation_readiness_service
+
+    for path, verifier in (
+        (args.verify_degradation_plan, service.verify_plan),
+        (args.verify_degradation_snapshot, service.verify_snapshot),
+        (args.verify_degradation_result, service.verify_result),
+        (args.verify_degradation_attestation, service.verify_attestation),
+    ):
+        if path is not None:
+            ok, detail = verifier(path)
+            print(detail)
+            return 0 if ok else 1
+    if args.verify_degradation_pack is not None:
+        if args.degradation_receipt is None:
+            print("--degradation-receipt is required with --verify-degradation-pack")
+            return 1
+        ok, detail = service.verify_audit_pack(
+            args.verify_degradation_pack,
+            args.degradation_receipt,
+        )
+        print(detail)
+        return 0 if ok else 1
+
+    if args.create_degradation_plan:
+        result = service.create_plan(
+            scenario=args.degradation_scenario,
+            target_load_reduction_percent=args.degradation_target_reduction,
+            max_queue_depth=args.degradation_max_queue,
+            recovery_target_minutes=args.degradation_recovery_target,
+            max_failed_requests=args.degradation_max_failed,
+            owner=args.degradation_owner,
+            notes=args.degradation_notes,
+            acknowledge=args.acknowledge_degradation,
+        )
+        if isinstance(result, dict):
+            print(f"Plan:          {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Plan:          {result.plan_path}")
+        return 0
+
+    snapshot = service.snapshot(
+        plan_paths=args.degradation_plan,
+        capacity_snapshot_paths=args.degradation_capacity_snapshot,
+        capacity_decision_paths=args.degradation_capacity_decision,
+        capacity_pack_paths=args.degradation_capacity_pack,
+        capacity_receipt_paths=args.degradation_capacity_receipt,
+    )
+    print(f"Status:        {snapshot.status}")
+    print(f"Release gate:  {snapshot.release_gate}")
+    print(f"Scenarios:     {', '.join(snapshot.required_scenarios) or 'none'}")
+    print(f"Blockers:      {snapshot.blocker_count}")
+    print(f"Warnings:      {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_degradation_result:
+        if args.degradation_result_plan is None:
+            print("--degradation-result-plan is required")
+            return 1
+        result = service.create_drill_result(
+            snapshot,
+            plan_path=args.degradation_result_plan,
+            achieved_load_reduction_percent=args.degradation_achieved_reduction,
+            observed_max_queue_depth=args.degradation_observed_queue,
+            recovery_minutes=args.degradation_recovery_minutes,
+            failed_requests=args.degradation_failed_requests,
+            data_loss_count=args.degradation_data_loss,
+            health_checks_passed=args.degradation_health_passed,
+            dedicated_tests_passed=args.degradation_tests_passed,
+            owner=args.degradation_owner,
+            statement=args.degradation_statement,
+            acknowledge=args.acknowledge_degradation,
+        )
+        if isinstance(result, dict):
+            print(f"Result:        {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Result:        {result.result_path}")
+        print(f"Attestation:   {result.attestation_path}")
+        print(f"Audit pack:    {result.audit_pack_path}")
+        print(f"Receipt:       {result.receipt_path}")
+        return 0 if result.outcome_status == "verified" else 1
+
+    path = service.export_snapshot(snapshot)
+    print(f"Snapshot:      {path}")
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -2116,6 +2264,9 @@ def main() -> int:
         capacity_exit = _handle_capacity_readiness_command(sys.argv)
         if capacity_exit is not None:
             return capacity_exit
+        degradation_exit = _handle_degradation_readiness_command(sys.argv)
+        if degradation_exit is not None:
+            return degradation_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

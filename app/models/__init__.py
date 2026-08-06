@@ -1,3 +1,10 @@
+from app.models.degradation_readiness import (
+    DegradationCapacitySource,
+    DegradationDrillRecord,
+    DegradationPlanSource,
+    DegradationReadinessGate,
+    DegradationReadinessSnapshot,
+)
 from app.models.capacity_readiness import (
     CapacityDecisionRecord,
     CapacityObservationSource,
@@ -296,6 +303,11 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "DegradationCapacitySource",
+    "DegradationDrillRecord",
+    "DegradationPlanSource",
+    "DegradationReadinessGate",
+    "DegradationReadinessSnapshot",
     "CapacityDecisionRecord",
     "CapacityObservationSource",
     "CapacityReadinessGate",

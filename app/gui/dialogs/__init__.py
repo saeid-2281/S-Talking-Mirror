@@ -1,4 +1,5 @@
 from app.gui.dialogs.capacity_readiness_dialog import CapacityReadinessDialog
+from app.gui.dialogs.degradation_readiness_dialog import DegradationReadinessDialog
 from app.gui.dialogs.service_level_objectives_dialog import ServiceLevelObjectivesDialog
 from app.gui.dialogs.service_continuity_dialog import ServiceContinuityDialog
 from app.gui.dialogs.reliability_assurance_renewal_dialog import (
@@ -89,6 +90,7 @@ from app.gui.dialogs.source_import_review_dialog import SourceImportReviewDialog
 from app.gui.dialogs.text_source_dialog import TextSourceDialog
 
 __all__ = [
+    "DegradationReadinessDialog",
     "CapacityReadinessDialog",
     "ServiceLevelObjectivesDialog",
     "ServiceContinuityDialog",
