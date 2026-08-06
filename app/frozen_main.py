@@ -995,6 +995,103 @@ def _handle_incident_resolution_command(argv: list[str]) -> int | None:
 
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_incident_prevention_command(argv: list[str]) -> int | None:
+    flags = {
+        "--incident-prevention-snapshot",
+        "--create-incident-prevention-baseline",
+        "--verify-incident-prevention-baseline",
+        "--verify-preventive-action-register",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.services.incident_prevention_service import IncidentPreventionService
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking verified recurrence analysis and preventive actions",
+    )
+    parser.add_argument("--incident-prevention-snapshot", action="store_true")
+    parser.add_argument("--create-incident-prevention-baseline", action="store_true")
+    parser.add_argument("--verify-incident-prevention-baseline", type=Path)
+    parser.add_argument("--verify-preventive-action-register", type=Path)
+    parser.add_argument(
+        "--incident-prevention-closure",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--incident-prevention-lookback-days",
+        type=int,
+        default=IncidentPreventionService.DEFAULT_LOOKBACK_DAYS,
+    )
+    parser.add_argument(
+        "--incident-prevention-recurrence-threshold",
+        type=int,
+        default=IncidentPreventionService.DEFAULT_RECURRENCE_THRESHOLD,
+    )
+    parser.add_argument(
+        "--incident-prevention-high-risk-threshold",
+        type=int,
+        default=IncidentPreventionService.DEFAULT_HIGH_RISK_THRESHOLD,
+    )
+    parser.add_argument("--acknowledge-incident-prevention", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = IncidentPreventionService(runtime)
+
+    if args.verify_incident_prevention_baseline:
+        ok, detail = service.verify_baseline(args.verify_incident_prevention_baseline)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_preventive_action_register:
+        ok, detail = service.verify_register(args.verify_preventive_action_register)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+
+    snapshot = service.snapshot(
+        closure_paths=args.incident_prevention_closure,
+        lookback_days=args.incident_prevention_lookback_days,
+        recurrence_threshold=args.incident_prevention_recurrence_threshold,
+        high_risk_threshold=args.incident_prevention_high_risk_threshold,
+    )
+    print(f"Status:       {snapshot.status}")
+    print(f"Closures:     {snapshot.verified_count}/{snapshot.selected_count} verified")
+    print(f"Patterns:     {len(snapshot.patterns)}")
+    print(f"Recurring:    {snapshot.recurring_pattern_count}")
+    print(f"High risk:    {snapshot.high_risk_pattern_count}")
+    print(f"Blockers:     {snapshot.blocker_count}")
+    print(f"Warnings:     {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        if gate.status in {"warn", "block"}:
+            print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_incident_prevention_baseline:
+        result = service.create_baseline(
+            snapshot,
+            acknowledge=args.acknowledge_incident_prevention,
+        )
+        if isinstance(result, dict):
+            print(f"Baseline:     {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Baseline:     {result.baseline_path}")
+        print(f"Register:     {result.register_path}")
+        return 0
+
+    path = service.export_snapshot(snapshot)
+    print(f"Snapshot:     {path}")
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -1037,6 +1134,9 @@ def main() -> int:
         incident_resolution_exit = _handle_incident_resolution_command(sys.argv)
         if incident_resolution_exit is not None:
             return incident_resolution_exit
+        incident_prevention_exit = _handle_incident_prevention_command(sys.argv)
+        if incident_prevention_exit is not None:
+            return incident_prevention_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

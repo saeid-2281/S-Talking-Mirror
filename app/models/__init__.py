@@ -1,3 +1,11 @@
+from app.models.incident_prevention import (
+    IncidentPreventionAction,
+    IncidentPreventionGate,
+    IncidentPreventionPattern,
+    IncidentPreventionRecord,
+    IncidentPreventionSnapshot,
+    IncidentPreventionSource,
+)
 from app.models.incident_resolution import (
     IncidentResolutionAction,
     IncidentResolutionEvidence,
@@ -246,6 +254,12 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "IncidentPreventionAction",
+    "IncidentPreventionGate",
+    "IncidentPreventionPattern",
+    "IncidentPreventionRecord",
+    "IncidentPreventionSnapshot",
+    "IncidentPreventionSource",
     "IncidentResolutionAction",
     "IncidentResolutionEvidence",
     "IncidentResolutionGate",

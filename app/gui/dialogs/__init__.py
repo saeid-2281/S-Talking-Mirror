@@ -1,3 +1,4 @@
+from app.gui.dialogs.incident_prevention_dialog import IncidentPreventionDialog
 from app.gui.dialogs.incident_resolution_dialog import IncidentResolutionDialog
 from app.gui.dialogs.incident_triage_dialog import IncidentTriageDialog
 from app.gui.dialogs.incident_support_dialog import IncidentSupportDialog
@@ -80,6 +81,7 @@ from app.gui.dialogs.source_import_review_dialog import SourceImportReviewDialog
 from app.gui.dialogs.text_source_dialog import TextSourceDialog
 
 __all__ = [
+    "IncidentPreventionDialog",
     "IncidentResolutionDialog",
     "IncidentTriageDialog",
     "IncidentSupportDialog",
