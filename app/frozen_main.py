@@ -2518,6 +2518,157 @@ def _handle_billing_reconciliation_command(argv: list[str]) -> int | None:
     print(f"Snapshot:      {path}")
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_billing_dispute_resolution_command(argv: list[str]) -> int | None:
+    flags = {
+        "--billing-dispute-resolution-snapshot",
+        "--create-billing-dispute-case",
+        "--record-billing-settlement",
+        "--verify-billing-dispute-snapshot",
+        "--verify-billing-dispute-case",
+        "--verify-billing-settlement",
+        "--verify-billing-settlement-attestation",
+        "--verify-billing-closure-pack",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.container import create_service_container
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking billing dispute resolution and settlement verification",
+    )
+    parser.add_argument("--billing-dispute-resolution-snapshot", action="store_true")
+    parser.add_argument("--create-billing-dispute-case", action="store_true")
+    parser.add_argument("--record-billing-settlement", action="store_true")
+    parser.add_argument("--verify-billing-dispute-snapshot", type=Path)
+    parser.add_argument("--verify-billing-dispute-case", type=Path)
+    parser.add_argument("--verify-billing-settlement", type=Path)
+    parser.add_argument("--verify-billing-settlement-attestation", type=Path)
+    parser.add_argument("--verify-billing-closure-pack", type=Path)
+    parser.add_argument("--billing-closure-receipt", type=Path)
+    parser.add_argument("--billing-dispute-result", type=Path, action="append", default=[])
+    parser.add_argument(
+        "--billing-dispute-attestation", type=Path, action="append", default=[]
+    )
+    parser.add_argument("--billing-dispute-pack", type=Path, action="append", default=[])
+    parser.add_argument(
+        "--billing-dispute-source-receipt", type=Path, action="append", default=[]
+    )
+    parser.add_argument("--billing-dispute-result-path", type=Path)
+    parser.add_argument("--billing-dispute-case-path", type=Path)
+    parser.add_argument("--billing-requested-credit", type=float, default=0.0)
+    parser.add_argument("--billing-approved-credit", type=float, default=0.0)
+    parser.add_argument("--billing-applied-credit", type=float, default=0.0)
+    parser.add_argument("--billing-remaining-variance", type=float, default=0.0)
+    parser.add_argument("--billing-provider-response-reference", default="")
+    parser.add_argument("--billing-credit-memo-reference", default="")
+    parser.add_argument("--billing-internal-reference", default="")
+    parser.add_argument("--billing-dispute-owner", default="")
+    parser.add_argument("--billing-dispute-summary", default="")
+    parser.add_argument("--billing-settlement-statement", default="")
+    parser.add_argument("--billing-provider-response-verified", action="store_true")
+    parser.add_argument("--billing-ledger-entry-verified", action="store_true")
+    parser.add_argument("--acknowledge-billing-dispute", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = create_service_container(runtime).billing_dispute_resolution_service
+
+    for path, verifier in (
+        (args.verify_billing_dispute_snapshot, service.verify_snapshot),
+        (args.verify_billing_dispute_case, service.verify_case),
+        (args.verify_billing_settlement, service.verify_settlement),
+        (args.verify_billing_settlement_attestation, service.verify_attestation),
+    ):
+        if path is not None:
+            ok, detail = verifier(path)
+            print(detail)
+            return 0 if ok else 1
+
+    if args.verify_billing_closure_pack is not None:
+        if args.billing_closure_receipt is None:
+            print("--billing-closure-receipt is required")
+            return 1
+        ok, detail = service.verify_closure_pack(
+            args.verify_billing_closure_pack,
+            args.billing_closure_receipt,
+        )
+        print(detail)
+        return 0 if ok else 1
+
+    snapshot = service.snapshot(
+        result_paths=args.billing_dispute_result,
+        attestation_paths=args.billing_dispute_attestation,
+        dispute_pack_paths=args.billing_dispute_pack,
+        receipt_paths=args.billing_dispute_source_receipt,
+    )
+    print(f"Status:          {snapshot.status}")
+    print(f"Release gate:    {snapshot.release_gate}")
+    print(f"Disputes needed: {snapshot.dispute_required_count}")
+    print(f"Claim amount:    {snapshot.total_claim_amount:.4f} {snapshot.currency}")
+    print(f"Blockers:        {snapshot.blocker_count}")
+    print(f"Warnings:        {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_billing_dispute_case:
+        if args.billing_dispute_result_path is None:
+            print("--billing-dispute-result-path is required")
+            return 1
+        result = service.create_dispute_case(
+            snapshot,
+            result_path=args.billing_dispute_result_path,
+            requested_credit_amount=args.billing_requested_credit,
+            owner=args.billing_dispute_owner,
+            summary=args.billing_dispute_summary,
+            internal_reference=args.billing_internal_reference,
+            acknowledge=args.acknowledge_billing_dispute,
+        )
+        if isinstance(result, dict):
+            print(f"Case:            {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Case:            {result.case_path}")
+        return 0
+
+    if args.record_billing_settlement:
+        if args.billing_dispute_case_path is None:
+            print("--billing-dispute-case-path is required")
+            return 1
+        result = service.record_settlement(
+            case_path=args.billing_dispute_case_path,
+            provider_response_reference=args.billing_provider_response_reference,
+            credit_memo_reference=args.billing_credit_memo_reference,
+            approved_credit_amount=args.billing_approved_credit,
+            applied_credit_amount=args.billing_applied_credit,
+            remaining_variance_amount=args.billing_remaining_variance,
+            owner=args.billing_dispute_owner,
+            statement=args.billing_settlement_statement,
+            provider_response_verified=args.billing_provider_response_verified,
+            ledger_entry_verified=args.billing_ledger_entry_verified,
+            acknowledge=args.acknowledge_billing_dispute,
+        )
+        if isinstance(result, dict):
+            print(f"Settlement:      {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Settlement:      {result.settlement_path}")
+        print(f"Attestation:     {result.attestation_path}")
+        print(f"Closure pack:    {result.closure_pack_path}")
+        print(f"Receipt:         {result.receipt_path}")
+        return 0 if result.outcome_status == "settled" else 1
+
+    path = service.export_snapshot(snapshot)
+    print(f"Snapshot:        {path}")
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -2592,6 +2743,9 @@ def main() -> int:
         billing_reconciliation_exit = _handle_billing_reconciliation_command(sys.argv)
         if billing_reconciliation_exit is not None:
             return billing_reconciliation_exit
+        billing_dispute_exit = _handle_billing_dispute_resolution_command(sys.argv)
+        if billing_dispute_exit is not None:
+            return billing_dispute_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

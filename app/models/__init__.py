@@ -1,3 +1,10 @@
+from app.models.billing_dispute_resolution import (
+    BillingDisputeCaseRecord,
+    BillingDisputeGate,
+    BillingDisputeSnapshot,
+    BillingDisputeSource,
+    BillingSettlementRecord,
+)
 from app.models.billing_reconciliation import (
     BillingInvoiceSource,
     BillingReconciliationGate,
@@ -317,6 +324,11 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "BillingDisputeCaseRecord",
+    "BillingDisputeGate",
+    "BillingDisputeSnapshot",
+    "BillingDisputeSource",
+    "BillingSettlementRecord",
     "BillingInvoiceSource",
     "BillingReconciliationGate",
     "BillingReconciliationRecord",
