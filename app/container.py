@@ -82,6 +82,7 @@ from app.services.reliability_assurance_renewal_service import (
 )
 from app.services.service_continuity_service import ServiceContinuityService
 from app.services.service_level_objectives_service import ServiceLevelObjectivesService
+from app.services.capacity_readiness_service import CapacityReadinessService
 from app.services.incident_resolution_service import IncidentResolutionService
 from app.services.incident_triage_service import IncidentTriageService
 from app.services.post_ga_maintenance_service import PostGaMaintenanceService
@@ -136,6 +137,7 @@ class ServiceContainer:
     reliability_assurance_renewal_service: ReliabilityAssuranceRenewalService
     service_continuity_service: ServiceContinuityService
     service_level_objectives_service: ServiceLevelObjectivesService
+    capacity_readiness_service: CapacityReadinessService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -324,6 +326,9 @@ def create_service_container(
     service_level_objectives_service = ServiceLevelObjectivesService(
         config, service_continuity_service
     )
+    capacity_readiness_service = CapacityReadinessService(
+        config, service_level_objectives_service
+    )
     generation_performance_policy_service = GenerationPerformancePolicyService(
         product_event_repository
     )
@@ -398,6 +403,7 @@ def create_service_container(
         reliability_assurance_renewal_service=reliability_assurance_renewal_service,
         service_continuity_service=service_continuity_service,
         service_level_objectives_service=service_level_objectives_service,
+        capacity_readiness_service=capacity_readiness_service,
         git_service=git_service,
         diagnostics_service=diagnostics_service,
         task_prompt_service=TaskPromptService(config.app_root),

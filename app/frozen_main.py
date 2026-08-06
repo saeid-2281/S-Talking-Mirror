@@ -1910,6 +1910,147 @@ def _handle_service_level_objectives_command(argv: list[str]) -> int | None:
     print(f"Snapshot:      {path}")
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_capacity_readiness_command(argv: list[str]) -> int | None:
+    flags = {
+        "--capacity-snapshot",
+        "--create-capacity-observation",
+        "--create-capacity-decision",
+        "--verify-capacity-observation",
+        "--verify-capacity-snapshot",
+        "--verify-capacity-decision",
+        "--verify-capacity-pack",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+    from datetime import datetime, timezone
+
+    from app.container import create_service_container
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking capacity forecast and degradation-readiness evidence",
+    )
+    parser.add_argument("--capacity-snapshot", action="store_true")
+    parser.add_argument("--create-capacity-observation", action="store_true")
+    parser.add_argument("--create-capacity-decision", action="store_true")
+    parser.add_argument("--verify-capacity-observation", type=Path)
+    parser.add_argument("--verify-capacity-snapshot", type=Path)
+    parser.add_argument("--verify-capacity-decision", type=Path)
+    parser.add_argument("--verify-capacity-pack", type=Path)
+    parser.add_argument("--capacity-receipt", type=Path)
+    parser.add_argument("--capacity-observation", type=Path, action="append", default=[])
+    parser.add_argument("--capacity-slo-snapshot", type=Path, action="append", default=[])
+    parser.add_argument("--capacity-slo-decision", type=Path, action="append", default=[])
+    parser.add_argument("--capacity-slo-pack", type=Path, action="append", default=[])
+    parser.add_argument("--capacity-slo-receipt", type=Path, action="append", default=[])
+    parser.add_argument("--capacity-forecast-days", type=int, default=30)
+    parser.add_argument("--capacity-minimum-headroom", type=float, default=20.0)
+    parser.add_argument("--capacity-captured-at", default="")
+    parser.add_argument("--capacity-interval-minutes", type=int, default=60)
+    parser.add_argument("--capacity-current-load", type=int, default=0)
+    parser.add_argument("--capacity-peak-load", type=int, default=0)
+    parser.add_argument("--capacity-sustainable-limit", type=int, default=1)
+    parser.add_argument("--capacity-queue-depth", type=int, default=0)
+    parser.add_argument("--capacity-worker-utilization", type=float, default=0.0)
+    parser.add_argument("--capacity-memory-utilization", type=float, default=0.0)
+    parser.add_argument("--capacity-provider-throttle", type=float, default=0.0)
+    parser.add_argument("--capacity-daily-growth", type=float, default=0.0)
+    parser.add_argument("--capacity-owner", default="")
+    parser.add_argument("--capacity-notes", default="")
+    parser.add_argument("--capacity-decision", default="allow_release")
+    parser.add_argument("--capacity-statement", default="")
+    parser.add_argument("--acknowledge-capacity", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = create_service_container(runtime).capacity_readiness_service
+
+    for path, verifier in (
+        (args.verify_capacity_observation, service.verify_observation),
+        (args.verify_capacity_snapshot, service.verify_snapshot),
+        (args.verify_capacity_decision, service.verify_decision),
+    ):
+        if path is not None:
+            ok, detail = verifier(path)
+            print(detail)
+            return 0 if ok else 1
+    if args.verify_capacity_pack is not None:
+        if args.capacity_receipt is None:
+            print("--capacity-receipt is required with --verify-capacity-pack")
+            return 1
+        ok, detail = service.verify_audit_pack(
+            args.verify_capacity_pack,
+            args.capacity_receipt,
+        )
+        print(detail)
+        return 0 if ok else 1
+
+    if args.create_capacity_observation:
+        captured_at = args.capacity_captured_at or datetime.now(timezone.utc).isoformat()
+        result = service.create_observation(
+            captured_at=captured_at,
+            interval_minutes=args.capacity_interval_minutes,
+            current_load_per_minute=args.capacity_current_load,
+            peak_load_per_minute=args.capacity_peak_load,
+            sustainable_capacity_per_minute=args.capacity_sustainable_limit,
+            queue_depth=args.capacity_queue_depth,
+            worker_utilization_percent=args.capacity_worker_utilization,
+            memory_utilization_percent=args.capacity_memory_utilization,
+            provider_throttle_percent=args.capacity_provider_throttle,
+            daily_growth_percent=args.capacity_daily_growth,
+            owner=args.capacity_owner,
+            notes=args.capacity_notes,
+            acknowledge=args.acknowledge_capacity,
+        )
+        if isinstance(result, dict):
+            print(f"Observation: {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Observation: {result.observation_path}")
+        return 0
+
+    snapshot = service.snapshot(
+        observation_paths=args.capacity_observation,
+        slo_snapshot_paths=args.capacity_slo_snapshot,
+        slo_decision_paths=args.capacity_slo_decision,
+        slo_pack_paths=args.capacity_slo_pack,
+        slo_receipt_paths=args.capacity_slo_receipt,
+        forecast_days=args.capacity_forecast_days,
+        minimum_headroom_percent=args.capacity_minimum_headroom,
+    )
+    print(f"Status:         {snapshot.status}")
+    print(f"Release gate:   {snapshot.release_gate}")
+    print(f"Headroom:       {snapshot.current_headroom_percent:.2f}%")
+    print(f"Projected:      {snapshot.projected_headroom_percent:.2f}%")
+    for gate in snapshot.gates:
+        print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_capacity_decision:
+        result = service.create_decision(
+            snapshot,
+            decision=args.capacity_decision,
+            owner=args.capacity_owner,
+            statement=args.capacity_statement,
+            acknowledge=args.acknowledge_capacity,
+        )
+        if isinstance(result, dict):
+            print(f"Decision:       {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Decision:       {result.decision_path}")
+        print(f"Audit pack:     {result.audit_pack_path}")
+        return 0
+
+    path = service.export_snapshot(snapshot)
+    print(f"Snapshot:       {path}")
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -1972,6 +2113,9 @@ def main() -> int:
         slo_exit = _handle_service_level_objectives_command(sys.argv)
         if slo_exit is not None:
             return slo_exit
+        capacity_exit = _handle_capacity_readiness_command(sys.argv)
+        if capacity_exit is not None:
+            return capacity_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

@@ -1,3 +1,10 @@
+from app.models.capacity_readiness import (
+    CapacityDecisionRecord,
+    CapacityObservationSource,
+    CapacityReadinessGate,
+    CapacityReadinessSnapshot,
+    CapacitySloSource,
+)
 from app.models.service_level_objectives import (
     ServiceLevelContinuitySource,
     ServiceLevelDecisionRecord,
@@ -289,6 +296,11 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "CapacityDecisionRecord",
+    "CapacityObservationSource",
+    "CapacityReadinessGate",
+    "CapacityReadinessSnapshot",
+    "CapacitySloSource",
     "ServiceLevelContinuitySource",
     "ServiceLevelDecisionRecord",
     "ServiceLevelGate",
