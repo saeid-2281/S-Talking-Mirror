@@ -1,3 +1,10 @@
+from app.models.billing_reconciliation import (
+    BillingInvoiceSource,
+    BillingReconciliationGate,
+    BillingReconciliationRecord,
+    BillingReconciliationSnapshot,
+    BillingReplaySource,
+)
 from app.models.recovery_replay import (
     RecoveryReplayDegradationSource,
     RecoveryReplayGate,
@@ -310,6 +317,11 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "BillingInvoiceSource",
+    "BillingReconciliationGate",
+    "BillingReconciliationRecord",
+    "BillingReconciliationSnapshot",
+    "BillingReplaySource",
     "RecoveryReplayDegradationSource",
     "RecoveryReplayGate",
     "RecoveryReplayPlanSource",

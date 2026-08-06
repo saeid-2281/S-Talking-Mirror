@@ -1,3 +1,4 @@
+from app.gui.dialogs.billing_reconciliation_dialog import BillingReconciliationDialog
 from app.gui.dialogs.recovery_replay_dialog import RecoveryReplayDialog
 from app.gui.dialogs.capacity_readiness_dialog import CapacityReadinessDialog
 from app.gui.dialogs.degradation_readiness_dialog import DegradationReadinessDialog
@@ -91,6 +92,7 @@ from app.gui.dialogs.source_import_review_dialog import SourceImportReviewDialog
 from app.gui.dialogs.text_source_dialog import TextSourceDialog
 
 __all__ = [
+    "BillingReconciliationDialog",
     "RecoveryReplayDialog",
     "DegradationReadinessDialog",
     "CapacityReadinessDialog",

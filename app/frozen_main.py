@@ -2360,6 +2360,164 @@ def _handle_recovery_replay_command(argv: list[str]) -> int | None:
     print(f"Snapshot:      {path}")
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_billing_reconciliation_command(argv: list[str]) -> int | None:
+    flags = {
+        "--billing-reconciliation-snapshot",
+        "--import-billing-invoice",
+        "--create-billing-reconciliation-result",
+        "--verify-billing-invoice",
+        "--verify-billing-reconciliation-snapshot",
+        "--verify-billing-reconciliation-result",
+        "--verify-billing-reconciliation-attestation",
+        "--verify-billing-dispute-pack",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.container import create_service_container
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking provider billing reconciliation and dispute evidence",
+    )
+    parser.add_argument("--billing-reconciliation-snapshot", action="store_true")
+    parser.add_argument("--import-billing-invoice", type=Path)
+    parser.add_argument("--create-billing-reconciliation-result", action="store_true")
+    parser.add_argument("--verify-billing-invoice", type=Path)
+    parser.add_argument("--verify-billing-reconciliation-snapshot", type=Path)
+    parser.add_argument("--verify-billing-reconciliation-result", type=Path)
+    parser.add_argument("--verify-billing-reconciliation-attestation", type=Path)
+    parser.add_argument("--verify-billing-dispute-pack", type=Path)
+    parser.add_argument("--billing-dispute-receipt", type=Path)
+    parser.add_argument("--billing-invoice-record", type=Path, action="append", default=[])
+    parser.add_argument("--billing-replay-result", type=Path, action="append", default=[])
+    parser.add_argument("--billing-replay-attestation", type=Path, action="append", default=[])
+    parser.add_argument("--billing-replay-pack", type=Path, action="append", default=[])
+    parser.add_argument("--billing-replay-receipt", type=Path, action="append", default=[])
+    parser.add_argument("--billing-result-invoice", type=Path)
+    parser.add_argument("--billing-invoice-id", default="")
+    parser.add_argument("--billing-provider", default="")
+    parser.add_argument("--billing-currency", default="USD")
+    parser.add_argument("--billing-period-start", default="")
+    parser.add_argument("--billing-period-end", default="")
+    parser.add_argument("--billing-ledger-total", type=float, default=0.0)
+    parser.add_argument("--billing-provider-credits", type=float, default=0.0)
+    parser.add_argument("--billing-matched-requests", type=int, default=0)
+    parser.add_argument("--billing-missing-requests", type=int, default=0)
+    parser.add_argument("--billing-unexpected-requests", type=int, default=0)
+    parser.add_argument("--billing-duplicate-charges", type=int, default=0)
+    parser.add_argument("--billing-max-variance", type=float, default=1.0)
+    parser.add_argument("--billing-max-duplicate-charges", type=int, default=0)
+    parser.add_argument("--billing-max-unmatched-requests", type=int, default=0)
+    parser.add_argument("--billing-provider-statement-verified", action="store_true")
+    parser.add_argument("--billing-owner", default="")
+    parser.add_argument("--billing-notes", default="")
+    parser.add_argument("--billing-statement", default="")
+    parser.add_argument("--acknowledge-billing-reconciliation", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = create_service_container(runtime).billing_reconciliation_service
+
+    for path, verifier in (
+        (args.verify_billing_invoice, service.verify_invoice),
+        (args.verify_billing_reconciliation_snapshot, service.verify_snapshot),
+        (args.verify_billing_reconciliation_result, service.verify_result),
+        (args.verify_billing_reconciliation_attestation, service.verify_attestation),
+    ):
+        if path is not None:
+            ok, detail = verifier(path)
+            print(detail)
+            return 0 if ok else 1
+
+    if args.verify_billing_dispute_pack is not None:
+        if args.billing_dispute_receipt is None:
+            print("--billing-dispute-receipt is required with --verify-billing-dispute-pack")
+            return 1
+        ok, detail = service.verify_dispute_pack(
+            args.verify_billing_dispute_pack,
+            args.billing_dispute_receipt,
+        )
+        print(detail)
+        return 0 if ok else 1
+
+    if args.import_billing_invoice is not None:
+        result = service.import_invoice_csv(
+            args.import_billing_invoice,
+            invoice_id=args.billing_invoice_id,
+            provider=args.billing_provider,
+            currency=args.billing_currency,
+            billing_period_start=args.billing_period_start,
+            billing_period_end=args.billing_period_end,
+            owner=args.billing_owner,
+            notes=args.billing_notes,
+            acknowledge=args.acknowledge_billing_reconciliation,
+        )
+        if isinstance(result, dict):
+            print(f"Invoice:       {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Invoice:       {result.invoice_path}")
+        return 0
+
+    snapshot = service.snapshot(
+        invoice_paths=args.billing_invoice_record,
+        replay_result_paths=args.billing_replay_result,
+        replay_attestation_paths=args.billing_replay_attestation,
+        replay_pack_paths=args.billing_replay_pack,
+        replay_receipt_paths=args.billing_replay_receipt,
+    )
+    print(f"Status:        {snapshot.status}")
+    print(f"Release gate:  {snapshot.release_gate}")
+    print(f"Invoice total: {snapshot.invoice_total_amount:.4f} {snapshot.invoice_currency}")
+    print(f"Replay jobs:   {snapshot.expected_request_count}")
+    print(f"Invoice jobs:  {snapshot.invoice_request_count}")
+    print(f"Blockers:      {snapshot.blocker_count}")
+    print(f"Warnings:      {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_billing_reconciliation_result:
+        if args.billing_result_invoice is None:
+            print("--billing-result-invoice is required")
+            return 1
+        result = service.create_reconciliation_result(
+            snapshot,
+            invoice_path=args.billing_result_invoice,
+            ledger_total_amount=args.billing_ledger_total,
+            provider_credits_amount=args.billing_provider_credits,
+            matched_request_count=args.billing_matched_requests,
+            missing_invoice_request_count=args.billing_missing_requests,
+            unexpected_invoice_request_count=args.billing_unexpected_requests,
+            duplicate_charge_count=args.billing_duplicate_charges,
+            max_variance_percent=args.billing_max_variance,
+            max_duplicate_charges=args.billing_max_duplicate_charges,
+            max_unmatched_requests=args.billing_max_unmatched_requests,
+            provider_statement_verified=args.billing_provider_statement_verified,
+            owner=args.billing_owner,
+            statement=args.billing_statement,
+            acknowledge=args.acknowledge_billing_reconciliation,
+        )
+        if isinstance(result, dict):
+            print(f"Result:        {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Result:        {result.result_path}")
+        print(f"Attestation:   {result.attestation_path}")
+        print(f"Dispute pack:  {result.dispute_pack_path}")
+        print(f"Receipt:       {result.receipt_path}")
+        return 0 if result.outcome_status == "verified" else 1
+
+    path = service.export_snapshot(snapshot)
+    print(f"Snapshot:      {path}")
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -2431,6 +2589,9 @@ def main() -> int:
         recovery_replay_exit = _handle_recovery_replay_command(sys.argv)
         if recovery_replay_exit is not None:
             return recovery_replay_exit
+        billing_reconciliation_exit = _handle_billing_reconciliation_command(sys.argv)
+        if billing_reconciliation_exit is not None:
+            return billing_reconciliation_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

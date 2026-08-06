@@ -1,3 +1,4 @@
+from app.services.billing_reconciliation_service import BillingReconciliationService
 from app.services.recovery_replay_service import RecoveryReplayService
 from app.services.degradation_readiness_service import DegradationReadinessService
 from app.services.capacity_readiness_service import CapacityReadinessService
@@ -73,6 +74,7 @@ from app.services.voice_library_store import VoiceLibraryStore
 from app.services.generation_reliability_service import GenerationReliabilityService
 from app.services.generation_recovery_service import GenerationRecoveryService
 __all__ = [
+    "BillingReconciliationService",
     "RecoveryReplayService",
     "DegradationReadinessService",
     "CapacityReadinessService",

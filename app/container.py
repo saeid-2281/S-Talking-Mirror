@@ -85,6 +85,7 @@ from app.services.service_level_objectives_service import ServiceLevelObjectives
 from app.services.capacity_readiness_service import CapacityReadinessService
 from app.services.degradation_readiness_service import DegradationReadinessService
 from app.services.recovery_replay_service import RecoveryReplayService
+from app.services.billing_reconciliation_service import BillingReconciliationService
 from app.services.incident_resolution_service import IncidentResolutionService
 from app.services.incident_triage_service import IncidentTriageService
 from app.services.post_ga_maintenance_service import PostGaMaintenanceService
@@ -142,6 +143,7 @@ class ServiceContainer:
     capacity_readiness_service: CapacityReadinessService
     degradation_readiness_service: DegradationReadinessService
     recovery_replay_service: RecoveryReplayService
+    billing_reconciliation_service: BillingReconciliationService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -339,6 +341,9 @@ def create_service_container(
     recovery_replay_service = RecoveryReplayService(
         config, degradation_readiness_service
     )
+    billing_reconciliation_service = BillingReconciliationService(
+        config, recovery_replay_service
+    )
     generation_performance_policy_service = GenerationPerformancePolicyService(
         product_event_repository
     )
@@ -416,6 +421,7 @@ def create_service_container(
         capacity_readiness_service=capacity_readiness_service,
         degradation_readiness_service=degradation_readiness_service,
         recovery_replay_service=recovery_replay_service,
+        billing_reconciliation_service=billing_reconciliation_service,
         git_service=git_service,
         diagnostics_service=diagnostics_service,
         task_prompt_service=TaskPromptService(config.app_root),
