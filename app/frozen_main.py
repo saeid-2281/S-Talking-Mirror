@@ -800,6 +800,99 @@ def _handle_incident_support_command(argv: list[str]) -> int | None:
 
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_incident_triage_command(argv: list[str]) -> int | None:
+    flags = {
+        "--incident-triage-snapshot",
+        "--create-incident-triage-case",
+        "--verify-incident-triage-case",
+        "--verify-incident-remediation-plan",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.services.crash_recovery_service import CrashRecoveryService
+    from app.services.incident_support_service import IncidentSupportService
+    from app.services.incident_triage_service import IncidentTriageService
+    from app.services.post_ga_maintenance_service import PostGaMaintenanceService
+    from app.services.production_release_certification_service import (
+        ProductionReleaseCertificationService,
+    )
+    from app.services.stable_release_promotion_service import (
+        StableReleasePromotionService,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking verified support-bundle intake and incident triage",
+    )
+    parser.add_argument("--incident-triage-snapshot", action="store_true")
+    parser.add_argument("--create-incident-triage-case", action="store_true")
+    parser.add_argument("--verify-incident-triage-case", type=Path)
+    parser.add_argument("--verify-incident-remediation-plan", type=Path)
+    parser.add_argument("--incident-triage-bundle", type=Path)
+    parser.add_argument("--incident-triage-receipt", type=Path)
+    parser.add_argument("--acknowledge-incident-triage", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    crash = CrashRecoveryService(runtime)
+    production = ProductionReleaseCertificationService(runtime)
+    stable = StableReleasePromotionService(runtime, production)
+    post_ga = PostGaMaintenanceService(runtime, stable)
+    support = IncidentSupportService(runtime, crash, post_ga)
+    service = IncidentTriageService(runtime, support)
+
+    if args.verify_incident_triage_case:
+        ok, detail = service.verify_case(args.verify_incident_triage_case)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_incident_remediation_plan:
+        ok, detail = service.verify_plan(args.verify_incident_remediation_plan)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+
+    bundle = args.incident_triage_bundle or service.default_bundle_path()
+    snapshot = service.snapshot(
+        bundle_path=bundle,
+        receipt_path=args.incident_triage_receipt,
+    )
+    print(f"Status:       {snapshot.status}")
+    print(f"Case:         {snapshot.case_id}")
+    print(f"Incident:     {snapshot.incident_id}")
+    print(f"Priority:     {snapshot.priority}")
+    print(f"Severity:     {snapshot.reported_severity} -> {snapshot.effective_severity}")
+    print(f"Component:    {snapshot.component}")
+    print(f"Evidence:     {snapshot.report_count} report(s), {snapshot.log_count} log(s)")
+    print(f"Duplicates:   {snapshot.duplicate_count}")
+    print(f"Blockers:     {snapshot.blocker_count}")
+    print(f"Warnings:     {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        if gate.status in {"warn", "block"}:
+            print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_incident_triage_case:
+        result = service.create_case(
+            snapshot,
+            acknowledge=args.acknowledge_incident_triage,
+        )
+        if isinstance(result, dict):
+            print(f"Case:         {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Case path:    {result.case_path}")
+        print(f"Plan path:    {result.plan_path}")
+        print(f"Fingerprint:  {result.fingerprint}")
+        return 0
+
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -836,6 +929,9 @@ def main() -> int:
         incident_support_exit = _handle_incident_support_command(sys.argv)
         if incident_support_exit is not None:
             return incident_support_exit
+        incident_triage_exit = _handle_incident_triage_command(sys.argv)
+        if incident_triage_exit is not None:
+            return incident_triage_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

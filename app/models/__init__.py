@@ -1,3 +1,9 @@
+from app.models.incident_triage import (
+    IncidentTriageAction,
+    IncidentTriageCase,
+    IncidentTriageGate,
+    IncidentTriageSnapshot,
+)
 from app.models.incident_support import (
     IncidentSupportArtifact,
     IncidentSupportBundle,
@@ -233,6 +239,10 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "IncidentTriageAction",
+    "IncidentTriageCase",
+    "IncidentTriageGate",
+    "IncidentTriageSnapshot",
     "IncidentSupportArtifact",
     "IncidentSupportBundle",
     "IncidentSupportGate",
