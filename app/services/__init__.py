@@ -1,3 +1,4 @@
+from app.services.service_continuity_service import ServiceContinuityService
 from app.services.incident_prevention_service import IncidentPreventionService
 from app.services.prevention_effectiveness_service import PreventionEffectivenessService
 from app.services.reliability_assurance_service import ReliabilityAssuranceService
@@ -68,6 +69,7 @@ from app.services.voice_library_store import VoiceLibraryStore
 from app.services.generation_reliability_service import GenerationReliabilityService
 from app.services.generation_recovery_service import GenerationRecoveryService
 __all__ = [
+    "ServiceContinuityService",
     "ReliabilityAssuranceRenewalService",
     "ReliabilityAssuranceService",
     "PreventionEffectivenessService",

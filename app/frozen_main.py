@@ -1485,6 +1485,218 @@ def _handle_reliability_assurance_renewal_command(argv: list[str]) -> int | None
     print(f"Snapshot:     {path}")
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_service_continuity_command(argv: list[str]) -> int | None:
+    flags = {
+        "--service-continuity-snapshot",
+        "--create-service-continuity-plan",
+        "--record-service-continuity-result",
+        "--verify-service-continuity-plan",
+        "--verify-service-continuity-result",
+        "--verify-service-continuity-attestation",
+        "--verify-service-continuity-pack",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.database.connection import Database
+    from app.services.reliability_assurance_renewal_service import (
+        ReliabilityAssuranceRenewalService,
+    )
+    from app.services.service_continuity_service import ServiceContinuityService
+    from app.services.upgrade_recovery_service import UpgradeRecoveryService
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking service continuity, backup recovery and RTO/RPO evidence",
+    )
+    parser.add_argument("--service-continuity-snapshot", action="store_true")
+    parser.add_argument("--create-service-continuity-plan", action="store_true")
+    parser.add_argument("--record-service-continuity-result", action="store_true")
+    parser.add_argument("--verify-service-continuity-plan", type=Path)
+    parser.add_argument("--verify-service-continuity-result", type=Path)
+    parser.add_argument("--verify-service-continuity-attestation", type=Path)
+    parser.add_argument("--verify-service-continuity-pack", type=Path)
+    parser.add_argument("--service-continuity-receipt", type=Path)
+    parser.add_argument(
+        "--service-continuity-renewal",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--service-continuity-follow-up",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--service-continuity-audit-pack",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--service-continuity-source-receipt",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--service-continuity-backup",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--service-continuity-rto-minutes",
+        type=int,
+        default=ServiceContinuityService.DEFAULT_RTO_MINUTES,
+    )
+    parser.add_argument(
+        "--service-continuity-rpo-minutes",
+        type=int,
+        default=ServiceContinuityService.DEFAULT_RPO_MINUTES,
+    )
+    parser.add_argument(
+        "--service-continuity-window-days",
+        type=int,
+        default=ServiceContinuityService.DEFAULT_DRILL_WINDOW_DAYS,
+    )
+    parser.add_argument(
+        "--service-continuity-environment",
+        choices=ServiceContinuityService.ENVIRONMENTS,
+        default="isolated_sandbox",
+    )
+    parser.add_argument("--service-continuity-owner", default="")
+    parser.add_argument("--service-continuity-notes", default="")
+    parser.add_argument("--service-continuity-plan", type=Path)
+    parser.add_argument("--service-continuity-actual-restore-minutes", type=int, default=0)
+    parser.add_argument("--service-continuity-observed-data-loss-minutes", type=int, default=0)
+    parser.add_argument(
+        "--service-continuity-database-check",
+        choices=("ok", "not_applicable", "failed"),
+        default="not_applicable",
+    )
+    parser.add_argument("--service-continuity-manifest-verified", action="store_true")
+    parser.add_argument("--service-continuity-regression-tests", type=int, default=1)
+    parser.add_argument("--service-continuity-failed-tests", type=int, default=0)
+    parser.add_argument("--service-continuity-conclusion", default="")
+    parser.add_argument("--acknowledge-service-continuity", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    database = Database(runtime.database_path)
+    database.initialize()
+    renewal_service = ReliabilityAssuranceRenewalService(runtime)
+    upgrade_service = UpgradeRecoveryService(runtime, database)
+    service = ServiceContinuityService(
+        runtime,
+        renewal_service,
+        upgrade_service,
+    )
+
+    if args.verify_service_continuity_plan:
+        ok, detail = service.verify_plan(args.verify_service_continuity_plan)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_service_continuity_result:
+        ok, detail = service.verify_result(args.verify_service_continuity_result)
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_service_continuity_attestation:
+        ok, detail = service.verify_attestation(
+            args.verify_service_continuity_attestation
+        )
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+    if args.verify_service_continuity_pack:
+        if args.service_continuity_receipt is None:
+            print("Verification: failed — a continuity audit-pack receipt is required.")
+            return 1
+        ok, detail = service.verify_audit_pack(
+            args.verify_service_continuity_pack,
+            args.service_continuity_receipt,
+        )
+        print(f"Verification: {'passed' if ok else 'failed'} — {detail}")
+        return 0 if ok else 1
+
+    if args.record_service_continuity_result:
+        if args.service_continuity_plan is None:
+            print("Result:        blocked — a verified continuity plan is required.")
+            return 1
+        result = service.record_drill_result(
+            args.service_continuity_plan,
+            actual_restore_minutes=args.service_continuity_actual_restore_minutes,
+            observed_data_loss_minutes=(
+                args.service_continuity_observed_data_loss_minutes
+            ),
+            database_quick_check=args.service_continuity_database_check,
+            manifest_verified=args.service_continuity_manifest_verified,
+            regression_test_count=args.service_continuity_regression_tests,
+            failed_test_count=args.service_continuity_failed_tests,
+            owner=args.service_continuity_owner,
+            conclusion=args.service_continuity_conclusion,
+            acknowledge=args.acknowledge_service_continuity,
+        )
+        if isinstance(result, dict):
+            print(f"Result:        {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Outcome:       {result.outcome}")
+        print(f"Result:        {result.result_path}")
+        print(f"Attestation:   {result.attestation_path}")
+        print(f"Audit pack:    {result.audit_pack_path}")
+        print(f"Receipt:       {result.receipt_path}")
+        return 0 if result.outcome == "passed" else 2
+
+    snapshot = service.snapshot(
+        renewal_paths=args.service_continuity_renewal,
+        follow_up_paths=args.service_continuity_follow_up,
+        audit_pack_paths=args.service_continuity_audit_pack,
+        receipt_paths=args.service_continuity_source_receipt,
+        backup_dirs=args.service_continuity_backup,
+        rto_target_minutes=args.service_continuity_rto_minutes,
+        rpo_target_minutes=args.service_continuity_rpo_minutes,
+        drill_window_days=args.service_continuity_window_days,
+    )
+    print(f"Status:        {snapshot.status}")
+    print(f"Renewals:      {snapshot.verified_renewal_count}")
+    print(f"Backups:       {snapshot.verified_backup_count}")
+    print(f"Stale backups: {snapshot.stale_backup_count}")
+    print(f"Open follow-up:{snapshot.open_follow_up_count}")
+    print(f"RTO target:    {snapshot.rto_target_minutes} min")
+    print(f"RPO target:    {snapshot.rpo_target_minutes} min")
+    print(f"Blockers:      {snapshot.blocker_count}")
+    print(f"Warnings:      {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        if gate.status in {"warn", "block"}:
+            print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_service_continuity_plan:
+        result = service.create_drill_plan(
+            snapshot,
+            owner=args.service_continuity_owner,
+            environment=args.service_continuity_environment,
+            notes=args.service_continuity_notes,
+            acknowledge=args.acknowledge_service_continuity,
+        )
+        if isinstance(result, dict):
+            print(f"Plan:          {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Plan:          {result.plan_path}")
+        return 0
+
+    path = service.export_snapshot(snapshot)
+    print(f"Snapshot:      {path}")
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -1541,6 +1753,9 @@ def main() -> int:
         )
         if reliability_renewal_exit is not None:
             return reliability_renewal_exit
+        continuity_exit = _handle_service_continuity_command(sys.argv)
+        if continuity_exit is not None:
+            return continuity_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

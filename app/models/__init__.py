@@ -1,3 +1,10 @@
+from app.models.service_continuity import (
+    ServiceContinuityBackupSource,
+    ServiceContinuityDrillRecord,
+    ServiceContinuityGate,
+    ServiceContinuityRenewalSource,
+    ServiceContinuitySnapshot,
+)
 from app.models.reliability_assurance_renewal import (
     ReliabilityAssuranceRenewalException,
     ReliabilityAssuranceRenewalGate,
@@ -275,6 +282,11 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "ServiceContinuityBackupSource",
+    "ServiceContinuityDrillRecord",
+    "ServiceContinuityGate",
+    "ServiceContinuityRenewalSource",
+    "ServiceContinuitySnapshot",
     "ReliabilityAssuranceRenewalException",
     "ReliabilityAssuranceRenewalGate",
     "ReliabilityAssuranceRenewalRecord",

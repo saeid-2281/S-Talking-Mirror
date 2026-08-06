@@ -80,6 +80,7 @@ from app.services.reliability_assurance_service import ReliabilityAssuranceServi
 from app.services.reliability_assurance_renewal_service import (
     ReliabilityAssuranceRenewalService,
 )
+from app.services.service_continuity_service import ServiceContinuityService
 from app.services.incident_resolution_service import IncidentResolutionService
 from app.services.incident_triage_service import IncidentTriageService
 from app.services.post_ga_maintenance_service import PostGaMaintenanceService
@@ -132,6 +133,7 @@ class ServiceContainer:
     prevention_effectiveness_service: PreventionEffectivenessService
     reliability_assurance_service: ReliabilityAssuranceService
     reliability_assurance_renewal_service: ReliabilityAssuranceRenewalService
+    service_continuity_service: ServiceContinuityService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -314,6 +316,9 @@ def create_service_container(
     reliability_assurance_renewal_service = ReliabilityAssuranceRenewalService(
         config, reliability_assurance_service
     )
+    service_continuity_service = ServiceContinuityService(
+        config, reliability_assurance_renewal_service, upgrade_recovery_service
+    )
     generation_performance_policy_service = GenerationPerformancePolicyService(
         product_event_repository
     )
@@ -386,6 +391,7 @@ def create_service_container(
         prevention_effectiveness_service=prevention_effectiveness_service,
         reliability_assurance_service=reliability_assurance_service,
         reliability_assurance_renewal_service=reliability_assurance_renewal_service,
+        service_continuity_service=service_continuity_service,
         git_service=git_service,
         diagnostics_service=diagnostics_service,
         task_prompt_service=TaskPromptService(config.app_root),
