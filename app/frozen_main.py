@@ -2669,6 +2669,114 @@ def _handle_billing_dispute_resolution_command(argv: list[str]) -> int | None:
     print(f"Snapshot:        {path}")
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_provider_credit_close_command(argv: list[str]) -> int | None:
+    flags = {
+        "--provider-credit-close-snapshot",
+        "--create-provider-credit-close",
+        "--verify-provider-credit-close-snapshot",
+        "--verify-provider-credit-close",
+        "--verify-provider-credit-close-attestation",
+        "--verify-provider-credit-audit-pack",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.container import create_service_container
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking provider credit ledger close and financial control",
+    )
+    parser.add_argument("--provider-credit-close-snapshot", action="store_true")
+    parser.add_argument("--create-provider-credit-close", action="store_true")
+    parser.add_argument("--verify-provider-credit-close-snapshot", type=Path)
+    parser.add_argument("--verify-provider-credit-close", type=Path)
+    parser.add_argument("--verify-provider-credit-close-attestation", type=Path)
+    parser.add_argument("--verify-provider-credit-audit-pack", type=Path)
+    parser.add_argument("--provider-credit-audit-receipt", type=Path)
+    parser.add_argument("--provider-credit-settlement", type=Path, action="append", default=[])
+    parser.add_argument("--provider-credit-attestation", type=Path, action="append", default=[])
+    parser.add_argument("--provider-credit-closure-pack", type=Path, action="append", default=[])
+    parser.add_argument("--provider-credit-receipt", type=Path, action="append", default=[])
+    parser.add_argument("--provider-credit-period", default="")
+    parser.add_argument("--provider-credit-owner", default="")
+    parser.add_argument("--provider-credit-statement", default="")
+    parser.add_argument("--provider-credit-ledger-verified", action="store_true")
+    parser.add_argument("--acknowledge-provider-credit-close", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = create_service_container(runtime).provider_credit_close_service
+
+    for path, verifier in (
+        (args.verify_provider_credit_close_snapshot, service.verify_snapshot),
+        (args.verify_provider_credit_close, service.verify_close),
+        (args.verify_provider_credit_close_attestation, service.verify_attestation),
+    ):
+        if path is not None:
+            ok, detail = verifier(path)
+            print(detail)
+            return 0 if ok else 1
+
+    if args.verify_provider_credit_audit_pack is not None:
+        if args.provider_credit_audit_receipt is None:
+            print("--provider-credit-audit-receipt is required")
+            return 1
+        ok, detail = service.verify_audit_pack(
+            args.verify_provider_credit_audit_pack,
+            args.provider_credit_audit_receipt,
+        )
+        print(detail)
+        return 0 if ok else 1
+
+    snapshot = service.snapshot(
+        accounting_period=args.provider_credit_period,
+        settlement_paths=args.provider_credit_settlement,
+        attestation_paths=args.provider_credit_attestation,
+        closure_pack_paths=args.provider_credit_closure_pack,
+        receipt_paths=args.provider_credit_receipt,
+    )
+    print(f"Status:           {snapshot.status}")
+    print(f"Close gate:       {snapshot.close_gate}")
+    print(f"Accounting period:{snapshot.accounting_period}")
+    print(f"Settlements:      {snapshot.verified_source_count}")
+    print(f"Applied credits:  {snapshot.total_applied_credit:.4f} {snapshot.currency}")
+    print(f"Remaining:        {snapshot.total_remaining_variance:.4f} {snapshot.currency}")
+    print(f"Recovery rate:    {snapshot.recovery_rate_percent:.2f}%")
+    print(f"Blockers:         {snapshot.blocker_count}")
+    print(f"Warnings:         {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_provider_credit_close:
+        result = service.create_close(
+            snapshot,
+            owner=args.provider_credit_owner,
+            statement=args.provider_credit_statement,
+            ledger_export_verified=args.provider_credit_ledger_verified,
+            acknowledge=args.acknowledge_provider_credit_close,
+        )
+        if isinstance(result, dict):
+            print(f"Close:            {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Close:            {result.close_path}")
+        print(f"Attestation:      {result.attestation_path}")
+        print(f"Audit pack:       {result.audit_pack_path}")
+        print(f"Receipt:          {result.receipt_path}")
+        return 0
+
+    path = service.export_snapshot(snapshot)
+    print(f"Snapshot:         {path}")
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -2746,6 +2854,9 @@ def main() -> int:
         billing_dispute_exit = _handle_billing_dispute_resolution_command(sys.argv)
         if billing_dispute_exit is not None:
             return billing_dispute_exit
+        provider_credit_close_exit = _handle_provider_credit_close_command(sys.argv)
+        if provider_credit_close_exit is not None:
+            return provider_credit_close_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

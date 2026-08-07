@@ -1,3 +1,9 @@
+from app.models.provider_credit_close import (
+    ProviderCreditCloseGate,
+    ProviderCreditCloseRecord,
+    ProviderCreditCloseSnapshot,
+    ProviderCreditSettlementSource,
+)
 from app.models.billing_dispute_resolution import (
     BillingDisputeCaseRecord,
     BillingDisputeGate,
@@ -324,6 +330,10 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "ProviderCreditCloseGate",
+    "ProviderCreditCloseRecord",
+    "ProviderCreditCloseSnapshot",
+    "ProviderCreditSettlementSource",
     "BillingDisputeCaseRecord",
     "BillingDisputeGate",
     "BillingDisputeSnapshot",

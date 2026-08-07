@@ -1,3 +1,4 @@
+from app.services.provider_credit_close_service import ProviderCreditCloseService
 from app.services.billing_dispute_resolution_service import (
     BillingDisputeResolutionService,
 )
@@ -77,6 +78,7 @@ from app.services.voice_library_store import VoiceLibraryStore
 from app.services.generation_reliability_service import GenerationReliabilityService
 from app.services.generation_recovery_service import GenerationRecoveryService
 __all__ = [
+    "ProviderCreditCloseService",
     "BillingDisputeResolutionService",
     "BillingReconciliationService",
     "RecoveryReplayService",
