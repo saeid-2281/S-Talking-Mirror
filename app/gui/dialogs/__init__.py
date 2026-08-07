@@ -1,3 +1,4 @@
+from app.gui.dialogs.financial_audit_dialog import FinancialAuditDialog
 from app.gui.dialogs.provider_credit_close_dialog import ProviderCreditCloseDialog
 from app.gui.dialogs.billing_dispute_resolution_dialog import (
     BillingDisputeResolutionDialog,
@@ -96,6 +97,7 @@ from app.gui.dialogs.source_import_review_dialog import SourceImportReviewDialog
 from app.gui.dialogs.text_source_dialog import TextSourceDialog
 
 __all__ = [
+    "FinancialAuditDialog",
     "ProviderCreditCloseDialog",
     "BillingDisputeResolutionDialog",
     "BillingReconciliationDialog",

@@ -1,3 +1,11 @@
+from app.models.financial_audit import (
+    FinancialAuditCloseSource,
+    FinancialAuditGate,
+    FinancialAuditInvoiceFinding,
+    FinancialAuditRecord,
+    FinancialAuditReconciliationSource,
+    FinancialAuditSnapshot,
+)
 from app.models.provider_credit_close import (
     ProviderCreditCloseGate,
     ProviderCreditCloseRecord,
@@ -330,6 +338,12 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "FinancialAuditCloseSource",
+    "FinancialAuditGate",
+    "FinancialAuditInvoiceFinding",
+    "FinancialAuditRecord",
+    "FinancialAuditReconciliationSource",
+    "FinancialAuditSnapshot",
     "ProviderCreditCloseGate",
     "ProviderCreditCloseRecord",
     "ProviderCreditCloseSnapshot",

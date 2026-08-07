@@ -2777,6 +2777,122 @@ def _handle_provider_credit_close_command(argv: list[str]) -> int | None:
     print(f"Snapshot:         {path}")
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_financial_audit_command(argv: list[str]) -> int | None:
+    flags = {
+        "--financial-audit-snapshot",
+        "--create-financial-audit",
+        "--verify-financial-audit-snapshot",
+        "--verify-financial-audit",
+        "--verify-financial-audit-attestation",
+        "--verify-financial-audit-pack",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.container import create_service_container
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking financial audit and cost integrity",
+    )
+    parser.add_argument("--financial-audit-snapshot", action="store_true")
+    parser.add_argument("--create-financial-audit", action="store_true")
+    parser.add_argument("--verify-financial-audit-snapshot", type=Path)
+    parser.add_argument("--verify-financial-audit", type=Path)
+    parser.add_argument("--verify-financial-audit-attestation", type=Path)
+    parser.add_argument("--verify-financial-audit-pack", type=Path)
+    parser.add_argument("--financial-audit-pack-receipt", type=Path)
+    parser.add_argument("--financial-audit-reconciliation", type=Path, action="append", default=[])
+    parser.add_argument("--financial-audit-reconciliation-attestation", type=Path, action="append", default=[])
+    parser.add_argument("--financial-audit-reconciliation-pack", type=Path, action="append", default=[])
+    parser.add_argument("--financial-audit-reconciliation-receipt", type=Path, action="append", default=[])
+    parser.add_argument("--financial-audit-close", type=Path, action="append", default=[])
+    parser.add_argument("--financial-audit-close-attestation", type=Path, action="append", default=[])
+    parser.add_argument("--financial-audit-close-pack", type=Path, action="append", default=[])
+    parser.add_argument("--financial-audit-close-receipt", type=Path, action="append", default=[])
+    parser.add_argument("--financial-audit-period", default="")
+    parser.add_argument("--financial-audit-tolerance", type=float, default=0.01)
+    parser.add_argument("--financial-audit-owner", default="")
+    parser.add_argument("--financial-audit-statement", default="")
+    parser.add_argument("--acknowledge-financial-audit", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = create_service_container(runtime).financial_audit_service
+
+    for path, verifier in (
+        (args.verify_financial_audit_snapshot, service.verify_snapshot),
+        (args.verify_financial_audit, service.verify_audit),
+        (args.verify_financial_audit_attestation, service.verify_attestation),
+    ):
+        if path is not None:
+            ok, detail = verifier(path)
+            print(detail)
+            return 0 if ok else 1
+
+    if args.verify_financial_audit_pack is not None:
+        if args.financial_audit_pack_receipt is None:
+            print("--financial-audit-pack-receipt is required")
+            return 1
+        ok, detail = service.verify_audit_pack(
+            args.verify_financial_audit_pack,
+            args.financial_audit_pack_receipt,
+        )
+        print(detail)
+        return 0 if ok else 1
+
+    snapshot = service.snapshot(
+        accounting_period=args.financial_audit_period,
+        tolerance_amount=args.financial_audit_tolerance,
+        reconciliation_paths=args.financial_audit_reconciliation,
+        reconciliation_attestation_paths=args.financial_audit_reconciliation_attestation,
+        reconciliation_pack_paths=args.financial_audit_reconciliation_pack,
+        reconciliation_receipt_paths=args.financial_audit_reconciliation_receipt,
+        close_paths=args.financial_audit_close,
+        close_attestation_paths=args.financial_audit_close_attestation,
+        close_pack_paths=args.financial_audit_close_pack,
+        close_receipt_paths=args.financial_audit_close_receipt,
+    )
+    print(f"Status:             {snapshot.status}")
+    print(f"Audit gate:         {snapshot.audit_gate}")
+    print(f"Accounting period:  {snapshot.accounting_period}")
+    print(f"Invoices:           {snapshot.invoice_count}")
+    print(f"Settlement credits: {snapshot.total_settlement_credits:.4f} {snapshot.currency}")
+    print(f"Ledger total:       {snapshot.total_ledger_amount:.4f} {snapshot.currency}")
+    print(f"Residual variance:  {snapshot.total_residual_variance:.4f} {snapshot.currency}")
+    print(f"Blockers:           {snapshot.blocker_count}")
+    print(f"Warnings:           {snapshot.warning_count}")
+    for gate in snapshot.gates:
+        print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_financial_audit:
+        result = service.create_audit(
+            snapshot,
+            owner=args.financial_audit_owner,
+            statement=args.financial_audit_statement,
+            acknowledge=args.acknowledge_financial_audit,
+        )
+        if isinstance(result, dict):
+            print(f"Audit:              {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Audit:              {result.audit_path}")
+        print(f"Attestation:        {result.attestation_path}")
+        print(f"Audit pack:         {result.audit_pack_path}")
+        print(f"Receipt:            {result.receipt_path}")
+        return 0
+
+    path = service.export_snapshot(snapshot)
+    print(f"Snapshot:           {path}")
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -2857,6 +2973,9 @@ def main() -> int:
         provider_credit_close_exit = _handle_provider_credit_close_command(sys.argv)
         if provider_credit_close_exit is not None:
             return provider_credit_close_exit
+        financial_audit_exit = _handle_financial_audit_command(sys.argv)
+        if financial_audit_exit is not None:
+            return financial_audit_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context
