@@ -1,3 +1,7 @@
+from app.models.evidence_refresh import (
+    EvidenceFreshnessEntry,
+    EvidenceRefreshSnapshot,
+)
 from app.models.operations_command_center import (
     OperationsCommandSnapshot,
     OperationsDomainStatus,
@@ -349,6 +353,8 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "EvidenceFreshnessEntry",
+    "EvidenceRefreshSnapshot",
     "ProviderFinancialAuditSource",
     "OperationsCommandSnapshot",
     "OperationsDomainStatus",

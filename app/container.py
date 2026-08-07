@@ -86,6 +86,7 @@ from app.services.capacity_readiness_service import CapacityReadinessService
 from app.services.degradation_readiness_service import DegradationReadinessService
 from app.services.recovery_replay_service import RecoveryReplayService
 from app.services.financial_audit_service import FinancialAuditService
+from app.services.evidence_refresh_service import EvidenceRefreshService
 from app.services.operations_command_center_service import OperationsCommandCenterService
 from app.services.provider_governance_service import ProviderGovernanceService
 from app.services.provider_credit_close_service import ProviderCreditCloseService
@@ -156,6 +157,7 @@ class ServiceContainer:
     financial_audit_service: FinancialAuditService
     provider_governance_service: ProviderGovernanceService
     operations_command_center_service: OperationsCommandCenterService
+    evidence_refresh_service: EvidenceRefreshService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -395,6 +397,9 @@ def create_service_container(
         financial_audit_service,
         reliability_assurance_renewal_service,
     )
+    evidence_refresh_service = EvidenceRefreshService(
+        config, operations_command_center_service
+    )
     generation_incident_service = GenerationIncidentService(product_event_repository)
     generation_problem_service = GenerationProblemService(product_event_repository)
     generation_orchestration_service = GenerationOrchestrationService(
@@ -463,6 +468,7 @@ def create_service_container(
         financial_audit_service=financial_audit_service,
         provider_governance_service=provider_governance_service,
         operations_command_center_service=operations_command_center_service,
+        evidence_refresh_service=evidence_refresh_service,
         git_service=git_service,
         diagnostics_service=diagnostics_service,
         task_prompt_service=TaskPromptService(config.app_root),

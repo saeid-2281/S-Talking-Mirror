@@ -3011,6 +3011,72 @@ def _handle_provider_governance_command(argv: list[str]) -> int | None:
     return 1 if snapshot.blocker_count else 0
 
 
+def _handle_evidence_refresh_command(argv: list[str]) -> int | None:
+    flags = {
+        "--evidence-refresh",
+        "--refresh-certification-evidence",
+        "--verify-evidence-refresh-registry",
+        "--verify-certification-refresh",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.container import create_service_container
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking evidence and certification refresh",
+    )
+    parser.add_argument("--evidence-refresh", action="store_true")
+    parser.add_argument("--refresh-certification-evidence", action="store_true")
+    parser.add_argument("--verify-evidence-refresh-registry", type=Path)
+    parser.add_argument("--verify-certification-refresh", type=Path)
+    parser.add_argument("--evidence-refresh-project-id", type=int)
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = create_service_container(runtime).evidence_refresh_service
+
+    if args.verify_evidence_refresh_registry is not None:
+        ok, detail = service.verify_registry(args.verify_evidence_refresh_registry)
+        print(detail)
+        return 0 if ok else 1
+
+    if args.verify_certification_refresh is not None:
+        ok, detail = service.verify_certification(args.verify_certification_refresh)
+        print(detail)
+        return 0 if ok else 1
+
+    if args.refresh_certification_evidence:
+        registry, certification = service.refresh_certification(
+            project_id=args.evidence_refresh_project_id
+        )
+        ok, detail = service.verify_certification(certification)
+        print(f"Registry:            {registry}")
+        print(f"Certification:       {certification}")
+        print(f"Verification:        {detail}")
+        return 0 if ok else 1
+
+    snapshot = service.assess(project_id=args.evidence_refresh_project_id)
+    print(f"Status:              {snapshot.overall_status}")
+    print(f"Fresh:               {snapshot.count('fresh')}")
+    print(f"Due soon:            {snapshot.count('due_soon')}")
+    print(f"Expired:             {snapshot.count('expired')}")
+    print(f"Missing:             {snapshot.count('missing')}")
+    print(f"Blocked:             {snapshot.count('blocked')}")
+    for item in snapshot.entries:
+        age = "n/a" if item.age_days is None else f"{item.age_days:.1f}d"
+        print(f" - {item.label}: {item.status} · {age} · {item.evidence_filename or 'no evidence'}")
+    return 1 if snapshot.overall_status == "blocked" else 0
+
+
 def _handle_operations_command_center_command(argv: list[str]) -> int | None:
     flags = {
         "--operations-command-center-snapshot",
@@ -3163,6 +3229,9 @@ def main() -> int:
         )
         if operations_command_center_exit is not None:
             return operations_command_center_exit
+        evidence_refresh_exit = _handle_evidence_refresh_command(sys.argv)
+        if evidence_refresh_exit is not None:
+            return evidence_refresh_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context
