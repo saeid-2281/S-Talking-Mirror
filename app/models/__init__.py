@@ -1,3 +1,7 @@
+from app.models.operations_command_center import (
+    OperationsCommandSnapshot,
+    OperationsDomainStatus,
+)
 from app.models.provider_governance import (
     ProviderFinancialAuditSource,
     ProviderGovernanceGate,
@@ -346,6 +350,8 @@ from app.models.generation_orchestration import (
 
 __all__ = [
     "ProviderFinancialAuditSource",
+    "OperationsCommandSnapshot",
+    "OperationsDomainStatus",
     "ProviderGovernanceGate",
     "ProviderGovernanceRecord",
     "ProviderGovernanceSnapshot",

@@ -86,6 +86,7 @@ from app.services.capacity_readiness_service import CapacityReadinessService
 from app.services.degradation_readiness_service import DegradationReadinessService
 from app.services.recovery_replay_service import RecoveryReplayService
 from app.services.financial_audit_service import FinancialAuditService
+from app.services.operations_command_center_service import OperationsCommandCenterService
 from app.services.provider_governance_service import ProviderGovernanceService
 from app.services.provider_credit_close_service import ProviderCreditCloseService
 from app.services.billing_dispute_resolution_service import (
@@ -154,6 +155,7 @@ class ServiceContainer:
     provider_credit_close_service: ProviderCreditCloseService
     financial_audit_service: FinancialAuditService
     provider_governance_service: ProviderGovernanceService
+    operations_command_center_service: OperationsCommandCenterService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -381,6 +383,18 @@ def create_service_container(
     provider_governance_service = ProviderGovernanceService(
         config, generation_reliability_service, financial_audit_service
     )
+    operations_command_center_service = OperationsCommandCenterService(
+        config,
+        post_ga_maintenance_service,
+        incident_triage_service,
+        incident_resolution_service,
+        service_level_objectives_service,
+        capacity_readiness_service,
+        service_continuity_service,
+        provider_governance_service,
+        financial_audit_service,
+        reliability_assurance_renewal_service,
+    )
     generation_incident_service = GenerationIncidentService(product_event_repository)
     generation_problem_service = GenerationProblemService(product_event_repository)
     generation_orchestration_service = GenerationOrchestrationService(
@@ -448,6 +462,7 @@ def create_service_container(
         provider_credit_close_service=provider_credit_close_service,
         financial_audit_service=financial_audit_service,
         provider_governance_service=provider_governance_service,
+        operations_command_center_service=operations_command_center_service,
         git_service=git_service,
         diagnostics_service=diagnostics_service,
         task_prompt_service=TaskPromptService(config.app_root),

@@ -3010,6 +3010,68 @@ def _handle_provider_governance_command(argv: list[str]) -> int | None:
     print(f"Snapshot:           {path}")
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_operations_command_center_command(argv: list[str]) -> int | None:
+    flags = {
+        "--operations-command-center-snapshot",
+        "--export-operations-command-center-snapshot",
+        "--verify-operations-command-center-snapshot",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.container import create_service_container
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking production operations command center",
+    )
+    parser.add_argument("--operations-command-center-snapshot", action="store_true")
+    parser.add_argument(
+        "--export-operations-command-center-snapshot", action="store_true"
+    )
+    parser.add_argument("--verify-operations-command-center-snapshot", type=Path)
+    parser.add_argument("--operations-command-center-project-id", type=int)
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = create_service_container(runtime).operations_command_center_service
+
+    if args.verify_operations_command_center_snapshot is not None:
+        ok, detail = service.verify_snapshot(
+            args.verify_operations_command_center_snapshot
+        )
+        print(detail)
+        return 0 if ok else 1
+
+    snapshot = service.snapshot(project_id=args.operations_command_center_project_id)
+    print(f"Status:             {snapshot.overall_status}")
+    print(f"Healthy:            {snapshot.healthy_count}")
+    print(f"Warnings:           {snapshot.warning_count}")
+    print(f"Critical:           {snapshot.critical_count}")
+    print(f"Unknown:            {snapshot.unknown_count}")
+    for domain in snapshot.domains:
+        print(
+            f" - {domain.label}: {domain.status} · {domain.metric} · "
+            f"{domain.headline}"
+        )
+
+    if args.export_operations_command_center_snapshot:
+        path = service.export_snapshot(snapshot)
+        ok, detail = service.verify_snapshot(path)
+        print(f"Snapshot:           {path}")
+        print(f"Verification:       {detail}")
+        return 0 if ok and snapshot.overall_status != "critical" else 1
+
+    return 1 if snapshot.overall_status == "critical" else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -3096,6 +3158,11 @@ def main() -> int:
         provider_governance_exit = _handle_provider_governance_command(sys.argv)
         if provider_governance_exit is not None:
             return provider_governance_exit
+        operations_command_center_exit = _handle_operations_command_center_command(
+            sys.argv
+        )
+        if operations_command_center_exit is not None:
+            return operations_command_center_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context
