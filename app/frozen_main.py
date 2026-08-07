@@ -2893,6 +2893,123 @@ def _handle_financial_audit_command(argv: list[str]) -> int | None:
     print(f"Snapshot:           {path}")
     return 1 if snapshot.blocker_count else 0
 
+
+def _handle_provider_governance_command(argv: list[str]) -> int | None:
+    flags = {
+        "--provider-governance-snapshot",
+        "--create-provider-governance",
+        "--verify-provider-governance-snapshot",
+        "--verify-provider-governance",
+        "--verify-provider-governance-attestation",
+        "--verify-provider-governance-pack",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.container import create_service_container
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking provider performance governance",
+    )
+    parser.add_argument("--provider-governance-snapshot", action="store_true")
+    parser.add_argument("--create-provider-governance", action="store_true")
+    parser.add_argument("--verify-provider-governance-snapshot", type=Path)
+    parser.add_argument("--verify-provider-governance", type=Path)
+    parser.add_argument("--verify-provider-governance-attestation", type=Path)
+    parser.add_argument("--verify-provider-governance-pack", type=Path)
+    parser.add_argument("--provider-governance-pack-receipt", type=Path)
+    parser.add_argument("--provider-governance-financial-audit", type=Path, action="append")
+    parser.add_argument(
+        "--provider-governance-financial-attestation", type=Path, action="append"
+    )
+    parser.add_argument("--provider-governance-financial-pack", type=Path, action="append")
+    parser.add_argument(
+        "--provider-governance-financial-receipt", type=Path, action="append"
+    )
+    parser.add_argument("--provider-governance-project-id", type=int)
+    parser.add_argument("--provider-governance-minimum-sessions", type=int, default=3)
+    parser.add_argument("--provider-governance-owner", default="")
+    parser.add_argument("--provider-governance-statement", default="")
+    parser.add_argument("--acknowledge-provider-governance", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = create_service_container(runtime).provider_governance_service
+
+    for path, verifier in (
+        (args.verify_provider_governance_snapshot, service.verify_snapshot),
+        (args.verify_provider_governance, service.verify_governance),
+        (args.verify_provider_governance_attestation, service.verify_attestation),
+    ):
+        if path is not None:
+            ok, detail = verifier(path)
+            print(detail)
+            return 0 if ok else 1
+
+    if args.verify_provider_governance_pack is not None:
+        if args.provider_governance_pack_receipt is None:
+            print("--provider-governance-pack-receipt is required")
+            return 1
+        ok, detail = service.verify_audit_pack(
+            args.verify_provider_governance_pack,
+            args.provider_governance_pack_receipt,
+        )
+        print(detail)
+        return 0 if ok else 1
+
+    snapshot = service.snapshot(
+        project_id=args.provider_governance_project_id,
+        minimum_sessions=args.provider_governance_minimum_sessions,
+        financial_audit_paths=args.provider_governance_financial_audit,
+        financial_attestation_paths=args.provider_governance_financial_attestation,
+        financial_pack_paths=args.provider_governance_financial_pack,
+        financial_receipt_paths=args.provider_governance_financial_receipt,
+    )
+    print(f"Status:             {snapshot.status}")
+    print(f"Governance gate:    {snapshot.governance_gate}")
+    print(f"Providers:          {snapshot.provider_count}")
+    print(f"Preferred:          {snapshot.preferred_count}")
+    print(f"Approved:           {snapshot.approved_count}")
+    print(f"Watch:              {snapshot.watch_count}")
+    print(f"Restricted:         {snapshot.restricted_count}")
+    print(f"Blockers:           {snapshot.blocker_count}")
+    print(f"Warnings:           {snapshot.warning_count}")
+    for scorecard in snapshot.scorecards:
+        print(
+            f" - {scorecard.provider}: {scorecard.overall_score:.1f}/100 · "
+            f"{scorecard.risk_level} · {scorecard.recommended_governance}"
+        )
+    for gate in snapshot.gates:
+        print(f" - {gate.label} [{gate.status}]: {gate.detail}")
+
+    if args.create_provider_governance:
+        result = service.create_governance(
+            snapshot,
+            owner=args.provider_governance_owner,
+            statement=args.provider_governance_statement,
+            acknowledge=args.acknowledge_provider_governance,
+        )
+        if isinstance(result, dict):
+            print(f"Governance:         {result.get('status')} — {result.get('detail')}")
+            return 1
+        print(f"Governance:         {result.governance_path}")
+        print(f"Attestation:        {result.attestation_path}")
+        print(f"Audit pack:         {result.audit_pack_path}")
+        print(f"Receipt:            {result.receipt_path}")
+        return 0
+
+    path = service.export_snapshot(snapshot)
+    print(f"Snapshot:           {path}")
+    return 1 if snapshot.blocker_count else 0
+
 def main() -> int:
     crash_service = None
     try:
@@ -2976,6 +3093,9 @@ def main() -> int:
         financial_audit_exit = _handle_financial_audit_command(sys.argv)
         if financial_audit_exit is not None:
             return financial_audit_exit
+        provider_governance_exit = _handle_provider_governance_command(sys.argv)
+        if provider_governance_exit is not None:
+            return provider_governance_exit
 
         from PySide6.QtWidgets import QApplication
         from app.bootstrap import create_application_context

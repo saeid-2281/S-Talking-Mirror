@@ -71,6 +71,7 @@ from app.services.capacity_readiness_service import CapacityReadinessService
 from app.services.degradation_readiness_service import DegradationReadinessService
 from app.services.recovery_replay_service import RecoveryReplayService
 from app.services.financial_audit_service import FinancialAuditService
+from app.services.provider_governance_service import ProviderGovernanceService
 from app.services.provider_credit_close_service import ProviderCreditCloseService
 from app.services.billing_dispute_resolution_service import (
     BillingDisputeResolutionService,
@@ -126,6 +127,7 @@ class ApplicationContext:
     billing_dispute_resolution_service: BillingDisputeResolutionService
     provider_credit_close_service: ProviderCreditCloseService
     financial_audit_service: FinancialAuditService
+    provider_governance_service: ProviderGovernanceService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -212,6 +214,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         billing_dispute_resolution_service=services.billing_dispute_resolution_service,
         provider_credit_close_service=services.provider_credit_close_service,
         financial_audit_service=services.financial_audit_service,
+        provider_governance_service=services.provider_governance_service,
         git_service=services.git_service,
         diagnostics_service=services.diagnostics_service,
         task_prompt_service=services.task_prompt_service,

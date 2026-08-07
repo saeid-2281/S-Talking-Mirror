@@ -1,3 +1,10 @@
+from app.models.provider_governance import (
+    ProviderFinancialAuditSource,
+    ProviderGovernanceGate,
+    ProviderGovernanceRecord,
+    ProviderGovernanceSnapshot,
+    ProviderPerformanceScorecard,
+)
 from app.models.financial_audit import (
     FinancialAuditCloseSource,
     FinancialAuditGate,
@@ -338,6 +345,11 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "ProviderFinancialAuditSource",
+    "ProviderGovernanceGate",
+    "ProviderGovernanceRecord",
+    "ProviderGovernanceSnapshot",
+    "ProviderPerformanceScorecard",
     "FinancialAuditCloseSource",
     "FinancialAuditGate",
     "FinancialAuditInvoiceFinding",
