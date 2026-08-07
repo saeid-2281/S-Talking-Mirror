@@ -1,3 +1,4 @@
+from app.services.operational_readiness_service import OperationalReadinessCertificationService
 from app.services.evidence_refresh_service import EvidenceRefreshService
 from app.services.operations_command_center_service import OperationsCommandCenterService
 from app.services.financial_audit_service import FinancialAuditService
@@ -82,6 +83,7 @@ from app.services.voice_library_store import VoiceLibraryStore
 from app.services.generation_reliability_service import GenerationReliabilityService
 from app.services.generation_recovery_service import GenerationRecoveryService
 __all__ = [
+    "OperationalReadinessCertificationService",
     "EvidenceRefreshService",
     "OperationsCommandCenterService",
     "ProviderGovernanceService",

@@ -1,3 +1,4 @@
+from app.gui.dialogs.operational_readiness_dialog import OperationalReadinessDialog
 from app.gui.dialogs.evidence_refresh_dialog import EvidenceRefreshDialog
 from app.gui.dialogs.operations_command_center_dialog import OperationsCommandCenterDialog
 from app.gui.dialogs.provider_governance_dialog import ProviderGovernanceDialog
@@ -100,6 +101,7 @@ from app.gui.dialogs.source_import_review_dialog import SourceImportReviewDialog
 from app.gui.dialogs.text_source_dialog import TextSourceDialog
 
 __all__ = [
+    "OperationalReadinessDialog",
     "EvidenceRefreshDialog",
     "OperationsCommandCenterDialog",
     "ProviderGovernanceDialog",

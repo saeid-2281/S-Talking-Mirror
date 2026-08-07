@@ -1,3 +1,8 @@
+from app.models.operational_readiness import (
+    OperationalReadinessGate,
+    OperationalReadinessSnapshot,
+    OperationalReadinessSource,
+)
 from app.models.evidence_refresh import (
     EvidenceFreshnessEntry,
     EvidenceRefreshSnapshot,
@@ -353,6 +358,9 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "OperationalReadinessGate",
+    "OperationalReadinessSnapshot",
+    "OperationalReadinessSource",
     "EvidenceFreshnessEntry",
     "EvidenceRefreshSnapshot",
     "ProviderFinancialAuditSource",

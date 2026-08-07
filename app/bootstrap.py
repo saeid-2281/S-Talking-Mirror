@@ -71,6 +71,7 @@ from app.services.capacity_readiness_service import CapacityReadinessService
 from app.services.degradation_readiness_service import DegradationReadinessService
 from app.services.recovery_replay_service import RecoveryReplayService
 from app.services.financial_audit_service import FinancialAuditService
+from app.services.operational_readiness_service import OperationalReadinessCertificationService
 from app.services.evidence_refresh_service import EvidenceRefreshService
 from app.services.operations_command_center_service import OperationsCommandCenterService
 from app.services.provider_governance_service import ProviderGovernanceService
@@ -132,6 +133,7 @@ class ApplicationContext:
     provider_governance_service: ProviderGovernanceService
     operations_command_center_service: OperationsCommandCenterService
     evidence_refresh_service: EvidenceRefreshService
+    operational_readiness_service: OperationalReadinessCertificationService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -221,6 +223,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         provider_governance_service=services.provider_governance_service,
         operations_command_center_service=services.operations_command_center_service,
         evidence_refresh_service=services.evidence_refresh_service,
+        operational_readiness_service=services.operational_readiness_service,
         git_service=services.git_service,
         diagnostics_service=services.diagnostics_service,
         task_prompt_service=services.task_prompt_service,

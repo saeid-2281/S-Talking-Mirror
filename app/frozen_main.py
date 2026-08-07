@@ -3011,6 +3011,92 @@ def _handle_provider_governance_command(argv: list[str]) -> int | None:
     return 1 if snapshot.blocker_count else 0
 
 
+def _handle_operational_readiness_command(argv: list[str]) -> int | None:
+    flags = {
+        "--operational-readiness-certification",
+        "--create-operational-readiness-certification",
+        "--verify-operational-readiness-attestation",
+        "--verify-operational-readiness-audit-pack",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.container import create_service_container
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking operational readiness final certification",
+    )
+    parser.add_argument("--operational-readiness-certification", action="store_true")
+    parser.add_argument("--create-operational-readiness-certification", action="store_true")
+    parser.add_argument("--verify-operational-readiness-attestation", type=Path)
+    parser.add_argument("--verify-operational-readiness-audit-pack", type=Path)
+    parser.add_argument("--operational-readiness-receipt", type=Path)
+    parser.add_argument("--operational-readiness-project-id", type=int)
+    parser.add_argument("--operational-readiness-source-commit", default="")
+    parser.add_argument("--operational-readiness-reviewer", default="")
+    parser.add_argument("--operational-readiness-statement", default="")
+    parser.add_argument("--acknowledge-operational-readiness", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = create_service_container(runtime).operational_readiness_service
+
+    if args.verify_operational_readiness_attestation is not None:
+        ok, detail = service.verify_attestation(
+            args.verify_operational_readiness_attestation
+        )
+        print(detail)
+        return 0 if ok else 1
+
+    if args.verify_operational_readiness_audit_pack is not None:
+        if args.operational_readiness_receipt is None:
+            print("--operational-readiness-receipt is required with audit-pack verification.")
+            return 2
+        ok, detail = service.verify_audit_pack(
+            args.verify_operational_readiness_audit_pack,
+            args.operational_readiness_receipt,
+        )
+        print(detail)
+        return 0 if ok else 1
+
+    snapshot = service.assess(
+        project_id=args.operational_readiness_project_id,
+        source_commit=args.operational_readiness_source_commit,
+    )
+    print(f"Status:              {snapshot.status}")
+    print(f"Passed gates:        {snapshot.pass_count}")
+    print(f"Warnings:            {snapshot.warning_count}")
+    print(f"Blockers:            {snapshot.blocker_count}")
+    print(f"Source commit:       {snapshot.source_commit or 'unavailable'}")
+    for gate in snapshot.gates:
+        print(f" - {gate.label}: {gate.status} · {gate.detail}")
+
+    if args.create_operational_readiness_certification:
+        result = service.create_certification(
+            snapshot,
+            reviewer=args.operational_readiness_reviewer,
+            statement=args.operational_readiness_statement,
+            acknowledge=args.acknowledge_operational_readiness,
+        )
+        print(f"Certification:       {result.get('status')}")
+        print(f"Detail:              {result.get('detail')}")
+        if result.get("path"):
+            print(f"Attestation:         {result.get('path')}")
+            print(f"Audit pack:          {result.get('audit_pack_path')}")
+            print(f"Receipt:             {result.get('receipt_path')}")
+        return 0 if result.get("status") in {"certified", "certified_with_warnings"} else 1
+
+    return 1 if snapshot.blocker_count else 0
+
+
 def _handle_evidence_refresh_command(argv: list[str]) -> int | None:
     flags = {
         "--evidence-refresh",
@@ -3229,6 +3315,9 @@ def main() -> int:
         )
         if operations_command_center_exit is not None:
             return operations_command_center_exit
+        operational_readiness_exit = _handle_operational_readiness_command(sys.argv)
+        if operational_readiness_exit is not None:
+            return operational_readiness_exit
         evidence_refresh_exit = _handle_evidence_refresh_command(sys.argv)
         if evidence_refresh_exit is not None:
             return evidence_refresh_exit
