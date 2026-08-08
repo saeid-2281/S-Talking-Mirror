@@ -34,7 +34,7 @@ class EvidenceIntegrityMixin:
     @staticmethod
     def _read_json(path: Path) -> dict[str, Any] | None:
         try:
-            value = json.loads(Path(path).read_text(encoding="utf-8"))
+            value = json.loads(Path(path).read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError, TypeError):
             return None
         return value if isinstance(value, dict) else None

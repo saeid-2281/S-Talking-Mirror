@@ -148,6 +148,18 @@ def test_phase88_clean_post_commit_release_check_certifies_source(tmp_path: Path
     assert len(snapshot.sources) == 5
 
 
+def test_phase88_release_check_accepts_windows_powershell_utf8_bom(tmp_path: Path) -> None:
+    service, runtime = _service(tmp_path)
+    release_check = _write_release_check(runtime)
+    payload = json.loads(release_check.read_text(encoding="utf-8"))
+    release_check.write_text(json.dumps(payload), encoding="utf-8-sig")
+    snapshot = service.assess(minimum_test_count=1100)
+    gate = next(item for item in snapshot.gates if item.code == "release_check")
+    assert gate.status == "pass"
+    assert snapshot.observed_test_count == 1200
+    assert snapshot.status == "certified"
+
+
 def test_phase88_release_check_must_match_commit_and_test_floor(tmp_path: Path) -> None:
     service, runtime = _service(tmp_path)
     _write_release_check(runtime, commit="a" * 40, passed=1099)
