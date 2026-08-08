@@ -30,7 +30,7 @@ from app.gui.responsive_workspace import (
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
 from app.gui.update_delivery_controller import UpdateDeliveryController
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,DistributionReadinessDialog,FinalReleaseDialog,UpgradeRecoveryDialog,UpdateDeliveryDialog,CrashRecoveryDialog,PerformanceStabilityDialog,SecuritySupplyChainDialog,UxAccessibilityCertificationDialog,ProductionReleaseCertificationDialog,StableReleasePromotionDialog,PostGaMaintenanceDialog,IncidentSupportDialog,IncidentTriageDialog,IncidentResolutionDialog,IncidentPreventionDialog,PreventionEffectivenessDialog,ReliabilityAssuranceDialog,ReliabilityAssuranceRenewalDialog,ServiceContinuityDialog,ServiceLevelObjectivesDialog,CapacityReadinessDialog,DegradationReadinessDialog,RecoveryReplayDialog,BillingReconciliationDialog,BillingDisputeResolutionDialog,ProviderCreditCloseDialog,FinancialAuditDialog,ProviderGovernanceDialog,OperationsCommandCenterDialog,EvidenceRefreshDialog,OperationalReadinessDialog,OperationalPersistenceDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,DistributionReadinessDialog,FinalReleaseDialog,UpgradeRecoveryDialog,UpdateDeliveryDialog,CrashRecoveryDialog,PerformanceStabilityDialog,SecuritySupplyChainDialog,UxAccessibilityCertificationDialog,ProductionReleaseCertificationDialog,StableReleasePromotionDialog,PostGaMaintenanceDialog,IncidentSupportDialog,IncidentTriageDialog,IncidentResolutionDialog,IncidentPreventionDialog,PreventionEffectivenessDialog,ReliabilityAssuranceDialog,ReliabilityAssuranceRenewalDialog,ServiceContinuityDialog,ServiceLevelObjectivesDialog,CapacityReadinessDialog,DegradationReadinessDialog,RecoveryReplayDialog,BillingReconciliationDialog,BillingDisputeResolutionDialog,ProviderCreditCloseDialog,FinancialAuditDialog,ProviderGovernanceDialog,OperationsWorkspaceDialog,OperationsCommandCenterDialog,EvidenceRefreshDialog,OperationalReadinessDialog,OperationalPersistenceDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -399,7 +399,7 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Operations Workspace','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
@@ -745,7 +745,89 @@ class MainWindow(QMainWindow):
             action=self.generation_menu.addAction(action_icon(ic),text); action.triggered.connect(handler); action.setShortcut(QKeySequence(shortcut)); self.actions_by_name[text]=action
     def build_reports_menu(self):
         self.reports_menu=QMenu('Reports',self); self.menuBar().addMenu(self.reports_menu)
-        for tx,fn,ic in [('Operational Persistence & Evidence Store',self.open_operational_persistence,'report'),('Operational Readiness Final Certification',self.open_operational_readiness,'report'),('Production Operations Command Center',self.open_operations_command_center,'health'),('Evidence & Certification Refresh',self.open_evidence_refresh,'report'),('Queue Orchestration',self.open_generation_orchestration,'history'),('Hardening & Maintenance',self.open_generation_maintenance,'health'),('Artifact Retention',self.open_generation_artifact_retention,'report'),('UI Runtime Health',self.open_qt_runtime_health,'health'),('Release Candidate',self.open_release_candidate,'health'),('Distribution Readiness',self.open_distribution_readiness,'health'),('Final Release & Updates',self.open_final_release,'health'),('Update Delivery',self.open_update_delivery,'health'),('Upgrade & Recovery',self.open_upgrade_recovery,'history'),('Crash Recovery & Diagnostics',self.open_crash_recovery,'warning'),('Performance & Stability',self.open_performance_stability,'health'),('Security & Supply Chain',self.open_security_supply_chain,'health'),('UX & Accessibility Certification',self.open_ux_accessibility_certification,'health'),('Production Release Certification',self.open_production_release_certification,'health'),('Stable Release Promotion',self.open_stable_release_promotion,'health'),('Post-GA Maintenance',self.open_post_ga_maintenance,'health'),('Production Incident Support',self.open_incident_support,'warning'),('Incident Triage & Remediation',self.open_incident_triage,'warning'),('Incident Resolution & Closure',self.open_incident_resolution,'health'),('Incident Prevention & Recurrence',self.open_incident_prevention,'health'),('Prevention Effectiveness & Risk',self.open_prevention_effectiveness,'health'),('Reliability Assurance & Audit Pack',self.open_reliability_assurance,'report'),('Assurance Renewal & Follow-up',self.open_reliability_assurance_renewal,'health'),('Service Continuity & Recovery Drill',self.open_service_continuity,'health'),('Service-Level Objectives & Error Budget',self.open_service_level_objectives,'health'),('Capacity Forecast & Degradation Readiness',self.open_capacity_readiness,'health'),('Controlled Degradation Drill & Recovery',self.open_degradation_readiness,'health'),('Recovery Replay Integrity & Duplicate Prevention',self.open_recovery_replay,'health'),('Provider Billing Reconciliation & Dispute Readiness',self.open_billing_reconciliation,'report'),('Billing Dispute Resolution & Settlement',self.open_billing_dispute_resolution,'report'),('Provider Credit Ledger Close & Financial Control',self.open_provider_credit_close,'report'),('Financial Audit & Cost Integrity',self.open_financial_audit,'report'),('Provider Performance Governance',self.open_provider_governance,'health'),('Cost & Capacity',self.open_generation_cost_capacity,'history'),('Budget & Quota Guard',self.open_generation_budget_guard,'warning'),('Reliability Dashboard',self.open_generation_reliability,'history'),('Generation History',self.open_generation_history,'history'),('Execution Sessions',self.open_generation_execution_sessions,'history'),('Execution Receipts',self.open_generation_execution_receipts,'report'),('Estimate vs Actual',self.open_generation_estimate_actual,'history'),('Launch Receipts',self.open_generation_launch_receipts,'report'),('Approval Operations',self.open_generation_launch_approvals,'report'),('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),('Incident Center',self.open_generation_incidents,'warning'),('Problem Center',self.open_generation_problems,'warning'),('Open Latest Report',self.open_latest_report,'report'),('Open Reports Folder',self.open_reports_folder,'project.output_folder'),('Export Failure Report',self.export_failure_report,'save'),('Export Diagnostics',self.export_diagnostics,'save'),('Copy Report Path',self.copy_report_path,'general.copy')]: a=self.reports_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
+
+        def add_action(menu,text,handler,icon_name):
+            action=menu.addAction(action_icon(icon_name),text)
+            action.triggered.connect(handler)
+            self.actions_by_name[text]=action
+            return action
+
+        add_action(self.reports_menu,'Operations Workspace',self.open_operations_workspace,'health')
+        self.reports_menu.addSeparator()
+
+        operations_menu=self.reports_menu.addMenu(action_icon('health'),'Operations & Governance')
+        for tx,fn,ic in [
+            ('Production Operations Command Center',self.open_operations_command_center,'health'),
+            ('Operational Persistence & Evidence Store',self.open_operational_persistence,'report'),
+            ('Evidence & Certification Refresh',self.open_evidence_refresh,'report'),
+            ('Operational Readiness Final Certification',self.open_operational_readiness,'report'),
+            ('Post-GA Maintenance',self.open_post_ga_maintenance,'health'),
+            ('Production Incident Support',self.open_incident_support,'warning'),
+            ('Incident Triage & Remediation',self.open_incident_triage,'warning'),
+            ('Incident Resolution & Closure',self.open_incident_resolution,'health'),
+            ('Incident Prevention & Recurrence',self.open_incident_prevention,'health'),
+            ('Prevention Effectiveness & Risk',self.open_prevention_effectiveness,'health'),
+            ('Reliability Assurance & Audit Pack',self.open_reliability_assurance,'report'),
+            ('Assurance Renewal & Follow-up',self.open_reliability_assurance_renewal,'health'),
+            ('Service Continuity & Recovery Drill',self.open_service_continuity,'health'),
+            ('Service-Level Objectives & Error Budget',self.open_service_level_objectives,'health'),
+            ('Capacity Forecast & Degradation Readiness',self.open_capacity_readiness,'health'),
+            ('Controlled Degradation Drill & Recovery',self.open_degradation_readiness,'health'),
+            ('Recovery Replay Integrity & Duplicate Prevention',self.open_recovery_replay,'health'),
+            ('Provider Performance Governance',self.open_provider_governance,'health'),
+            ('Provider Billing Reconciliation & Dispute Readiness',self.open_billing_reconciliation,'report'),
+            ('Billing Dispute Resolution & Settlement',self.open_billing_dispute_resolution,'report'),
+            ('Provider Credit Ledger Close & Financial Control',self.open_provider_credit_close,'report'),
+            ('Financial Audit & Cost Integrity',self.open_financial_audit,'report'),
+        ]:
+            add_action(operations_menu,tx,fn,ic)
+
+        release_menu=self.reports_menu.addMenu(action_icon('success'),'Release, Security & Runtime')
+        for tx,fn,ic in [
+            ('UI Runtime Health',self.open_qt_runtime_health,'health'),
+            ('Release Candidate',self.open_release_candidate,'health'),
+            ('Distribution Readiness',self.open_distribution_readiness,'health'),
+            ('Final Release & Updates',self.open_final_release,'health'),
+            ('Update Delivery',self.open_update_delivery,'health'),
+            ('Upgrade & Recovery',self.open_upgrade_recovery,'history'),
+            ('Crash Recovery & Diagnostics',self.open_crash_recovery,'warning'),
+            ('Performance & Stability',self.open_performance_stability,'health'),
+            ('Security & Supply Chain',self.open_security_supply_chain,'health'),
+            ('UX & Accessibility Certification',self.open_ux_accessibility_certification,'health'),
+            ('Production Release Certification',self.open_production_release_certification,'health'),
+            ('Stable Release Promotion',self.open_stable_release_promotion,'health'),
+        ]:
+            add_action(release_menu,tx,fn,ic)
+
+        generation_menu=self.reports_menu.addMenu(action_icon('history'),'Generation Analytics & Controls')
+        for tx,fn,ic in [
+            ('Queue Orchestration',self.open_generation_orchestration,'history'),
+            ('Hardening & Maintenance',self.open_generation_maintenance,'health'),
+            ('Artifact Retention',self.open_generation_artifact_retention,'report'),
+            ('Cost & Capacity',self.open_generation_cost_capacity,'history'),
+            ('Budget & Quota Guard',self.open_generation_budget_guard,'warning'),
+            ('Reliability Dashboard',self.open_generation_reliability,'history'),
+            ('Generation History',self.open_generation_history,'history'),
+            ('Execution Sessions',self.open_generation_execution_sessions,'history'),
+            ('Execution Receipts',self.open_generation_execution_receipts,'report'),
+            ('Estimate vs Actual',self.open_generation_estimate_actual,'history'),
+            ('Launch Receipts',self.open_generation_launch_receipts,'report'),
+            ('Approval Operations',self.open_generation_launch_approvals,'report'),
+            ('Guard Policy Profiles',self.open_generation_guard_profiles,'settings'),
+            ('Incident Center',self.open_generation_incidents,'warning'),
+            ('Problem Center',self.open_generation_problems,'warning'),
+        ]:
+            add_action(generation_menu,tx,fn,ic)
+
+        utilities_menu=self.reports_menu.addMenu(action_icon('report'),'Reports & Diagnostics')
+        for tx,fn,ic in [
+            ('Open Latest Report',self.open_latest_report,'report'),
+            ('Open Reports Folder',self.open_reports_folder,'project.output_folder'),
+            ('Export Failure Report',self.export_failure_report,'save'),
+            ('Export Diagnostics',self.export_diagnostics,'save'),
+            ('Copy Report Path',self.copy_report_path,'general.copy'),
+        ]:
+            add_action(utilities_menu,tx,fn,ic)
     def build_developer_tools_menu(self):
         self.developer_menu=QMenu('Developer Tools',self); self.menuBar().addMenu(self.developer_menu); self.actions_by_name.update(self.developer_tools.populate_menu(self.developer_menu))
     def build_help_menu(self):
@@ -2919,6 +3001,48 @@ class MainWindow(QMainWindow):
             open_path=self.open_path,
         )
         return self._show_report_dialog(dialog,category='financial-audit')
+    def open_operations_workspace(self):
+        project=self.project_controller.current_project
+        dialog=OperationsWorkspaceDialog(
+            self.operations_command_center_service,
+            self,
+            project_id=project.project_id if project else None,
+        )
+        dialog.openRequested.connect(self._open_operations_tool)
+        return self._show_report_dialog(dialog,category='operations-workspace')
+    def _open_operations_tool(self,code):
+        handlers={
+            'operations-command-center':self.open_operations_command_center,
+            'operational-persistence':self.open_operational_persistence,
+            'evidence-refresh':self.open_evidence_refresh,
+            'operational-readiness':self.open_operational_readiness,
+            'post-ga-maintenance':self.open_post_ga_maintenance,
+            'incident-support':self.open_incident_support,
+            'incident-triage':self.open_incident_triage,
+            'incident-resolution':self.open_incident_resolution,
+            'incident-prevention':self.open_incident_prevention,
+            'prevention-effectiveness':self.open_prevention_effectiveness,
+            'reliability-assurance':self.open_reliability_assurance,
+            'assurance-renewal':self.open_reliability_assurance_renewal,
+            'service-continuity':self.open_service_continuity,
+            'service-level-objectives':self.open_service_level_objectives,
+            'capacity-readiness':self.open_capacity_readiness,
+            'degradation-readiness':self.open_degradation_readiness,
+            'recovery-replay':self.open_recovery_replay,
+            'provider-governance':self.open_provider_governance,
+            'billing-reconciliation':self.open_billing_reconciliation,
+            'billing-dispute-resolution':self.open_billing_dispute_resolution,
+            'provider-credit-close':self.open_provider_credit_close,
+            'financial-audit':self.open_financial_audit,
+            'security-supply-chain':self.open_security_supply_chain,
+            'performance-stability':self.open_performance_stability,
+            'production-release':self.open_production_release_certification,
+            'stable-release':self.open_stable_release_promotion,
+            'upgrade-recovery':self.open_upgrade_recovery,
+        }
+        handler=handlers.get(str(code))
+        if handler is not None:
+            handler()
     def open_operational_persistence(self):
         dialog=OperationalPersistenceDialog(
             self.operational_persistence_service,
@@ -2955,19 +3079,7 @@ class MainWindow(QMainWindow):
         dialog.openRequested.connect(self._open_operations_domain)
         return self._show_report_dialog(dialog,category='operations-command-center')
     def _open_operations_domain(self,code):
-        handlers={
-            'post-ga-maintenance':self.open_post_ga_maintenance,
-            'incident-triage':self.open_incident_triage,
-            'service-level-objectives':self.open_service_level_objectives,
-            'capacity-readiness':self.open_capacity_readiness,
-            'service-continuity':self.open_service_continuity,
-            'provider-governance':self.open_provider_governance,
-            'financial-audit':self.open_financial_audit,
-            'assurance-renewal':self.open_reliability_assurance_renewal,
-        }
-        handler=handlers.get(str(code))
-        if handler is not None:
-            handler()
+        self._open_operations_tool(code)
     def open_provider_governance(self):
         project=self.project_controller.current_project
         dialog=ProviderGovernanceDialog(
@@ -3087,6 +3199,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Settings: Pronunciation Dictionaries',act('Pronunciation dictionaries')),
             PaletteCommand('Help: Quick Setup',act('Quick Setup')),
             PaletteCommand('Help: Shortcut Reference',act('Shortcut Reference')),
+            PaletteCommand('Reports: Operations Workspace',act('Operations Workspace')),
             PaletteCommand('Reports: Production Operations Command Center',act('Production Operations Command Center')),
             PaletteCommand('Reports: Queue Orchestration',act('Queue Orchestration')),
             PaletteCommand('Reports: Hardening & Maintenance',act('Hardening & Maintenance')),
