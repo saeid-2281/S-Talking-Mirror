@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 import uuid
 from datetime import datetime, timezone
@@ -10,10 +8,10 @@ from typing import Any, Callable, Mapping
 
 import app
 from app.config.runtime import RuntimeConfig
+from app.services.evidence_integrity import EvidenceIntegrityMixin
 from app.models.evidence_refresh import EvidenceFreshnessEntry, EvidenceRefreshSnapshot
 
-
-class EvidenceRefreshService:
+class EvidenceRefreshService(EvidenceIntegrityMixin):
     """Builds read-only freshness and certification evidence from verified artifacts."""
 
     SCHEMA_VERSION = 1
@@ -273,55 +271,3 @@ class EvidenceRefreshService:
             "automatic_publish": False,
             "private_data_included": False,
         }
-
-    @classmethod
-    def _verify_safety_contract(cls, payload: Mapping[str, object]) -> bool:
-        return all(payload.get(key) == value for key, value in cls._safety_contract().items())
-
-    @classmethod
-    def _contains_private_payload(cls, payload: object) -> bool:
-        text = json.dumps(payload, sort_keys=True, ensure_ascii=True, default=str)
-        return bool(cls._SECRET_RE.search(text) or cls._ABSOLUTE_PATH_RE.search(text))
-
-    @staticmethod
-    def _sha256(path: Path) -> str:
-        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
-    @classmethod
-    def _payload_digest(cls, payload: Mapping[str, object]) -> str:
-        encoded = json.dumps(
-            payload,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            default=str,
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
-
-    @staticmethod
-    def _read_json(path: Path) -> dict[str, Any] | None:
-        try:
-            value = json.loads(Path(path).read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError, TypeError):
-            return None
-        return value if isinstance(value, dict) else None
-
-    @staticmethod
-    def _write_json(path: Path, payload: Mapping[str, object]) -> None:
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        Path(path).write_text(
-            json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False),
-            encoding="utf-8",
-        )
-
-    def _now(self) -> datetime:
-        value = self._now_provider()
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
-
-    def _now_iso(self) -> str:
-        return self._now().isoformat()
-
-    def _now_timestamp(self) -> float:
-        return self._now().timestamp()

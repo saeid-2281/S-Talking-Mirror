@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
@@ -40,6 +41,7 @@ class DevCheckRunner(QObject):
         self.stdout = ""
         self.stderr = ""
         self.artifact_dir: Path | None = None
+        self._completion_emitted = False
 
     @property
     def is_active(self) -> bool:
@@ -57,15 +59,50 @@ class DevCheckRunner(QObject):
         self.started_seconds = perf_counter()
         self.stdout = ""
         self.stderr = ""
+        self._completion_emitted = False
         self.process = QProcess(self)
-        self.process.setProgram("powershell")
-        self.process.setArguments(["-ExecutionPolicy", "Bypass", "-File", str(script)])
+        self.process.setProgram(self._powershell_program())
+        self.process.setArguments(
+            [
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script),
+            ]
+        )
         self.process.setWorkingDirectory(str(self.repo_root))
         self.process.readyReadStandardOutput.connect(self._read_stdout)
         self.process.readyReadStandardError.connect(self._read_stderr)
+        self.process.errorOccurred.connect(self._process_error)
         self.process.finished.connect(self._finished)
         self.process.start()
+
+        # QProcess starts asynchronously.  Under a heavily loaded Windows test
+        # run, PowerShell startup can consume most of a caller's short event-loop
+        # timeout.  Give the process a bounded head start here while keeping the
+        # actual check asynchronous after startup.  A timeout does not mark the
+        # run failed; QProcess continues starting and errorOccurred/finished remain
+        # authoritative.
+        if self.process.state() == QProcess.Starting:
+            self.process.waitForStarted(3000)
         return True
+
+    def _powershell_program(self) -> str:
+        system_root = os.environ.get("SystemRoot")
+        if system_root:
+            candidate = (
+                Path(system_root)
+                / "System32"
+                / "WindowsPowerShell"
+                / "v1.0"
+                / "powershell.exe"
+            )
+            if candidate.exists():
+                return str(candidate)
+        return "powershell.exe"
 
     def cancel(self) -> None:
         if self.is_active and self.process:
@@ -88,7 +125,28 @@ class DevCheckRunner(QObject):
         self.output.emit(text)
 
     def _finished(self, exit_code: int, _status: QProcess.ExitStatus) -> None:
+        # Drain any final buffered output before publishing the result.
+        self._read_stdout()
+        self._read_stderr()
         result = self._read_authoritative_result(exit_code)
+        self._emit_finished(result)
+
+    def _process_error(self, error: QProcess.ProcessError) -> None:
+        if self._completion_emitted:
+            return
+        if error not in (QProcess.FailedToStart, QProcess.Crashed):
+            return
+        detail = self.process.errorString() if self.process else "unknown process error"
+        if error == QProcess.FailedToStart:
+            summary = f"Check process failed to start: {detail}"
+        else:
+            summary = f"Check process crashed: {detail}"
+        self._emit_finished(self._unknown_result(-1, summary))
+
+    def _emit_finished(self, result: DevCheckResult) -> None:
+        if self._completion_emitted:
+            return
+        self._completion_emitted = True
         self.finished.emit(result)
 
     def _read_authoritative_result(self, exit_code: int) -> DevCheckResult:
