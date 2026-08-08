@@ -3011,6 +3011,72 @@ def _handle_provider_governance_command(argv: list[str]) -> int | None:
     return 1 if snapshot.blocker_count else 0
 
 
+
+def _handle_release_lifecycle_validation_command(argv: list[str]) -> int | None:
+    flags = {
+        "--release-lifecycle-validation",
+        "--export-release-lifecycle-validation",
+        "--verify-release-lifecycle-validation",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.container import create_service_container
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking installer / update / recovery end-to-end validation",
+    )
+    parser.add_argument("--release-lifecycle-validation", action="store_true")
+    parser.add_argument("--export-release-lifecycle-validation", action="store_true")
+    parser.add_argument("--verify-release-lifecycle-validation", type=Path)
+    parser.add_argument("--release-lifecycle-manifest", type=Path)
+    parser.add_argument("--release-lifecycle-feed", type=Path)
+    parser.add_argument("--release-lifecycle-backup", type=Path)
+    parser.add_argument("--release-lifecycle-source-version", default="")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = create_service_container(runtime).release_lifecycle_validation_service
+
+    if args.verify_release_lifecycle_validation is not None:
+        ok, detail = service.verify_snapshot(args.verify_release_lifecycle_validation)
+        print(detail)
+        return 0 if ok else 1
+
+    snapshot = service.assess(
+        manifest_path=args.release_lifecycle_manifest,
+        feed_path=args.release_lifecycle_feed,
+        backup_dir=args.release_lifecycle_backup,
+        source_version=args.release_lifecycle_source_version or None,
+    )
+    print(f"Status:              {snapshot.status}")
+    print(f"Version/channel:     {snapshot.version}/{snapshot.channel}")
+    print(f"Update status:       {snapshot.update_status}")
+    print(f"Selected package:    {snapshot.update_artifact or 'none'}")
+    print(f"Database schema:     {snapshot.current_schema} -> {snapshot.target_schema}")
+    print(f"Passed gates:        {snapshot.pass_count}")
+    print(f"Warnings:            {snapshot.warning_count}")
+    print(f"Blockers:            {snapshot.blocker_count}")
+    for gate in snapshot.gates:
+        print(f" - {gate.label}: {gate.status} · {gate.detail}")
+
+    if args.export_release_lifecycle_validation:
+        path = service.export_snapshot(snapshot)
+        ok, detail = service.verify_snapshot(path)
+        print(f"Snapshot:            {path}")
+        print(f"Verification:        {detail}")
+        return 0 if ok and not snapshot.blocker_count else 1
+    return 1 if snapshot.blocker_count else 0
+
+
 def _handle_operational_persistence_command(argv: list[str]) -> int | None:
     flags = {
         "--operational-persistence",
@@ -3366,6 +3432,9 @@ def main() -> int:
         provider_governance_exit = _handle_provider_governance_command(sys.argv)
         if provider_governance_exit is not None:
             return provider_governance_exit
+        release_lifecycle_exit = _handle_release_lifecycle_validation_command(sys.argv)
+        if release_lifecycle_exit is not None:
+            return release_lifecycle_exit
         operational_persistence_exit = _handle_operational_persistence_command(sys.argv)
         if operational_persistence_exit is not None:
             return operational_persistence_exit

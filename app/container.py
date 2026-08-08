@@ -88,6 +88,7 @@ from app.services.degradation_readiness_service import DegradationReadinessServi
 from app.services.recovery_replay_service import RecoveryReplayService
 from app.services.financial_audit_service import FinancialAuditService
 from app.services.operational_persistence_service import OperationalPersistenceService
+from app.services.release_lifecycle_validation_service import ReleaseLifecycleValidationService
 from app.services.operational_readiness_service import OperationalReadinessCertificationService
 from app.services.evidence_refresh_service import EvidenceRefreshService
 from app.services.operations_command_center_service import OperationsCommandCenterService
@@ -163,6 +164,7 @@ class ServiceContainer:
     evidence_refresh_service: EvidenceRefreshService
     operational_readiness_service: OperationalReadinessCertificationService
     operational_persistence_service: OperationalPersistenceService
+    release_lifecycle_validation_service: ReleaseLifecycleValidationService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -419,6 +421,13 @@ def create_service_container(
         evidence_refresh_service,
         operational_readiness_service,
     )
+    release_lifecycle_validation_service = ReleaseLifecycleValidationService(
+        config,
+        final_release_service,
+        update_delivery_service,
+        upgrade_recovery_service,
+        stable_release_promotion_service,
+    )
     generation_incident_service = GenerationIncidentService(product_event_repository)
     generation_problem_service = GenerationProblemService(product_event_repository)
     generation_orchestration_service = GenerationOrchestrationService(
@@ -490,6 +499,7 @@ def create_service_container(
         evidence_refresh_service=evidence_refresh_service,
         operational_readiness_service=operational_readiness_service,
         operational_persistence_service=operational_persistence_service,
+        release_lifecycle_validation_service=release_lifecycle_validation_service,
         git_service=git_service,
         diagnostics_service=diagnostics_service,
         task_prompt_service=TaskPromptService(config.app_root),

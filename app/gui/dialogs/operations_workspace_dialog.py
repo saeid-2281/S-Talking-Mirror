@@ -210,6 +210,13 @@ OPERATIONS_WORKSPACE_TOOLS: tuple[OperationsWorkspaceTool, ...] = (
         "health",
     ),
     OperationsWorkspaceTool(
+        "release-lifecycle",
+        "Release Lifecycle E2E Validation",
+        "Validate final release, stable update delivery, migration and recovery as one guarded chain.",
+        "Release & Security",
+        "history",
+    ),
+    OperationsWorkspaceTool(
         "upgrade-recovery",
         "Upgrade & Recovery",
         "Validate upgrade, backup, migration and acknowledged recovery behavior.",

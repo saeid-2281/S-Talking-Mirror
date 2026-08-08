@@ -1,3 +1,8 @@
+from app.models.release_lifecycle_validation import (
+    ReleaseLifecycleGate,
+    ReleaseLifecycleSnapshot,
+    ReleaseLifecycleSource,
+)
 from app.models.operational_persistence import (
     OperationalEvidenceRecord,
     OperationalPersistenceSyncSummary,
@@ -362,6 +367,9 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "ReleaseLifecycleGate",
+    "ReleaseLifecycleSnapshot",
+    "ReleaseLifecycleSource",
     "OperationalEvidenceRecord",
     "OperationalPersistenceSyncSummary",
     "OperationalReadinessGate",

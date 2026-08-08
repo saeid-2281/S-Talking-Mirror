@@ -72,6 +72,7 @@ from app.services.degradation_readiness_service import DegradationReadinessServi
 from app.services.recovery_replay_service import RecoveryReplayService
 from app.services.financial_audit_service import FinancialAuditService
 from app.services.operational_persistence_service import OperationalPersistenceService
+from app.services.release_lifecycle_validation_service import ReleaseLifecycleValidationService
 from app.services.operational_readiness_service import OperationalReadinessCertificationService
 from app.services.evidence_refresh_service import EvidenceRefreshService
 from app.services.operations_command_center_service import OperationsCommandCenterService
@@ -136,6 +137,7 @@ class ApplicationContext:
     evidence_refresh_service: EvidenceRefreshService
     operational_readiness_service: OperationalReadinessCertificationService
     operational_persistence_service: OperationalPersistenceService
+    release_lifecycle_validation_service: ReleaseLifecycleValidationService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -227,6 +229,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         evidence_refresh_service=services.evidence_refresh_service,
         operational_readiness_service=services.operational_readiness_service,
         operational_persistence_service=services.operational_persistence_service,
+        release_lifecycle_validation_service=services.release_lifecycle_validation_service,
         git_service=services.git_service,
         diagnostics_service=services.diagnostics_service,
         task_prompt_service=services.task_prompt_service,

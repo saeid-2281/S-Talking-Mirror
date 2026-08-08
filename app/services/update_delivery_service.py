@@ -117,8 +117,20 @@ class UpdateDeliveryService:
         feed_source: str | Path | None = None,
         *,
         force: bool = False,
+        channel_override: str | None = None,
+        prefer_installer_override: bool | None = None,
     ) -> UpdateCheckSnapshot:
         preferences = self.load_preferences()
+        selected_channel = (
+            FinalReleaseService.normalize_channel(channel_override)
+            if channel_override is not None
+            else preferences.channel
+        )
+        prefer_installer = (
+            bool(prefer_installer_override)
+            if prefer_installer_override is not None
+            else preferences.prefer_installer
+        )
         source = str(feed_source or preferences.feed_url).strip()
         captured_at = self._now()
         check_id = self._check_id(captured_at, source)
@@ -128,7 +140,7 @@ class UpdateDeliveryService:
                 captured_at=captured_at,
                 current_version=self.current_version,
                 latest_version="",
-                channel=preferences.channel,
+                channel=selected_channel,
                 status="disabled",
                 summary="Update checks are disabled by the user.",
                 feed_source=source,
@@ -137,7 +149,7 @@ class UpdateDeliveryService:
             return self._blocked(
                 check_id,
                 captured_at,
-                preferences.channel,
+                selected_channel,
                 source,
                 "No update feed has been configured.",
                 "Configure an HTTPS update feed or choose a verified local feed.",
@@ -182,7 +194,7 @@ class UpdateDeliveryService:
             return self._blocked(
                 check_id,
                 captured_at,
-                preferences.channel,
+                selected_channel,
                 source,
                 f"Update feed could not be verified: {exc}",
                 "Check the feed URL, TLS connection and digest file.",
@@ -219,7 +231,7 @@ class UpdateDeliveryService:
             channel = FinalReleaseService.normalize_channel(str(payload.get("channel") or ""))
         except ValueError:
             channel = str(payload.get("channel") or "invalid")
-        channel_ok = channel == preferences.channel
+        channel_ok = channel == selected_channel
         gates.append(
             self._gate(
                 "channel_identity",
@@ -229,7 +241,7 @@ class UpdateDeliveryService:
                 (
                     f"Feed channel matches {channel}."
                     if channel_ok
-                    else f"Feed channel {channel} does not match selected channel {preferences.channel}."
+                    else f"Feed channel {channel} does not match selected channel {selected_channel}."
                 ),
                 "Use the feed published for the selected channel.",
             )
@@ -287,7 +299,7 @@ class UpdateDeliveryService:
             latest_version,
         )
         gates.extend(artifact_gates)
-        selected = self._select_artifact(artifacts, preferences.prefer_installer)
+        selected = self._select_artifact(artifacts, prefer_installer)
         gates.append(
             self._gate(
                 "download_artifact",

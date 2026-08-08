@@ -159,7 +159,30 @@ def test_phase85_main_routes_workspace_tools_and_promotes_discovery() -> None:
     assert "dialog.openRequested.connect(self._open_operations_tool)" in text
     assert "def _open_operations_tool(self,code):" in text
     assert "Reports: Operations Workspace" in text
-    assert "['Operations Workspace','Production Operations Command Center'" in text
+    tree = ast.parse(text)
+    discovery_lists = [
+        ast.literal_eval(node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.List)
+        and all(
+            isinstance(item, ast.Constant) and isinstance(item.value, str)
+            for item in node.elts
+        )
+        and any(
+            isinstance(item, ast.Constant) and item.value == "Operations Workspace"
+            for item in node.elts
+        )
+        and any(
+            isinstance(item, ast.Constant)
+            and item.value == "Production Operations Command Center"
+            for item in node.elts
+        )
+    ]
+    assert discovery_lists
+    discovery = discovery_lists[0]
+    assert discovery.index("Operations Workspace") < discovery.index(
+        "Production Operations Command Center"
+    )
     for handler in (
         "self.open_incident_triage",
         "self.open_service_level_objectives",

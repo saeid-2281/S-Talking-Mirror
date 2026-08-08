@@ -30,7 +30,7 @@ from app.gui.responsive_workspace import (
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
 from app.gui.update_delivery_controller import UpdateDeliveryController
-from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,DistributionReadinessDialog,FinalReleaseDialog,UpgradeRecoveryDialog,UpdateDeliveryDialog,CrashRecoveryDialog,PerformanceStabilityDialog,SecuritySupplyChainDialog,UxAccessibilityCertificationDialog,ProductionReleaseCertificationDialog,StableReleasePromotionDialog,PostGaMaintenanceDialog,IncidentSupportDialog,IncidentTriageDialog,IncidentResolutionDialog,IncidentPreventionDialog,PreventionEffectivenessDialog,ReliabilityAssuranceDialog,ReliabilityAssuranceRenewalDialog,ServiceContinuityDialog,ServiceLevelObjectivesDialog,CapacityReadinessDialog,DegradationReadinessDialog,RecoveryReplayDialog,BillingReconciliationDialog,BillingDisputeResolutionDialog,ProviderCreditCloseDialog,FinancialAuditDialog,ProviderGovernanceDialog,OperationsWorkspaceDialog,OperationsCommandCenterDialog,EvidenceRefreshDialog,OperationalReadinessDialog,OperationalPersistenceDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,DistributionReadinessDialog,FinalReleaseDialog,UpgradeRecoveryDialog,UpdateDeliveryDialog,CrashRecoveryDialog,PerformanceStabilityDialog,SecuritySupplyChainDialog,UxAccessibilityCertificationDialog,ProductionReleaseCertificationDialog,StableReleasePromotionDialog,PostGaMaintenanceDialog,IncidentSupportDialog,IncidentTriageDialog,IncidentResolutionDialog,IncidentPreventionDialog,PreventionEffectivenessDialog,ReliabilityAssuranceDialog,ReliabilityAssuranceRenewalDialog,ServiceContinuityDialog,ServiceLevelObjectivesDialog,CapacityReadinessDialog,DegradationReadinessDialog,RecoveryReplayDialog,BillingReconciliationDialog,BillingDisputeResolutionDialog,ProviderCreditCloseDialog,FinancialAuditDialog,ProviderGovernanceDialog,OperationsWorkspaceDialog,ReleaseLifecycleValidationDialog,OperationsCommandCenterDialog,EvidenceRefreshDialog,OperationalReadinessDialog,OperationalPersistenceDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -184,6 +184,7 @@ class MainWindow(QMainWindow):
         self.evidence_refresh_service=context.evidence_refresh_service
         self.operational_readiness_service=context.operational_readiness_service
         self.operational_persistence_service=context.operational_persistence_service
+        self.release_lifecycle_validation_service=context.release_lifecycle_validation_service
         self.update_delivery_controller=UpdateDeliveryController(context.update_delivery_service,parent=self)
         self.update_delivery_controller.completed.connect(self._background_update_completed)
         self.update_delivery_controller.failed.connect(self._background_update_failed)
@@ -399,7 +400,7 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Operations Workspace','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Operations Workspace','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
@@ -788,6 +789,7 @@ class MainWindow(QMainWindow):
             ('Release Candidate',self.open_release_candidate,'health'),
             ('Distribution Readiness',self.open_distribution_readiness,'health'),
             ('Final Release & Updates',self.open_final_release,'health'),
+            ('Release Lifecycle E2E Validation',self.open_release_lifecycle_validation,'history'),
             ('Update Delivery',self.open_update_delivery,'health'),
             ('Upgrade & Recovery',self.open_upgrade_recovery,'history'),
             ('Crash Recovery & Diagnostics',self.open_crash_recovery,'warning'),
@@ -3044,11 +3046,22 @@ class MainWindow(QMainWindow):
             'performance-stability':self.open_performance_stability,
             'production-release':self.open_production_release_certification,
             'stable-release':self.open_stable_release_promotion,
+            'release-lifecycle':self.open_release_lifecycle_validation,
+            'final-release':self.open_final_release,
+            'update-delivery':self.open_update_delivery,
             'upgrade-recovery':self.open_upgrade_recovery,
         }
         handler=handlers.get(str(code))
         if handler is not None:
             handler()
+    def open_release_lifecycle_validation(self):
+        dialog=ReleaseLifecycleValidationDialog(
+            self.release_lifecycle_validation_service,
+            self,
+            open_path=self.open_path,
+        )
+        dialog.openRequested.connect(self._open_operations_tool)
+        return self._show_report_dialog(dialog,category='release-lifecycle-validation')
     def open_operational_persistence(self):
         dialog=OperationalPersistenceDialog(
             self.operational_persistence_service,
@@ -3217,6 +3230,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Reports: Release Candidate',act('Release Candidate')),
             PaletteCommand('Reports: Distribution Readiness',act('Distribution Readiness')),
             PaletteCommand('Reports: Final Release & Updates',act('Final Release & Updates')),
+            PaletteCommand('Reports: Release Lifecycle E2E Validation',act('Release Lifecycle E2E Validation')),
             PaletteCommand('Reports: Update Delivery',act('Update Delivery')),
             PaletteCommand('Reports: Upgrade & Recovery',act('Upgrade & Recovery')),
             PaletteCommand('Reports: Crash Recovery & Diagnostics',act('Crash Recovery & Diagnostics')),
