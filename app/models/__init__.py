@@ -1,3 +1,7 @@
+from app.models.operational_persistence import (
+    OperationalEvidenceRecord,
+    OperationalPersistenceSyncSummary,
+)
 from app.models.operational_readiness import (
     OperationalReadinessGate,
     OperationalReadinessSnapshot,
@@ -358,6 +362,8 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "OperationalEvidenceRecord",
+    "OperationalPersistenceSyncSummary",
     "OperationalReadinessGate",
     "OperationalReadinessSnapshot",
     "OperationalReadinessSource",

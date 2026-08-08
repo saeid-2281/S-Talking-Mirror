@@ -12,6 +12,7 @@ from app.repositories import (
     GenerationOrchestrationRepository,
     HistoryRepository,
     JobRepository,
+    OperationalEvidenceRepository,
     ProductEventRepository,
     ProjectRepository,
     ProjectSourceRepository,
@@ -86,6 +87,7 @@ from app.services.capacity_readiness_service import CapacityReadinessService
 from app.services.degradation_readiness_service import DegradationReadinessService
 from app.services.recovery_replay_service import RecoveryReplayService
 from app.services.financial_audit_service import FinancialAuditService
+from app.services.operational_persistence_service import OperationalPersistenceService
 from app.services.operational_readiness_service import OperationalReadinessCertificationService
 from app.services.evidence_refresh_service import EvidenceRefreshService
 from app.services.operations_command_center_service import OperationsCommandCenterService
@@ -160,6 +162,7 @@ class ServiceContainer:
     operations_command_center_service: OperationsCommandCenterService
     evidence_refresh_service: EvidenceRefreshService
     operational_readiness_service: OperationalReadinessCertificationService
+    operational_persistence_service: OperationalPersistenceService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -409,6 +412,13 @@ def create_service_container(
         production_release_certification_service,
         reliability_assurance_renewal_service,
     )
+    operational_evidence_repository = OperationalEvidenceRepository(database)
+    operational_persistence_service = OperationalPersistenceService(
+        operational_evidence_repository,
+        operations_command_center_service,
+        evidence_refresh_service,
+        operational_readiness_service,
+    )
     generation_incident_service = GenerationIncidentService(product_event_repository)
     generation_problem_service = GenerationProblemService(product_event_repository)
     generation_orchestration_service = GenerationOrchestrationService(
@@ -479,6 +489,7 @@ def create_service_container(
         operations_command_center_service=operations_command_center_service,
         evidence_refresh_service=evidence_refresh_service,
         operational_readiness_service=operational_readiness_service,
+        operational_persistence_service=operational_persistence_service,
         git_service=git_service,
         diagnostics_service=diagnostics_service,
         task_prompt_service=TaskPromptService(config.app_root),

@@ -1,3 +1,4 @@
+from app.gui.dialogs.operational_persistence_dialog import OperationalPersistenceDialog
 from app.gui.dialogs.operational_readiness_dialog import OperationalReadinessDialog
 from app.gui.dialogs.evidence_refresh_dialog import EvidenceRefreshDialog
 from app.gui.dialogs.operations_command_center_dialog import OperationsCommandCenterDialog
@@ -101,6 +102,7 @@ from app.gui.dialogs.source_import_review_dialog import SourceImportReviewDialog
 from app.gui.dialogs.text_source_dialog import TextSourceDialog
 
 __all__ = [
+    "OperationalPersistenceDialog",
     "OperationalReadinessDialog",
     "EvidenceRefreshDialog",
     "OperationsCommandCenterDialog",
@@ -180,4 +182,3 @@ __all__ = [
     "SourceImportReviewDialog",
     "TextSourceDialog",
 ]
-

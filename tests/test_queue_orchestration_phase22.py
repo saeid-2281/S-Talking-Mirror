@@ -14,6 +14,7 @@ from app.models.generation_orchestration import (
     ProviderCircuitStatus,
     ProviderThrottleSnapshot,
 )
+from app.release import SCHEMA_VERSION
 from app.repositories.generation_orchestration_repository import (
     GenerationOrchestrationRepository,
 )
@@ -118,7 +119,7 @@ def test_phase22_migration_adds_workflow_ui_schema_and_backup(tmp_path: Path) ->
 
     database.initialize()
 
-    assert database.applied_schema_versions() == tuple(range(1, 23))
+    assert database.applied_schema_versions() == tuple(range(1, SCHEMA_VERSION + 1))
     backup = database.path.with_suffix(database.path.suffix + ".pre-v22.bak")
     assert backup.exists()
     assert Database(backup).quick_check() == "ok"

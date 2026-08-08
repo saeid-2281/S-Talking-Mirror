@@ -11,6 +11,7 @@ from app.repositories.generation_maintenance_repository import (
 )
 from app.repositories.generation_orchestration_repository import GenerationOrchestrationRepository
 from app.repositories.job_repository import JobRepository
+from app.repositories.operational_evidence_repository import OperationalEvidenceRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.product_event_repository import ProductEventRepository
 from app.repositories.source_repository import ProjectSourceRepository
@@ -22,6 +23,7 @@ __all__ = [
     "GenerationOrchestrationRepository",
     "HistoryRepository",
     "JobRepository",
+    "OperationalEvidenceRepository",
     "ProjectRepository",
     "ProductEventRepository",
     "ProjectSourceRepository",

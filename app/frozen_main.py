@@ -3011,6 +3011,62 @@ def _handle_provider_governance_command(argv: list[str]) -> int | None:
     return 1 if snapshot.blocker_count else 0
 
 
+def _handle_operational_persistence_command(argv: list[str]) -> int | None:
+    flags = {
+        "--operational-persistence",
+        "--sync-operational-persistence",
+        "--verify-operational-persistence",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.container import create_service_container
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="S Talking operational persistence and evidence store",
+    )
+    parser.add_argument("--operational-persistence", action="store_true")
+    parser.add_argument("--sync-operational-persistence", action="store_true")
+    parser.add_argument("--verify-operational-persistence", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = create_service_container(runtime).operational_persistence_service
+
+    if args.sync_operational_persistence:
+        summary = service.sync_verified_latest()
+        print(f"Status:              {summary.status}")
+        print(f"Scanned:             {summary.scanned}")
+        print(f"Imported:            {summary.imported}")
+        print(f"Unchanged:           {summary.unchanged}")
+        print(f"Skipped:             {summary.skipped}")
+        print(f"Failed:              {summary.failed}")
+        for detail in summary.details:
+            print(f" - {detail}")
+        return 1 if summary.failed else 0
+
+    status = service.status()
+    print(f"Database:            {status['database_filename']}")
+    print(f"Schema version:      {status['schema_version']}")
+    print(f"Indexed records:     {status['record_count']}")
+    print(f"Database verified:   {status['database_ok']}")
+    print(f"Verification:        {status['database_detail']}")
+    for evidence_type, count in sorted(status["counts_by_type"].items()):
+        print(f" - {evidence_type}: {count}")
+
+    if args.verify_operational_persistence:
+        return 0 if status["database_ok"] else 1
+    return 0
+
+
 def _handle_operational_readiness_command(argv: list[str]) -> int | None:
     flags = {
         "--operational-readiness-certification",
@@ -3310,6 +3366,9 @@ def main() -> int:
         provider_governance_exit = _handle_provider_governance_command(sys.argv)
         if provider_governance_exit is not None:
             return provider_governance_exit
+        operational_persistence_exit = _handle_operational_persistence_command(sys.argv)
+        if operational_persistence_exit is not None:
+            return operational_persistence_exit
         operations_command_center_exit = _handle_operations_command_center_command(
             sys.argv
         )

@@ -27,7 +27,7 @@ def _service(tmp_path: Path) -> UpgradeRecoveryService:
     runtime = _runtime(tmp_path)
     database = Database(runtime.database_path)
     database.initialize()
-    return UpgradeRecoveryService(runtime, database, version="0.18.2-rc1", target_schema=22)
+    return UpgradeRecoveryService(runtime, database, version="0.18.2-rc1", target_schema=DATABASE_SCHEMA_VERSION)
 
 
 def _seed_user_state(service: UpgradeRecoveryService) -> None:
@@ -63,11 +63,11 @@ def test_phase54_default_target_schema_uses_application_database_schema(tmp_path
     database.initialize()
     service = UpgradeRecoveryService(runtime, database, version="0.18.2-rc1")
 
-    assert service.target_schema == DATABASE_SCHEMA_VERSION == 22
+    assert service.target_schema == DATABASE_SCHEMA_VERSION == 23
     assert service.MANIFEST_SCHEMA_VERSION == 1
     snapshot = service.snapshot(source_version="0.18.2-rc1")
-    assert snapshot.current_schema == 22
-    assert snapshot.target_schema == 22
+    assert snapshot.current_schema == DATABASE_SCHEMA_VERSION
+    assert snapshot.target_schema == DATABASE_SCHEMA_VERSION
     assert snapshot.blocker_count == 0
 
 
@@ -78,7 +78,7 @@ def test_phase54_models_and_transition_modes_are_deterministic(tmp_path: Path) -
     (portable / "portable.mode").write_text("", encoding="ascii")
     snapshot = service.snapshot(source_root=portable)
     assert snapshot.mode == "portable_to_installed"
-    assert snapshot.target_schema == 22
+    assert snapshot.target_schema == DATABASE_SCHEMA_VERSION
     gate = UpgradeGate("code", "Gate", "passed", "blocker", "ok")
     artifact = UpgradeArtifact("manifest", Path("manifest.json"), 10, "f" * 64)
     model = UpgradeSnapshot(
@@ -93,7 +93,7 @@ def test_phase54_healthy_current_schema_is_compatible_but_requests_backup(tmp_pa
     service = _service(tmp_path)
     snapshot = service.snapshot(source_version="0.18.1")
     assert snapshot.status == "ready_with_warnings"
-    assert snapshot.current_schema == 22
+    assert snapshot.current_schema == DATABASE_SCHEMA_VERSION
     assert not snapshot.migration_required
     assert snapshot.blocker_count == 0
     assert any(gate.code == "pre_upgrade_backup" and not gate.passed for gate in snapshot.gates)
@@ -146,14 +146,17 @@ def test_phase54_backup_manifest_detects_tampering_and_unsafe_paths(tmp_path: Pa
 def test_phase54_disposable_migration_reaches_target_without_mutating_source(tmp_path: Path) -> None:
     service = _service(tmp_path)
     with sqlite3.connect(service.runtime.database_path) as connection:
-        connection.execute("DELETE FROM schema_migrations WHERE version = 22")
+        connection.execute(
+            "DELETE FROM schema_migrations WHERE version = ?",
+            (DATABASE_SCHEMA_VERSION,),
+        )
     before = service._database_schema(service.runtime.database_path)
     result = service.validate_migration(source_version="0.18.1")
     after_source = service._database_schema(service.runtime.database_path)
-    assert before == 21
-    assert after_source == 21
+    assert before == DATABASE_SCHEMA_VERSION - 1
+    assert after_source == DATABASE_SCHEMA_VERSION - 1
     assert result["status"] == "ready"
-    assert result["after_schema"] == 22
+    assert result["after_schema"] == DATABASE_SCHEMA_VERSION
     assert result["migration_required"] is True
     assert Path(result["result_path"]).exists()
 

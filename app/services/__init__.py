@@ -1,3 +1,4 @@
+from app.services.operational_persistence_service import OperationalPersistenceService
 from app.services.operational_readiness_service import OperationalReadinessCertificationService
 from app.services.evidence_refresh_service import EvidenceRefreshService
 from app.services.evidence_integrity import EvidenceIntegrityMixin
@@ -85,6 +86,7 @@ from app.services.generation_reliability_service import GenerationReliabilitySer
 from app.services.generation_recovery_service import GenerationRecoveryService
 __all__ = [
     "EvidenceIntegrityMixin",
+    "OperationalPersistenceService",
     "OperationalReadinessCertificationService",
     "EvidenceRefreshService",
     "OperationsCommandCenterService",

@@ -974,6 +974,47 @@ CREATE INDEX IF NOT EXISTS idx_orchestration_operator_actions_project_created
 """
 
 
+OPERATIONAL_PERSISTENCE_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS operational_evidence_records (
+    evidence_key TEXT PRIMARY KEY,
+    source_record_id TEXT NOT NULL,
+    evidence_type TEXT NOT NULL,
+    source_service TEXT NOT NULL,
+    artifact_filename TEXT NOT NULL,
+    artifact_sha256 TEXT NOT NULL,
+    payload_sha256 TEXT NOT NULL,
+    record_sha256 TEXT NOT NULL,
+    status TEXT NOT NULL,
+    schema_version INTEGER NOT NULL DEFAULT 1,
+    project_id INTEGER,
+    source_created_at TEXT,
+    recorded_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(evidence_type, artifact_sha256)
+);
+
+CREATE TABLE IF NOT EXISTS operational_persistence_runs (
+    run_id TEXT PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    scanned INTEGER NOT NULL DEFAULT 0,
+    imported INTEGER NOT NULL DEFAULT 0,
+    unchanged INTEGER NOT NULL DEFAULT 0,
+    skipped INTEGER NOT NULL DEFAULT 0,
+    failed INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE INDEX IF NOT EXISTS idx_operational_evidence_type_recorded
+    ON operational_evidence_records(evidence_type, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_operational_evidence_project_recorded
+    ON operational_evidence_records(project_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_operational_persistence_runs_completed
+    ON operational_persistence_runs(completed_at);
+"""
+
+
 MIGRATIONS = (
     (1, INITIAL_SCHEMA_SQL),
     (2, MULTI_SOURCE_SCHEMA_SQL),
@@ -997,6 +1038,7 @@ MIGRATIONS = (
     (20, GENERATION_DEADLINE_SCHEDULING_SCHEMA_SQL),
     (21, GENERATION_ORCHESTRATION_UI_SCHEMA_SQL),
     (22, GENERATION_ORCHESTRATION_WORKFLOW_UI_SCHEMA_SQL),
+    (23, OPERATIONAL_PERSISTENCE_SCHEMA_SQL),
 )
 
 
