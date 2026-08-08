@@ -1,3 +1,4 @@
+from app.services.final_production_certification_service import FinalProductionCertificationService
 from app.services.release_lifecycle_validation_service import ReleaseLifecycleValidationService
 from app.services.operational_persistence_service import OperationalPersistenceService
 from app.services.operational_readiness_service import OperationalReadinessCertificationService
@@ -86,6 +87,7 @@ from app.services.voice_library_store import VoiceLibraryStore
 from app.services.generation_reliability_service import GenerationReliabilityService
 from app.services.generation_recovery_service import GenerationRecoveryService
 __all__ = [
+    "FinalProductionCertificationService",
     "ReleaseLifecycleValidationService",
     "EvidenceIntegrityMixin",
     "OperationalPersistenceService",

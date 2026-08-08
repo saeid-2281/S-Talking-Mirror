@@ -3012,6 +3012,87 @@ def _handle_provider_governance_command(argv: list[str]) -> int | None:
 
 
 
+def _handle_final_production_certification_command(argv: list[str]) -> int | None:
+    flags = {
+        "--final-production-certification",
+        "--export-final-production-certification",
+        "--create-final-production-certification",
+        "--verify-final-production-certification",
+    }
+    if not any(flag in argv for flag in flags):
+        return None
+
+    import argparse
+
+    from app.container import create_service_container
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="Final S-Talking 1.x production certification",
+    )
+    parser.add_argument("--final-production-certification", action="store_true")
+    parser.add_argument("--export-final-production-certification", action="store_true")
+    parser.add_argument("--create-final-production-certification", action="store_true")
+    parser.add_argument("--verify-final-production-certification", type=Path)
+    parser.add_argument("--final-production-source-commit", default="")
+    parser.add_argument("--final-production-minimum-tests", type=int, default=1100)
+    parser.add_argument("--final-production-reviewer", default="")
+    parser.add_argument("--final-production-statement", default="")
+    parser.add_argument("--acknowledge-final-production-certification", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    runtime = (
+        RuntimeConfig.from_frozen()
+        if getattr(sys, "frozen", False)
+        else RuntimeConfig.from_root()
+    )
+    runtime.ensure_directories()
+    service = create_service_container(runtime).final_production_certification_service
+
+    if args.verify_final_production_certification is not None:
+        ok, detail = service.verify_attestation(args.verify_final_production_certification)
+        print(detail)
+        return 0 if ok else 1
+
+    snapshot = service.assess(
+        source_commit=args.final_production_source_commit,
+        minimum_test_count=args.final_production_minimum_tests,
+    )
+    print(f"Status:              {snapshot.status}")
+    print(f"Version/channel:     {snapshot.version}/{snapshot.channel}")
+    print(f"Database schema:     {snapshot.schema_version}")
+    print(f"Source commit:       {snapshot.source_commit or 'unavailable'}")
+    print(f"Observed tests:      {snapshot.observed_test_count}")
+    print(f"Required tests:      {snapshot.minimum_test_count}")
+    print(f"Passed gates:        {snapshot.pass_count}")
+    print(f"Warnings:            {snapshot.warning_count}")
+    print(f"Blockers:            {snapshot.blocker_count}")
+    for gate in snapshot.gates:
+        print(f" - {gate.label}: {gate.status} · {gate.detail}")
+
+    if args.create_final_production_certification:
+        result = service.create_certification(
+            snapshot,
+            reviewer=args.final_production_reviewer,
+            statement=args.final_production_statement,
+            acknowledge=args.acknowledge_final_production_certification,
+        )
+        print(f"Certification:       {result.get('status')} — {result.get('detail')}")
+        if result.get("path"):
+            print(f"Attestation:         {result.get('path')}")
+            print(f"Audit pack:          {result.get('audit_pack_path')}")
+            print(f"Receipt:             {result.get('receipt_path')}")
+        return 1 if result.get("status") in {"blocked", "dry_run"} else 0
+
+    if args.export_final_production_certification:
+        path = service.export_snapshot(snapshot)
+        ok, detail = service.verify_snapshot(path)
+        print(f"Snapshot:            {path}")
+        print(f"Verification:        {detail}")
+        return 0 if ok and not snapshot.blocker_count else 1
+    return 1 if snapshot.blocker_count else 0
+
+
 def _handle_release_lifecycle_validation_command(argv: list[str]) -> int | None:
     flags = {
         "--release-lifecycle-validation",
@@ -3432,6 +3513,9 @@ def main() -> int:
         provider_governance_exit = _handle_provider_governance_command(sys.argv)
         if provider_governance_exit is not None:
             return provider_governance_exit
+        final_production_exit = _handle_final_production_certification_command(sys.argv)
+        if final_production_exit is not None:
+            return final_production_exit
         release_lifecycle_exit = _handle_release_lifecycle_validation_command(sys.argv)
         if release_lifecycle_exit is not None:
             return release_lifecycle_exit

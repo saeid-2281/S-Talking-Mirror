@@ -1,3 +1,8 @@
+from app.models.final_production_certification import (
+    FinalProductionCertificationGate,
+    FinalProductionCertificationSnapshot,
+    FinalProductionCertificationSource,
+)
 from app.models.release_lifecycle_validation import (
     ReleaseLifecycleGate,
     ReleaseLifecycleSnapshot,
@@ -367,6 +372,9 @@ from app.models.generation_orchestration import (
 )
 
 __all__ = [
+    "FinalProductionCertificationGate",
+    "FinalProductionCertificationSnapshot",
+    "FinalProductionCertificationSource",
     "ReleaseLifecycleGate",
     "ReleaseLifecycleSnapshot",
     "ReleaseLifecycleSource",

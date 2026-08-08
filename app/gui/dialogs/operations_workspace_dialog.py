@@ -210,6 +210,13 @@ OPERATIONS_WORKSPACE_TOOLS: tuple[OperationsWorkspaceTool, ...] = (
         "health",
     ),
     OperationsWorkspaceTool(
+        "final-production-certification",
+        "Final S-Talking 1.x Production Certification",
+        "Bind the committed stable source, post-commit release check and verified operational evidence into the final 1.x certification.",
+        "Release & Security",
+        "success",
+    ),
+    OperationsWorkspaceTool(
         "release-lifecycle",
         "Release Lifecycle E2E Validation",
         "Validate final release, stable update delivery, migration and recovery as one guarded chain.",
