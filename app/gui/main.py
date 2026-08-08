@@ -2341,9 +2341,13 @@ class MainWindow(QMainWindow):
         if hasattr(self,'empty_state'):
             self.empty_state.setVisible(not jobs)
             self.table.setVisible(bool(jobs))
+        output_dir=Path(self.out.text() or self.project_controller.default_output_path)
+        current_settings=self.settings() if jobs else None
+        default_provider=self.provider.currentText()
+        default_voice=self.voice.text() or '—'
+        default_model=self.current_model_id() or '—'
+        default_source=Path(self.csv.text()).name if hasattr(self,'csv') and self.csv.text().strip() else '—'
         if self.queue_adapter.is_model_view:
-            output_dir=Path(self.out.text() or self.project_controller.default_output_path)
-            current_settings=self.settings()
             output_paths={
                 int(job.row_number): self.generation_controller.output_path_for(job,output_dir,current_settings)
                 for job in jobs
@@ -2355,18 +2359,18 @@ class MainWindow(QMainWindow):
             }
             self.queue_adapter.refresh_jobs(
                 jobs,
-                default_provider=self.provider.currentText(),
-                default_voice=self.voice.text() or '—',
-                default_model=self.current_model_id() or '—',
-                default_source=Path(self.csv.text()).name if hasattr(self,'csv') and self.csv.text().strip() else '—',
+                default_provider=default_provider,
+                default_voice=default_voice,
+                default_model=default_model,
+                default_source=default_source,
                 output_paths=output_paths,
                 progress=progress,
             )
         else:
             self.table.setRowCount(len(jobs))
             for r,j in enumerate(jobs):
-                output_path=self.generation_controller.output_path_for(j,Path(self.out.text() or self.project_controller.default_output_path),self.settings())
-                values=[j.source_row or j.row_number,j.filename,j.source_display_name or (Path(self.csv.text()).name if hasattr(self,'csv') and self.csv.text().strip() else '—'),j.source_sheet or '—',f'{j.character_count:,}',j.status.value,j.provider_override or self.provider.currentText(),j.voice_override or self.voice.text() or '—',j.model_override or self.current_model_id() or '—',f'{j.duration_seconds:.2f}s' if j.duration_seconds else '—',j.retry_count,output_path.name]
+                output_path=self.generation_controller.output_path_for(j,output_dir,current_settings)
+                values=[j.source_row or j.row_number,j.filename,j.source_display_name or default_source,j.source_sheet or '—',f'{j.character_count:,}',j.status.value,j.provider_override or default_provider,j.voice_override or default_voice,j.model_override or default_model,f'{j.duration_seconds:.2f}s' if j.duration_seconds else '—',j.retry_count,output_path.name]
                 for c,v in enumerate(values):
                     item=QTableWidgetItem(str(v)); item.setData(Qt.UserRole,j.row_number); item.setToolTip(str(v))
                     if c in {0,4,9,10}: item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
@@ -2378,7 +2382,7 @@ class MainWindow(QMainWindow):
             self.queue_adapter.restore_selection(selected_ids)
         self.update_queue_summary_strip()
         self.update_queue_scope_summary(jobs)
-        self.update_selection_scope_summary()
+        self.update_selection_scope_summary(jobs)
         self.update_queue_actions()
     def update_queue_scope_summary(self,visible_jobs=None):
         if not hasattr(self,'queue_scope_summary'): return
@@ -2386,9 +2390,10 @@ class MainWindow(QMainWindow):
         selected=self.selected_queue_jobs() if hasattr(self,'table') and self.table.selectionModel() else []
         scope_names={'entire_queue':'Entire queue','current_source':'Current source','filtered':'Filtered list','selected':'Selected rows','row_range':'Original row range','display_range':'Displayed range','quota_batch':'Quota-sized batch'}
         stats=QueueSelectionStats(visible_jobs=len(visible),visible_characters=sum(job.character_count for job in visible),selected_jobs=len(selected),selected_characters=sum(job.character_count for job in selected),scope_label=scope_names.get(self.current_scope_mode(),self.current_scope_mode())); self.queue_scope_summary.update_stats(stats); self.queue_workspace.update_footer(stats)
-    def update_selection_scope_summary(self):
+    def update_selection_scope_summary(self,visible_jobs=None):
         if not hasattr(self,'range_summary_label'): return
-        self.update_queue_scope_summary()
+        if visible_jobs is None:
+            self.update_queue_scope_summary()
         if self.current_scope_mode()!='selected': return
         jobs=self.selected_queue_jobs()
         chars=sum(job.character_count for job in jobs)
@@ -2535,7 +2540,7 @@ class MainWindow(QMainWindow):
                 if Path(job.filename).name==target_name:
                     self.queue_adapter.set_progress(job.row_number,100.0 if status=='completed' else None)
                     break
-        self.update_queue_summary_strip(); self.update_queue_scope_summary(jobs); self.update_selection_scope_summary(); self.update_queue_actions()
+        self.update_queue_summary_strip(); self.update_queue_scope_summary(jobs); self.update_selection_scope_summary(jobs); self.update_queue_actions()
 
     def progress(self,i,total,name,status,duration,retry,error):
         self.bar.setMaximum(total); self.bar.setValue(i); self.generation_status_strip.set_progress_detail(i,total,status=status,filename=Path(name).name if name else ''); self.monitor_service.handle_progress(self.generation_controller.jobs,status=status,name=name,duration=duration,retry=retry,error=error); self.refresh_queue_progress(name,status); self.sync_execution_session('running')
@@ -2777,6 +2782,7 @@ class MainWindow(QMainWindow):
         json_path,csv_path=self.generation_controller.export_failure_report(self.context.container.runtime.reports_dir/'failures',project_name=str(project_name))
         message=f'Failure report exported: {json_path.name} and {csv_path.name}'; self.log.appendPlainText(message); self.statusBar().showMessage(message,7000); self.context.product_activity_service.activity('generation','Failure report exported',message,project_id=project.project_id if project else None,metadata={'json':str(json_path),'csv':str(csv_path)}); return json_path,csv_path
     def _show_report_dialog(self, dialog, *, category="report"):
+        dialog.setAttribute(Qt.WA_DeleteOnClose, True)
         if dialog not in self.report_dialogs:
             self.report_dialogs.append(dialog)
         for key,property_value in self.interface_preferences.stylesheet_properties().items():
@@ -2827,7 +2833,7 @@ class MainWindow(QMainWindow):
     def mark_performance_startup_ready(self):
         return self.performance_stability_service.mark_startup_ready()
     def capture_performance_sample(self):
-        state=self.performance_queue_state(); return self.performance_stability_service.collect_sample(label='background',queue_total=state['queue_total'],generation_active=state['generation_active'])
+        state=self.performance_queue_state(); return self.performance_stability_service.collect_background_sample(queue_total=state['queue_total'],generation_active=state['generation_active'])
     def open_performance_stability(self):
         dialog=PerformanceStabilityDialog(self.performance_stability_service,self,queue_state=self.performance_queue_state,open_path=self.open_path)
         return self._show_report_dialog(dialog,category='performance-stability')

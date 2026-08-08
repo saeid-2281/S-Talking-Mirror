@@ -249,6 +249,8 @@ class OperationsWorkspaceDialog(QDialog):
         self.tool_status_labels: dict[str, QLabel] = {}
         self.group_pages: dict[str, QWidget] = {}
         self.group_items: dict[str, QListWidgetItem] = {}
+        self._domain_signature: tuple[tuple[object, ...], ...] | None = None
+        self._tool_status_cache: dict[str, str] = {}
         self.setObjectName("operationsWorkspaceDialog")
         self.setWindowTitle("Operations workspace")
         self.resize(1480, 920)
@@ -457,6 +459,21 @@ class OperationsWorkspaceDialog(QDialog):
         self._update_tool_status(snapshot)
 
     def _fill_domains(self, snapshot: OperationsCommandSnapshot) -> None:
+        signature = tuple(
+            (
+                domain.code,
+                domain.label,
+                domain.status,
+                domain.metric,
+                domain.headline,
+                domain.detail,
+                domain.action_code,
+            )
+            for domain in snapshot.domains
+        )
+        if signature == self._domain_signature:
+            return
+        self._domain_signature = signature
         self.domain_table.setRowCount(len(snapshot.domains))
         for row, domain in enumerate(snapshot.domains):
             for column, value in enumerate(
@@ -477,6 +494,9 @@ class OperationsWorkspaceDialog(QDialog):
         status_by_code = {domain.action_code: domain.status for domain in snapshot.domains}
         for code, label in self.tool_status_labels.items():
             status = status_by_code.get(code, "available")
+            if self._tool_status_cache.get(code) == status:
+                continue
+            self._tool_status_cache[code] = status
             label.setText(status.replace("_", " ").title())
             label.setProperty("status", status)
             label.style().unpolish(label)

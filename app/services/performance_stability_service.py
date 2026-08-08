@@ -58,7 +58,7 @@ class PerformanceStabilityService:
         self.exports_dir = self.root / "exports"
         self._now_provider = now or (lambda: datetime.now(timezone.utc))
         self._monotonic = monotonic or time.perf_counter
-        self._metric_provider = metric_provider or self._default_metrics
+        self._metric_provider = metric_provider
         self._sleep = sleeper or time.sleep
         self._process_started_at = self._monotonic()
         self._startup_elapsed_ms: int | None = None
@@ -106,8 +106,9 @@ class PerformanceStabilityService:
         queue_total: int = 0,
         generation_active: bool = False,
         persist: bool = True,
+        deep_metrics: bool = True,
     ) -> PerformanceSample:
-        metrics = self._metric_provider()
+        metrics = self._sample_metrics(deep=deep_metrics)
         sample = PerformanceSample(
             captured_at=self._now(),
             monotonic_seconds=float(self._monotonic()),
@@ -136,6 +137,27 @@ class PerformanceStabilityService:
                         sample.rss_bytes,
                     )
         return sample
+
+    def collect_background_sample(
+        self,
+        *,
+        queue_total: int = 0,
+        generation_active: bool = False,
+    ) -> PerformanceSample:
+        """Collect the periodic sample without expensive full-object enumeration.
+
+        Background samples are used to track RSS/thread/handle growth. Full Qt widget
+        and GC object counts remain available from manual samples, snapshots and
+        managed observations where their diagnostic value justifies the extra work.
+        """
+
+        return self.collect_sample(
+            label="background-light",
+            queue_total=queue_total,
+            generation_active=generation_active,
+            persist=True,
+            deep_metrics=False,
+        )
 
     def start_observation(
         self,
@@ -503,7 +525,12 @@ class PerformanceStabilityService:
         growth = max(0, last.rss_bytes - first.rss_bytes) / 1024**2
         return round(growth * 3600.0 / duration, 3)
 
-    def _default_metrics(self) -> dict[str, int]:
+    def _sample_metrics(self, *, deep: bool) -> dict[str, int]:
+        if self._metric_provider is not None:
+            return self._metric_provider()
+        return self._default_metrics(deep=deep)
+
+    def _default_metrics(self, *, deep: bool = True) -> dict[str, int]:
         current_heap = peak_heap = 0
         if tracemalloc.is_tracing():
             current_heap, peak_heap = tracemalloc.get_traced_memory()
@@ -515,7 +542,7 @@ class PerformanceStabilityService:
             "qt_active_thread_count": 0,
             "qt_widget_count": 0,
             "qt_top_level_count": 0,
-            "gc_object_count": len(gc.get_objects()),
+            "gc_object_count": len(gc.get_objects()) if deep else 0,
             "open_file_count": 0,
             "process_handle_count": self._handle_count(),
         }
@@ -526,7 +553,7 @@ class PerformanceStabilityService:
             if QCoreApplication.instance() is not None:
                 metrics["qt_active_thread_count"] = QThreadPool.globalInstance().activeThreadCount()
                 qt_app = QApplication.instance()
-                if qt_app is not None:
+                if qt_app is not None and deep:
                     metrics["qt_widget_count"] = len(qt_app.allWidgets())
                     metrics["qt_top_level_count"] = len(qt_app.topLevelWidgets())
         except Exception:
