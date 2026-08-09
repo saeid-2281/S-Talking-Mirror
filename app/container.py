@@ -106,6 +106,7 @@ from app.services.post_ga_maintenance_service import PostGaMaintenanceService
 from app.services.stable_release_promotion_service import StableReleasePromotionService
 from app.services.statistics_service import StatisticsService
 from app.services.startup_recovery_service import SessionRestoreService, StartupRecoveryService
+from app.services.project_session_workflow_service import ProjectSessionWorkflowService
 from app.services.source_import_service import SourceImportService
 from app.services.task_prompt_service import TaskPromptService
 from app.services.voice_service import VoiceService
@@ -213,6 +214,7 @@ class ServiceContainer:
     preview_service: PreviewService
     startup_recovery_service: StartupRecoveryService
     session_restore_service: SessionRestoreService
+    project_session_workflow_service: ProjectSessionWorkflowService
 
 
 def create_service_container(
@@ -272,6 +274,12 @@ def create_service_container(
     provider_catalog_service = ProviderCatalogService()
     startup_recovery_service = StartupRecoveryService(config, database, job_repository, project_repository)
     session_restore_service = SessionRestoreService(config)
+    project_session_workflow_service = ProjectSessionWorkflowService(
+        database,
+        project_repository,
+        product_event_repository,
+        session_restore_service,
+    )
     generation_recovery_service = GenerationRecoveryService(config.cache_dir / "generation-recovery.json")
     generation_maintenance_repository = GenerationMaintenanceRepository(database)
     generation_maintenance_service = GenerationMaintenanceService(
@@ -577,4 +585,5 @@ def create_service_container(
         preview_service=preview_service,
         startup_recovery_service=startup_recovery_service,
         session_restore_service=session_restore_service,
+        project_session_workflow_service=project_session_workflow_service,
     )

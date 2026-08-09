@@ -90,6 +90,7 @@ from app.services.post_ga_maintenance_service import PostGaMaintenanceService
 from app.services.stable_release_promotion_service import StableReleasePromotionService
 from app.services.statistics_service import StatisticsService
 from app.services.startup_recovery_service import SessionRestoreService, StartupRecoveryService
+from app.services.project_session_workflow_service import ProjectSessionWorkflowService
 from app.services.source_import_service import SourceImportService
 from app.services.task_prompt_service import TaskPromptService
 from app.services.voice_service import VoiceService
@@ -183,6 +184,7 @@ class ApplicationContext:
     preflight_service: PreflightService
     startup_recovery_service: StartupRecoveryService
     session_restore_service: SessionRestoreService
+    project_session_workflow_service: ProjectSessionWorkflowService
 
 
 def create_application_context(container: ServiceContainer | None = None) -> ApplicationContext:
@@ -279,4 +281,5 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         preflight_service=services.preflight_service,
         startup_recovery_service=services.startup_recovery_service,
         session_restore_service=services.session_restore_service,
+        project_session_workflow_service=services.project_session_workflow_service,
     )

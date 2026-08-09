@@ -31,6 +31,7 @@ from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
 from app.gui.update_delivery_controller import UpdateDeliveryController
 from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,DistributionReadinessDialog,FinalReleaseDialog,UpgradeRecoveryDialog,UpdateDeliveryDialog,CrashRecoveryDialog,PerformanceStabilityDialog,SecuritySupplyChainDialog,UxAccessibilityCertificationDialog,ProductionReleaseCertificationDialog,StableReleasePromotionDialog,PostGaMaintenanceDialog,IncidentSupportDialog,IncidentTriageDialog,IncidentResolutionDialog,IncidentPreventionDialog,PreventionEffectivenessDialog,ReliabilityAssuranceDialog,ReliabilityAssuranceRenewalDialog,ServiceContinuityDialog,ServiceLevelObjectivesDialog,CapacityReadinessDialog,DegradationReadinessDialog,RecoveryReplayDialog,BillingReconciliationDialog,BillingDisputeResolutionDialog,ProviderCreditCloseDialog,FinancialAuditDialog,ProviderGovernanceDialog,OperationsWorkspaceDialog,FinalProductionCertificationDialog,ReleaseLifecycleValidationDialog,OperationsCommandCenterDialog,EvidenceRefreshDialog,OperationalReadinessDialog,OperationalPersistenceDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
+from app.gui.dialogs.project_session_workflow_dialog import ProjectSessionWorkflowDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -401,6 +402,7 @@ class MainWindow(QMainWindow):
         self.project_menu=QMenu('Project',self); self.menuBar().addMenu(self.project_menu)
         for tx,fn,ic in [('New Project',self.new_project,'project.new'),('Open Project',self.open_project,'project.open')]: a=self.project_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
         self.project_menu.addAction(icon('history'),'Recent Projects',self.recent_projects); self.actions_by_name['Recent Projects']=self.project_menu.actions()[-1]
+        self.actions_by_name['Project Continuity']=self.project_menu.addAction(icon('history'),'Project Continuity',self.open_project_continuity); self.actions_by_name['Project Continuity'].setShortcut(QKeySequence('Ctrl+Alt+P'))
         self.project_menu.addSeparator()
         self.actions_by_name['Add source files']=self.project_menu.addAction(action_icon('project.add_sources'),'Add source files'); self.actions_by_name['Add source files'].triggered.connect(self.add_source_files)
         self.actions_by_name['Add text source']=self.project_menu.addAction(action_icon('project.add_text_source'),'Add text source…'); self.actions_by_name['Add text source'].triggered.connect(self.add_text_source); self.actions_by_name['Open Text Studio']=self.project_menu.addAction(action_icon('project.add_text_source'),'Open Text Studio'); self.actions_by_name['Open Text Studio'].triggered.connect(self.open_text_studio)
@@ -424,7 +426,7 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
@@ -2253,6 +2255,34 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(0,self.offer_generation_recovery)
             except Exception as e: self.notifications.error('Project error',str(e))
         elif d.removed_project_id: self.project_controller.remove_recent_project(d.removed_project_id)
+    def _continue_project_path(self,path,session_state=None):
+        if self.generation_controller.is_active:
+            self.notifications.warning('Project continuity','Stop the active generation before switching projects.'); return None
+        state=self.project_controller.open_project(Path(path)); self.apply_project_state(state)
+        if state.csv_path and state.csv_path.exists(): self.load_csv(update_project=False)
+        else: self.restore_project_queue()
+        if session_state is not None:
+            self.queue_filter.setCurrentText(str(session_state.queue_filter).title())
+            if session_state.selected_row is not None: self.queue_adapter.select_view_row(session_state.selected_row)
+        self.dashboard(); self.update_status_bar(); QTimer.singleShot(0,self.offer_generation_recovery)
+        self.context.product_activity_service.activity('project','Project continued',f'Continued project {state.name}.',project_id=state.project_id,metadata={'project_file':str(state.project_file or ''),'source':'project-continuity'})
+        return state
+    def open_project_continuity(self):
+        dialog=ProjectSessionWorkflowDialog(self.context.project_session_workflow_service,self)
+        if dialog.exec()!=QDialog.Accepted or not dialog.action: return
+        try:
+            if dialog.action==ProjectSessionWorkflowDialog.CONTINUE_SESSION:
+                session=self.context.project_session_workflow_service.session_summary()
+                if session.can_continue and session.project_path: self._continue_project_path(Path(session.project_path),session)
+            elif dialog.action==ProjectSessionWorkflowDialog.CONTINUE_PROJECT and dialog.selected_path:
+                self._continue_project_path(Path(dialog.selected_path))
+            elif dialog.action==ProjectSessionWorkflowDialog.OPEN_AUDIO and dialog.selected_path:
+                path=Path(dialog.selected_path)
+                if path.is_file(): self.show_output_workspace(path,autoplay=False)
+            elif dialog.action in {ProjectSessionWorkflowDialog.OPEN_RUN_OUTPUT,ProjectSessionWorkflowDialog.OPEN_REPORT} and dialog.selected_path:
+                path=Path(dialog.selected_path)
+                if path.exists(): self.context.desktop_service.open_path(path)
+        except Exception as e: self.notifications.error('Project continuity',str(e))
     def close_project(self):
         self.project_controller.close_project(); self.project_path=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
     def autosave(self):
@@ -3558,6 +3588,7 @@ class MainWindow(QMainWindow):
         commands=[
             PaletteCommand('Project: New Project',act('New Project')),
             PaletteCommand('Project: Open Project',act('Open Project')),
+            PaletteCommand('Project: Continue Work',act('Project Continuity')),
             PaletteCommand('Project: Add Source Files',act('Add source files')),
             PaletteCommand('Project: Add Text Source',act('Add text source')),
             PaletteCommand('Project: Save Project',act('Save Project'),lambda: self.project_controller.current_project is not None),
