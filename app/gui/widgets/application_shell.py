@@ -382,7 +382,16 @@ class ActivityCenter(QTabWidget):
             self.activity_workspace.insertTab(0, timeline, icon("activity"), "Timeline")
         self.activity_workspace.setCurrentWidget(timeline)
 
-    def install_output_workspace(self, service, *, open_path=None) -> OutputPlaybackWorkspace:  # noqa: ANN001
+    def install_output_workspace(
+        self,
+        service,  # noqa: ANN001
+        *,
+        open_path=None,  # noqa: ANN001
+        jobs_provider=None,  # noqa: ANN001
+        output_dir_provider=None,  # noqa: ANN001
+        settings_provider=None,  # noqa: ANN001
+        output_path_for=None,  # noqa: ANN001
+    ) -> OutputPlaybackWorkspace:
         """Upgrade the legacy Output tab while preserving ``output_log``.
 
         MainWindow and older integrations still append directly to output_log;
@@ -401,6 +410,10 @@ class ActivityCenter(QTabWidget):
             service,
             self.output_log,
             open_path=open_path,
+            jobs_provider=jobs_provider,
+            output_dir_provider=output_dir_provider,
+            settings_provider=settings_provider,
+            output_path_for=output_path_for,
             parent=self,
         )
         self.output_workspace = workspace

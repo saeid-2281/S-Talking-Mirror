@@ -376,6 +376,10 @@ class MainWindow(QMainWindow):
         self.output_workspace=self.activity_center.install_output_workspace(
             self.audio_player_service,
             open_path=self.context.desktop_service.open_path,
+            jobs_provider=lambda:list(self.generation_controller.jobs),
+            output_dir_provider=lambda:Path(self.out.text() or self.project_controller.default_output_path),
+            settings_provider=self.settings,
+            output_path_for=self.generation_controller.output_path_for,
         )
         self.generation_status_strip=GenerationStatusStrip(start=self.start,pause=self.pause,stop=self.stop,show_preflight=self.show_latest_preflight)
         self.generation_status_strip.stateChanged.connect(self.announce_interface_status)
@@ -420,7 +424,7 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Generation Workflow','Generation Live Operations','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
@@ -440,6 +444,10 @@ class MainWindow(QMainWindow):
         self.open_output_workspace_action.setShortcut(QKeySequence('Ctrl+6'))
         self.open_output_workspace_action.triggered.connect(self.show_output_workspace)
         self.actions_by_name['Output playback']=self.open_output_workspace_action
+        self.open_audio_review_action=self.view_menu.addAction(icon('folder-output'),'Audio review & export')
+        self.open_audio_review_action.setShortcut(QKeySequence('Ctrl+Alt+A'))
+        self.open_audio_review_action.triggered.connect(self.open_audio_review_export)
+        self.actions_by_name['Audio review & export']=self.open_audio_review_action
         presentation_menu=self.view_menu.addMenu('Workspace presentation')
         self.focus_queue_action=presentation_menu.addAction(icon('queue'),'Focus queue')
         self.focus_queue_action.setCheckable(True)
@@ -717,10 +725,19 @@ class MainWindow(QMainWindow):
     def show_output_workspace(self,path=None,autoplay=False):
         if not hasattr(self,'activity_center'): return None
         workspace=getattr(self,'output_workspace',None)
-        if workspace is not None and path:
-            workspace.load_output(Path(path),autoplay=bool(autoplay))
+        if workspace is not None:
+            workspace.refresh_review()
+            if path:
+                workspace.load_output(Path(path),autoplay=bool(autoplay))
         self.activity_center.show_output_workspace()
         if hasattr(self,'view_activity_action'): self.view_activity_action.setChecked(True)
+        return workspace
+    def open_audio_review_export(self):
+        workspace=self.show_output_workspace()
+        if workspace is not None:
+            workspace.refresh_review()
+            workspace.review_selector.setFocus(Qt.ShortcutFocusReason)
+            self.announce_interface_status('Focus moved','Audio review & export')
         return workspace
     def _sync_workspace_overlay_compact(self):
         compact=bool(

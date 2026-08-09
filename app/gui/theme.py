@@ -2099,6 +2099,7 @@ QWidget#outputPlaybackWorkspace {
 QFrame#outputWorkspaceHeader,
 QFrame#outputPlayerCard,
 QFrame#outputFileCard,
+QFrame#outputReviewCard,
 QFrame#outputLogHeader,
 QFrame#audioPlayerHeader,
 QFrame#audioTransportBar {
@@ -2108,7 +2109,8 @@ QFrame#audioTransportBar {
 }
 QFrame#outputWorkspaceHeader,
 QFrame#outputPlayerCard,
-QFrame#outputFileCard {
+QFrame#outputFileCard,
+QFrame#outputReviewCard {
     border-color: palette(dark);
 }
 QLabel#outputWorkspaceTitle {
@@ -2199,6 +2201,13 @@ QPushButton#outputQuietAction {
     padding: 3px 8px;
     background: transparent;
 }
+
+QComboBox#outputReviewFilter,
+QComboBox#outputReviewSelector,
+QComboBox#outputExportScope,
+QComboBox#outputExportPreset {
+    min-height: 28px;
+}
 QPlainTextEdit#outputActivityLog {
     min-height: 64px;
     background: palette(base);
@@ -2223,6 +2232,7 @@ QSlider#audioVolumeSlider::handle:horizontal {
 QMainWindow[contrastMode="high"] QFrame#outputWorkspaceHeader,
 QMainWindow[contrastMode="high"] QFrame#outputPlayerCard,
 QMainWindow[contrastMode="high"] QFrame#outputFileCard,
+QMainWindow[contrastMode="high"] QFrame#outputReviewCard,
 QMainWindow[contrastMode="high"] QFrame#audioPlayerHeader,
 QMainWindow[contrastMode="high"] QFrame#audioTransportBar,
 QMainWindow[contrastMode="high"] QPlainTextEdit#outputActivityLog {
