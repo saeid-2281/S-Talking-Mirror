@@ -49,6 +49,7 @@ from app.gui.widgets.notification_center import NotificationCenterWidget
 from app.gui.widgets.text_studio_workspace import TextStudioWorkspace
 from app.gui.widgets.generation_journey import GenerationJourneyWidget
 from app.gui.widgets.queue_batch_operations import QueueBatchOperationsWidget
+from app.gui.widgets.generation_live_operations import GenerationLiveOperationsWidget
 from app.gui.widgets.professional_components import LiveStatusAnnouncer
 from app.models import AppSettings, FailureCategory
 from app.models.product_events import BatchSessionRecord
@@ -59,6 +60,7 @@ from app.services.text_source_service import TextSourceService
 from app.services.qt_runtime_health_service import QtRuntimeHealthService
 from app.services.crash_recovery_service import CrashRecoveryService
 from app.services.queue_batch_operations_service import QueueBatchOperationsService
+from app.services.generation_live_operations_service import GenerationLiveOperationsService
 
 COLORS=STATUS_COLORS
 MONITOR_MIN_WIDTH=290
@@ -114,6 +116,14 @@ class MonitorDockWidget(QDockWidget):
 class WorkspaceDockWidget(QDockWidget):
     def minimumWidth(self):
         return 270
+    def sizeHint(self):
+        hint=super().sizeHint()
+        if self.objectName()=='workspaceLeftDock':
+            stable=getattr(self,'_stable_workspace_size_hint_width',None)
+            if stable is None:
+                stable=hint.width(); self._stable_workspace_size_hint_width=stable
+            hint.setWidth(stable)
+        return hint
 
 class LogicalVisibilityButton(QPushButton):
     def setVisible(self, visible):
@@ -410,7 +420,7 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Generation Workflow','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Generation Workflow','Generation Live Operations','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
@@ -764,7 +774,7 @@ class MainWindow(QMainWindow):
         button.setMenu(menu); return button
     def build_generation_menu(self):
         self.generation_menu=QMenu('Generation',self); self.menuBar().addMenu(self.generation_menu)
-        workflow_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Generation Workflow'); workflow_action.setShortcut(QKeySequence('Ctrl+Alt+G')); workflow_action.triggered.connect(self.focus_generation_workflow); self.actions_by_name['Generation Workflow']=workflow_action; batch_action=self.generation_menu.addAction(action_icon('queue'),'Queue Batch Operations'); batch_action.setShortcut(QKeySequence('Ctrl+Alt+Q')); batch_action.triggered.connect(self.focus_queue_batch_operations); self.actions_by_name['Queue Batch Operations']=batch_action; self.generation_menu.addSeparator()
+        workflow_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Generation Workflow'); workflow_action.setShortcut(QKeySequence('Ctrl+Alt+G')); workflow_action.triggered.connect(self.focus_generation_workflow); self.actions_by_name['Generation Workflow']=workflow_action; batch_action=self.generation_menu.addAction(action_icon('queue'),'Queue Batch Operations'); batch_action.setShortcut(QKeySequence('Ctrl+Alt+Q')); batch_action.triggered.connect(self.focus_queue_batch_operations); self.actions_by_name['Queue Batch Operations']=batch_action; live_action=self.generation_menu.addAction(action_icon('history'),'Generation Live Operations'); live_action.setShortcut(QKeySequence('Ctrl+Alt+R')); live_action.triggered.connect(self.focus_generation_live_operations); self.actions_by_name['Generation Live Operations']=live_action; self.generation_menu.addSeparator()
         self.show_monitor_action=self.generation_menu.addAction('Show/Hide Generation Monitor'); self.show_monitor_action.setCheckable(True); self.show_monitor_action.setChecked(True); self.show_monitor_action.triggered.connect(self.toggle_generation_monitor); self.actions_by_name['Show/Hide Generation Monitor']=self.show_monitor_action
         self.dry_run_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Dry run'); self.dry_run_action.triggered.connect(self.dry_run); self.actions_by_name['Dry run']=self.dry_run_action; self.actions_by_name['Run Preflight']=self.dry_run_action
         for text,handler,shortcut,ic in [('Start Generation',self.start,'Ctrl+Return','generation.start'),('Pause/Resume',self.pause,'Ctrl+Space','generation.pause'),('Stop Generation',self.stop,'Shift+Esc','generation.stop'),('Voice Browser',self.open_voice_browser,'Ctrl+Shift+V','provider.browse_voices')]:
@@ -1279,6 +1289,15 @@ class MainWindow(QMainWindow):
         progress_layout.addWidget(self.monitor_progress)
         root.addWidget(progress_card)
 
+        self.live_operations_service=GenerationLiveOperationsService()
+        self.live_operations=GenerationLiveOperationsWidget(panel)
+        self.live_operations.pauseRequested.connect(self.pause)
+        self.live_operations.stopRequested.connect(self.stop)
+        self.live_operations.retryRequested.connect(self.retry_transient)
+        self.live_operations.outputRequested.connect(self.play_latest_completed_output)
+        self.live_operations.failureReviewRequested.connect(self.review_live_failures)
+        root.addWidget(self.live_operations)
+
         self.monitor_detail_rows={}
         self.monitor_sections=QTabWidget()
         self.monitor_sections.setObjectName('monitorSectionTabs')
@@ -1473,7 +1492,42 @@ class MainWindow(QMainWindow):
         self.monitor_open_output.setEnabled(bool(output and Path(output).exists()))
         self.monitor_play_output.setEnabled(bool(output and Path(output).exists()))
         self.monitor_play_latest.setEnabled(bool(latest and latest.exists()))
-        self.monitor_error.setPlainText(state.last_provider_error); self.monitor_error.setVisible(bool(state.last_provider_error)); self.render_failure_summary()
+        self.monitor_error.setPlainText(state.last_provider_error); self.monitor_error.setVisible(bool(state.last_provider_error)); self.render_failure_summary(); self.refresh_generation_live_operations()
+    def refresh_generation_live_operations(self):
+        if not hasattr(self,'live_operations'): return
+        try:
+            failure_summary=self.generation_controller.failure_summary()
+        except Exception:
+            failure_summary={}
+        latest=self.latest_completed_output_path()
+        snapshot=self.live_operations_service.snapshot(
+            self.generation_controller.jobs,
+            monitor_state=self.monitor_service.state,
+            active=self.generation_controller.is_active,
+            paused=self.generation_controller.is_paused,
+            run_id=self.current_run_id or '',
+            latest_output=latest,
+            failure_summary=failure_summary,
+        )
+        self.live_operations.update_snapshot(snapshot)
+    def review_live_failures(self):
+        if hasattr(self,'right_tabs') and hasattr(self,'monitor_scroll'):
+            index=self.right_tabs.indexOf(self.monitor_scroll)
+            if index>=0: self.right_tabs.setCurrentIndex(index)
+        if hasattr(self,'monitor_dock'): self.monitor_dock.setVisible(True)
+        if hasattr(self,'monitor_scroll') and hasattr(self,'failure_summary_box'):
+            self.monitor_scroll.ensureWidgetVisible(self.failure_summary_box)
+        if hasattr(self,'failure_retry_transient_button'):
+            self.failure_retry_transient_button.setFocus(Qt.ShortcutFocusReason)
+    def focus_generation_live_operations(self):
+        if hasattr(self,'right_tabs') and hasattr(self,'monitor_scroll'):
+            index=self.right_tabs.indexOf(self.monitor_scroll)
+            if index>=0: self.right_tabs.setCurrentIndex(index)
+        if hasattr(self,'monitor_dock'): self.monitor_dock.setVisible(True)
+        if hasattr(self,'monitor_scroll') and hasattr(self,'live_operations'):
+            self.monitor_scroll.ensureWidgetVisible(self.live_operations)
+        if hasattr(self,'live_operations'): self.live_operations.focus_primary_action()
+        self.statusBar().showMessage('Generation Live Operations focused.',3000)
     def render_failure_summary(self):
         if not hasattr(self,'failure_summary_label'): return
         summary=self.generation_controller.failure_summary(); failed=int(summary.get('failed',0)); retryable=int(summary.get('retryable',0)); permanent=int(summary.get('permanent',0)); exhausted=int(summary.get('exhausted',0)); categories=summary.get('categories',{}); fingerprints=summary.get('fingerprints',{})
@@ -2547,7 +2601,7 @@ class MainWindow(QMainWindow):
         self.invalidate_preflight(); self.render_queue(); self.refresh_monitor_queue(); self.dashboard(); self.render_failure_summary(); self.update_status_bar()
         blocked=', '.join(f'{key}: {value}' for key,value in result.blocked_reasons.items())
         message=f'{label}: {result.scheduled} scheduled'+(f' · {result.blocked} blocked ({blocked})' if result.blocked else '')
-        self.log.appendPlainText(message); self.statusBar().showMessage(message,7000)
+        self.log.appendPlainText(message); self.statusBar().showMessage(message,7000); self.refresh_generation_live_operations()
         project=self.project_controller.current_project
         self.context.product_activity_service.activity('generation','Retry scheduled',message,project_id=project.project_id if project else None,metadata={'rows':list(result.row_numbers),'categories':result.categories})
     def skip_selected(self): self.queue_action('Skip selected',lambda:self.generation_controller.skip_selected(self.selected_queue_jobs()))
@@ -2836,6 +2890,7 @@ class MainWindow(QMainWindow):
         self.stopb.setText('Stop')
         self.update_queue_actions()
         self.refresh_generation_journey()
+        self.refresh_generation_live_operations()
 
     def finished(self,s):
         self.monitor_service.finish(s); self.set_generation_controls(active=False); self.generation_status_strip.set_generation_state('Completed',f"{int(s.get('completed',0)):,} jobs completed · {self.current_run_id or 'run'}"); self.dashboard(); self.log.appendPlainText(f'Finished: {json.dumps(s,indent=2)}')
@@ -3492,6 +3547,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Project: Save Project As',act('Save Project As'),lambda: self.project_controller.current_project is not None),
             PaletteCommand('Project: Close Project',act('Close Project'),lambda: self.project_controller.current_project is not None),
             PaletteCommand('Generation: Focus workflow',self.focus_generation_workflow),
+            PaletteCommand('Generation: Live Operations',self.focus_generation_live_operations),
             PaletteCommand('Queue: Batch Operations',self.focus_queue_batch_operations),
             PaletteCommand('Generation: Start Generation',self.start,lambda: bool(self.csv.text().strip()) or self.generation_controller.has_jobs()),
             PaletteCommand('Generation: Dry run',self.dry_run,lambda: bool(self.csv.text().strip()) or self.generation_controller.has_jobs()),
