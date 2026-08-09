@@ -14,7 +14,7 @@ PROVIDER_IDENTITIES: dict[str, ProviderIdentity] = {
         "Local",
         "docs/PROVIDER_BRAND_ASSETS.md#mock--test-provider",
     ),
-    "piper": ProviderIdentity("piper", "Piper", "Piper", "settings", "Local", "https://github.com/rhasspy/piper"),
+    "piper": ProviderIdentity("piper", "Piper", "Piper", "settings", "Local", "https://github.com/OHF-Voice/piper1-gpl"),
     "elevenlabs": ProviderIdentity("elevenlabs", "ElevenLabs", "ElevenLabs", "settings", "Cloud", "https://elevenlabs.io/docs"),
     "openai": ProviderIdentity("openai", "OpenAI", "OpenAI", "settings", "Cloud", "https://platform.openai.com/docs/guides/text-to-speech"),
     "azure": ProviderIdentity("azure", "Microsoft Azure Speech", "Azure Speech", "settings", "Cloud", "https://learn.microsoft.com/azure/ai-services/speech-service/"),

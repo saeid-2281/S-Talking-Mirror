@@ -63,6 +63,7 @@ from app.services.provider_account_catalog_store import ProviderAccountCatalogSt
 from app.services.provider_identity_service import ProviderIdentityService
 from app.services.provider_readiness_service import ProviderReadinessService
 from app.services.provider_intelligence_service import ProviderIntelligenceService
+from app.services.offline_tts_engine_service import OfflineTTSEngineService
 from app.services.report_service import ReportService
 from app.services.release_readiness_service import ReleaseReadinessService
 from app.services.release_candidate_service import ReleaseCandidateService
@@ -206,6 +207,7 @@ class ServiceContainer:
     provider_identity_service: ProviderIdentityService
     provider_readiness_service: ProviderReadinessService
     provider_intelligence_service: ProviderIntelligenceService
+    offline_tts_engine_service: OfflineTTSEngineService
     product_activity_service: ProductActivityService
     notification_center_service: NotificationCenterService
     activity_timeline_service: ActivityTimelineService
@@ -298,6 +300,7 @@ def create_service_container(
         voice_service,
         generation_cost_capacity_service,
     )
+    offline_tts_engine_service = OfflineTTSEngineService(config)
     generation_artifact_retention_service = GenerationArtifactRetentionService(config.reports_dir)
     generation_budget_guard_service = GenerationBudgetGuardService(
         config.reports_dir,
@@ -566,6 +569,7 @@ def create_service_container(
         provider_identity_service=provider_identity_service,
         provider_readiness_service=provider_readiness_service,
         provider_intelligence_service=provider_intelligence_service,
+        offline_tts_engine_service=offline_tts_engine_service,
         product_activity_service=ProductActivityService(
             product_event_repository,
             notification_center_service,

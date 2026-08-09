@@ -32,6 +32,7 @@ from app.gui.voice_browser import VoiceBrowserDialog
 from app.gui.update_delivery_controller import UpdateDeliveryController
 from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,DistributionReadinessDialog,FinalReleaseDialog,UpgradeRecoveryDialog,UpdateDeliveryDialog,CrashRecoveryDialog,PerformanceStabilityDialog,SecuritySupplyChainDialog,UxAccessibilityCertificationDialog,ProductionReleaseCertificationDialog,StableReleasePromotionDialog,PostGaMaintenanceDialog,IncidentSupportDialog,IncidentTriageDialog,IncidentResolutionDialog,IncidentPreventionDialog,PreventionEffectivenessDialog,ReliabilityAssuranceDialog,ReliabilityAssuranceRenewalDialog,ServiceContinuityDialog,ServiceLevelObjectivesDialog,CapacityReadinessDialog,DegradationReadinessDialog,RecoveryReplayDialog,BillingReconciliationDialog,BillingDisputeResolutionDialog,ProviderCreditCloseDialog,FinancialAuditDialog,ProviderGovernanceDialog,OperationsWorkspaceDialog,FinalProductionCertificationDialog,ReleaseLifecycleValidationDialog,OperationsCommandCenterDialog,EvidenceRefreshDialog,OperationalReadinessDialog,OperationalPersistenceDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.dialogs.project_session_workflow_dialog import ProjectSessionWorkflowDialog
+from app.gui.dialogs.offline_tts_engines_dialog import OfflineTTSEnginesDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -202,6 +203,7 @@ class MainWindow(QMainWindow):
         self.release_lifecycle_validation_service=context.release_lifecycle_validation_service
         self.final_production_certification_service=context.final_production_certification_service
         self.provider_intelligence_service=context.provider_intelligence_service
+        self.offline_tts_engine_service=context.offline_tts_engine_service
         self.update_delivery_controller=UpdateDeliveryController(context.update_delivery_service,parent=self)
         self.update_delivery_controller.completed.connect(self._background_update_completed)
         self.update_delivery_controller.failed.connect(self._background_update_failed)
@@ -426,16 +428,17 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Offline TTS Engines','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
     def build_settings_menu(self):
         self.settings_menu=QMenu('Settings',self); self.menuBar().addMenu(self.settings_menu)
-        for tx,fn,ic in [('Provider accounts',self.open_provider_accounts,'provider.accounts'),('Pronunciation dictionaries',self.open_pronunciation_dictionaries,'pronunciation.dictionary')]:
+        for tx,fn,ic in [('Provider accounts',self.open_provider_accounts,'provider.accounts'),('Offline TTS Engines',self.open_offline_tts_engines,'settings'),('Pronunciation dictionaries',self.open_pronunciation_dictionaries,'pronunciation.dictionary')]:
             a=self.settings_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
         self.settings_menu.addSeparator(); save_defaults=self.settings_menu.addAction(icon('save'),'Save current as defaults'); save_defaults.triggered.connect(self.save_settings); self.actions_by_name['Save current as defaults']=save_defaults
         self.actions_by_name['Provider accounts'].setShortcut(QKeySequence('Ctrl+Shift+P'))
+        self.actions_by_name['Offline TTS Engines'].setShortcut(QKeySequence('Ctrl+Shift+L'))
         self.actions_by_name['Pronunciation dictionaries'].setShortcut(QKeySequence('Ctrl+Shift+D'))
     def build_view_menu(self):
         self.view_menu=QMenu('View',self); self.menuBar().addMenu(self.view_menu); theme_menu=self.view_menu.addMenu('Theme'); self.theme_actions={}
@@ -894,7 +897,7 @@ class MainWindow(QMainWindow):
         if dialog.exec()==QDialog.Accepted:
             settings=dialog.selected_settings(); self.provider.setCurrentText(settings.provider); self.set_model_value(settings.model_id); self.voice.setText(settings.voice_id); self.set_language_value(settings.language_code); self.save_global_preferences(settings); self.settings_changed()
     def show_shortcut_reference(self):
-        self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Shift+T Add text source\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nCtrl+Shift+F Focus queue\nCtrl+Alt+I Interface settings\nCtrl+1 Provider panel\nCtrl+2 Generation queue\nCtrl+3 Inspector panel\nCtrl+4 Activity panel\nCtrl+5 Generation controls\nCtrl+6 Output playback\nCtrl+7 Text Studio\nF6 Cycle major panels')
+        self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Shift+T Add text source\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Shift+L Offline TTS Engines\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nCtrl+Shift+F Focus queue\nCtrl+Alt+I Interface settings\nCtrl+1 Provider panel\nCtrl+2 Generation queue\nCtrl+3 Inspector panel\nCtrl+4 Activity panel\nCtrl+5 Generation controls\nCtrl+6 Output playback\nCtrl+7 Text Studio\nF6 Cycle major panels')
     def open_about_dialog(self):
         dialog=AboutDialog(self.context.container.runtime,open_diagnostics=self.export_diagnostics,parent=self); dialog.exec()
     def build_project_sources_panel(self):
@@ -1798,6 +1801,38 @@ class MainWindow(QMainWindow):
         self.update_selection_scope_summary(); self.dashboard(); self.invalidate_preflight()
     def use_current_sort_as_generation_order(self):
         self.generation_controller.scope_service.use_current_order_as_custom(self.displayed_queue_jobs()); self.generation_controller.execution_order='custom'; self.order_selector.setCurrentIndex(self.order_selector.findData('custom')); self.dashboard(); self.invalidate_preflight(); self.statusBar().showMessage('Current table order will be used for generation.',5000)
+    def open_offline_tts_engines(self):
+        dialog=OfflineTTSEnginesDialog(
+            self.context.offline_tts_engine_service,
+            self.settings,
+            apply_piper_voice=self.apply_offline_piper_voice,
+            generation_active=lambda:self.generation_controller.is_active,
+            parent=self,
+        )
+        dialog.show()
+        self.offline_tts_engines_dialog=dialog
+        return dialog
+    def apply_offline_piper_voice(self,model_path):
+        if self.generation_controller.is_active:
+            self.notifications.warning('Offline voice','Stop the active generation run before changing the Piper voice.')
+            return False
+        path=Path(model_path)
+        if not path.is_file() or path.suffix.casefold()!='.onnx':
+            self.notifications.warning('Offline voice','The selected Piper ONNX model is unavailable.')
+            return False
+        config=Path(f'{path}.json')
+        if not config.is_file():
+            self.notifications.warning('Offline voice','The selected Piper voice is missing its .onnx.json configuration file.')
+            return False
+        self.provider.setCurrentText('piper')
+        self.piper.setText(str(path))
+        self.set_model_value('piper-local')
+        self.voice.setText(path.stem)
+        self.settings_changed()
+        self.invalidate_preflight()
+        self.refresh_provider_intelligence()
+        self.set_provider_status('Offline Piper voice selected. Run preflight before generation.')
+        return True
     def open_provider_accounts(self):
         dialog=ProviderAccountsDialog(self.context.api_profile_service,self.context.voice_service,self.settings,generation_active=lambda:self.generation_controller.is_active,verification_service=self.context.provider_verification_service,parent=self)
         dialog.profiles_changed.connect(self.provider_accounts_changed)
@@ -3606,6 +3641,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Generation: Open Output Folder',self.open_output_folder,lambda: Path(self.out.text() or self.project_controller.default_output_path).exists()),
             PaletteCommand('Generation: Show/Hide Generation Monitor',lambda:self.actions_by_name['Show/Hide Generation Monitor'].trigger()),
             PaletteCommand('Provider: Intelligence & Selection',self.focus_provider_intelligence),
+            PaletteCommand('Provider: Offline TTS Engines',self.open_offline_tts_engines),
             PaletteCommand('Voice: Browse and Preview Voices',self.open_voice_browser,lambda: self.voice_browser_button.isEnabled()),
             PaletteCommand('Settings: Provider Accounts',act('Provider accounts')),
             PaletteCommand('Settings: Pronunciation Dictionaries',act('Pronunciation dictionaries')),
