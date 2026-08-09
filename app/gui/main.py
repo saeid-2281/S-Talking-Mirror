@@ -47,9 +47,11 @@ from app.gui.widgets.queue_details_pane import QueueDetailsPane
 from app.gui.widgets.activity_timeline import ActivityTimelineWidget
 from app.gui.widgets.notification_center import NotificationCenterWidget
 from app.gui.widgets.text_studio_workspace import TextStudioWorkspace
+from app.gui.widgets.generation_journey import GenerationJourneyWidget
 from app.gui.widgets.professional_components import LiveStatusAnnouncer
 from app.models import AppSettings, FailureCategory
 from app.models.product_events import BatchSessionRecord
+from app.models.generation_journey import build_generation_journey_state
 from app.models.ui_state import SettingsViewData
 from app.services.monitor_formatting import elide_middle, format_characters_per_minute, format_duration, format_files_per_minute
 from app.services.text_source_service import TextSourceService
@@ -273,6 +275,7 @@ class MainWindow(QMainWindow):
         self.left_tabs.addTab(provider_workspace.scroll_area,icon('settings'),'Provider')
         self.left_dock=WorkspaceDockWidget('Workspace',self); self.left_dock.setObjectName('workspaceLeftDock'); self.left_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea); self.left_dock.setWidget(self.left_tabs); self.left_dock.setMinimumWidth(270); self.left_dock.setMaximumWidth(340); self.addDockWidget(Qt.LeftDockWidgetArea,self.left_dock)
         self.queue_workspace=QueueWorkspace(); mid=self.queue_workspace; ml=self.queue_workspace.body_layout; self.queue_count_labels={}
+        self.generation_journey=GenerationJourneyWidget(self.queue_workspace); self.generation_journey.actionRequested.connect(self.handle_generation_journey_action); self.queue_workspace.root_layout.insertWidget(1,self.generation_journey)
         rangebar=self.queue_workspace.range_layout; self.range_basis=QComboBox(); self.range_basis.addItem('Original source row','row_range'); self.range_basis.addItem('Current displayed order','display_range'); self.range_from=ControlledSpinBox(); self.range_to=ControlledSpinBox(); self.range_from.setRange(0,999999); self.range_to.setRange(0,999999); self.range_from.setSpecialValueText('First'); self.range_to.setSpecialValueText('Last'); self.range_summary_label=QLabel('Range basis: Original source row · all rows'); self.quota_scope_label=QLabel('Quota unavailable'); self.quota_scope_label.setToolTip('Scoped ElevenLabs quota comparison updates after account refresh and range changes.'); self.range_basis.currentIndexChanged.connect(self.apply_row_range); self.range_from.valueChanged.connect(self.apply_row_range); self.range_to.valueChanged.connect(self.apply_row_range); rangebar.addWidget(QLabel('Range basis')); rangebar.addWidget(self.range_basis); rangebar.addWidget(QLabel('From')); rangebar.addWidget(self.range_from); rangebar.addWidget(QLabel('To')); rangebar.addWidget(self.range_to); rangebar.addWidget(self.range_summary_label,1); rangebar.addWidget(self.quota_scope_label)
         qbar=self.queue_workspace.command_layout; actionbar=self.queue_workspace.action_layout
         self.queue_search=QLineEdit(); self.queue_search.setObjectName('queueSearch'); self.queue_search.setPlaceholderText('Search filename, source or text…'); self.queue_search.setClearButtonEnabled(True); self.queue_search.setAccessibleName('Search generation queue'); self.queue_search.setAccessibleDescription('Filter jobs by filename, source or text'); self.queue_search.setMinimumWidth(220); self.queue_search.setMaximumWidth(360); self.queue_search.textChanged.connect(self.queue_search_changed)
@@ -401,7 +404,7 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Generation Workflow','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
@@ -515,6 +518,7 @@ class MainWindow(QMainWindow):
         self.setProperty('responsiveMode',mode_value)
         self.application_shell.set_responsive_mode(mode)
         self.queue_workspace.set_responsive_mode(mode)
+        if hasattr(self,'generation_journey'): self.generation_journey.set_compact_mode(mode is WorkspaceBreakpoint.COMPACT)
         self.main_toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly if state.toolbar_icon_only else Qt.ToolButtonTextBesideIcon)
         self.main_toolbar.setProperty('responsiveMode',mode_value)
 
@@ -711,6 +715,8 @@ class MainWindow(QMainWindow):
             self.application_shell.set_header_mode(profile.header_mode,metrics_visible=profile.metrics_visible)
         if hasattr(self,'queue_workspace'):
             self.queue_workspace.set_compact_mode(profile.density=='compact' or profile.name=='Focus Mode')
+        if hasattr(self,'generation_journey'):
+            self.generation_journey.set_compact_mode(profile.density=='compact' or profile.name=='Focus Mode')
         if hasattr(self,'left_dock'): self.left_dock.setVisible(profile.left_dock_visible)
         if hasattr(self,'right_dock'): self.right_dock.setVisible(profile.right_dock_visible)
         if hasattr(self,'main_toolbar'): self.main_toolbar.setVisible(profile.toolbar_visible)
@@ -741,6 +747,7 @@ class MainWindow(QMainWindow):
         button.setMenu(menu); return button
     def build_generation_menu(self):
         self.generation_menu=QMenu('Generation',self); self.menuBar().addMenu(self.generation_menu)
+        workflow_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Generation Workflow'); workflow_action.setShortcut(QKeySequence('Ctrl+Alt+G')); workflow_action.triggered.connect(self.focus_generation_workflow); self.actions_by_name['Generation Workflow']=workflow_action; self.generation_menu.addSeparator()
         self.show_monitor_action=self.generation_menu.addAction('Show/Hide Generation Monitor'); self.show_monitor_action.setCheckable(True); self.show_monitor_action.setChecked(True); self.show_monitor_action.triggered.connect(self.toggle_generation_monitor); self.actions_by_name['Show/Hide Generation Monitor']=self.show_monitor_action
         self.dry_run_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Dry run'); self.dry_run_action.triggered.connect(self.dry_run); self.actions_by_name['Dry run']=self.dry_run_action; self.actions_by_name['Run Preflight']=self.dry_run_action
         for text,handler,shortcut,ic in [('Start Generation',self.start,'Ctrl+Return','generation.start'),('Pause/Resume',self.pause,'Ctrl+Space','generation.pause'),('Stop Generation',self.stop,'Shift+Esc','generation.stop'),('Voice Browser',self.open_voice_browser,'Ctrl+Shift+V','provider.browse_voices')]:
@@ -905,6 +912,97 @@ class MainWindow(QMainWindow):
         paths,_=QFileDialog.getOpenFileNames(self,'Add source files',str(self.project_controller.last_csv_dir),'Sources (*.csv *.tsv *.xlsx *.xlsm *.xls)')
         if not paths: return
         self.import_source_paths([Path(path) for path in paths])
+    def focus_generation_workflow(self):
+        if not hasattr(self,'generation_journey'):
+            return
+        self.generation_journey.setVisible(True)
+        self.generation_journey.focus_primary_action()
+        self.statusBar().showMessage('Generation workflow focused.',3000)
+
+    def handle_generation_journey_action(self,code):
+        handlers={
+            'prepare-source':self.open_text_studio,
+            'voice':self.open_voice_browser,
+            'preflight':self.dry_run,
+            'start':self.start,
+        }
+        if code=='provider':
+            self.left_dock.show(); self.left_dock.raise_(); self.left_tabs.setCurrentIndex(0); self.provider.setFocus(Qt.OtherFocusReason); return
+        if code=='scope':
+            self.scope_selector.setFocus(Qt.OtherFocusReason); self.statusBar().showMessage('Choose the generation scope and order.',4000); return
+        if code=='queue':
+            self.table.setFocus(Qt.OtherFocusReason); return
+        handler=handlers.get(code)
+        if handler is not None:
+            handler()
+
+    def _generation_journey_provider_status(self):
+        provider_id=self.provider.currentText() if hasattr(self,'provider') else 'mock'
+        signature=(
+            provider_id,
+            bool(self.key.text().strip()) if hasattr(self,'key') else False,
+            self.voice.text().strip() if hasattr(self,'voice') else '',
+            self.current_model_id() if hasattr(self,'model') else '',
+            self.piper.text().strip() if hasattr(self,'piper') else '',
+            self.active_api_profile_id() if hasattr(self,'api_profile') else None,
+        )
+        if signature!=getattr(self,'_generation_journey_provider_signature',None):
+            try:
+                readiness=self.context.provider_readiness_service.readiness_for(provider_id,self.settings())
+                cached=(readiness.state,readiness.reason)
+            except Exception as exc:
+                cached=('Review',f'Provider readiness check: {exc}')
+            self._generation_journey_provider_signature=signature
+            self._generation_journey_provider_readiness=cached
+        return getattr(self,'_generation_journey_provider_readiness',('Review','Review provider setup.'))
+
+    def refresh_generation_journey(self):
+        if not hasattr(self,'generation_journey') or not hasattr(self,'generation_controller'):
+            return
+        jobs=list(self.generation_controller.jobs)
+        scoped=list(self.generation_controller.generation_jobs()) if jobs else []
+        provider_id=self.provider.currentText() if hasattr(self,'provider') else 'mock'
+        provider_display=self.provider_display_name(provider_id)
+        provider_state,provider_detail=self._generation_journey_provider_status()
+        preflight=getattr(self.preflight_service,'latest',None)
+        preflight_status=getattr(preflight,'status','Not checked') if preflight is not None else 'Not checked'
+        issues=tuple(getattr(preflight,'issues',()) or ()) if preflight is not None else ()
+        errors=sum(
+            1 for issue in issues
+            if getattr(issue,'severity','') in {'hard_error','overridable_error','error'}
+            and not (getattr(issue,'overridable',False) and getattr(issue,'overridden',False))
+        )
+        warnings=sum(1 for issue in issues if getattr(issue,'severity','')=='warning')
+        scope_names={
+            'entire_queue':'Entire queue',
+            'current_source':'Current source',
+            'filtered':'Filtered list',
+            'selected':'Selected rows',
+            'row_range':'Original row range',
+            'display_range':'Displayed range',
+            'quota_batch':'Quota-sized batch',
+        }
+        voice=self.voice.text().strip() if hasattr(self,'voice') else ''
+        voice_required=provider_id not in {'mock','piper'}
+        state=build_generation_journey_state(
+            total_jobs=len(jobs),
+            total_characters=sum(len(job.text) for job in jobs),
+            scoped_jobs=len(scoped),
+            scoped_characters=sum(len(job.text) for job in scoped),
+            provider_display=provider_display,
+            provider_state=provider_state,
+            provider_detail=provider_detail,
+            model_label=self.current_model_id() if hasattr(self,'model') else '',
+            voice_label=voice or ('Provider default' if not voice_required else ''),
+            voice_required=voice_required,
+            scope_label=scope_names.get(self.current_scope_mode(),self.current_scope_mode().replace('_',' ').title()),
+            preflight_status=preflight_status,
+            preflight_errors=errors,
+            preflight_warnings=warnings,
+            generation_active=self.generation_controller.is_active,
+        )
+        self.generation_journey.set_state(state)
+
     def open_text_studio(self):
         if not hasattr(self,'text_studio_dock'):
             return
@@ -1414,6 +1512,7 @@ class MainWindow(QMainWindow):
             model=self.current_model_id() if hasattr(self,'model') else '—'
             voice=elide_middle(self.voice.text(),24) if hasattr(self,'voice') and self.voice.text() else '—'
             self.project_context_widget.update_context(project=project,source=source,output=out,provider=provider,model=model or '—',voice=voice,preflight=preflight,output_path=self.out.text() if hasattr(self,'out') else '')
+        self.refresh_generation_journey()
         if hasattr(self,'health_button'):
             health=self.context.health_service.snapshot(project=self.project_controller.current_project,dashboard=self.current_dashboard_state())
             color={'healthy':'#22C55E','warning':'#F59E0B','error':'#EF4444'}[health.level]
@@ -1964,6 +2063,7 @@ class MainWindow(QMainWindow):
             if hasattr(self,'project_context_widget'): self.project_context_widget.set_preflight_state('not checked')
             if hasattr(self,'generation_status_strip'): self.generation_status_strip.set_generation_state('Ready','Preflight has not been checked')
             self.startb.setEnabled(not self.generation_controller.is_active)
+        self.refresh_generation_journey()
     def run_preflight(self,write_report=False):
         self.refresh_quota_snapshot()
         state=self.preflight_service.run(jobs=self.generation_controller.generation_jobs(),settings=self.settings(),output_dir=Path(self.out.text() or self.project_controller.default_output_path),csv_path=Path(self.csv.text()) if self.csv.text().strip() else None,project_name=self.project_controller.project_name,project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None)
@@ -1977,6 +2077,7 @@ class MainWindow(QMainWindow):
             detail=f'{pending:,} pending · {errors} errors · {warnings} warnings'
             self.generation_status_strip.set_generation_state(state.status,detail)
         self.startb.setEnabled(state.status!='Blocked by errors' and not self.generation_controller.is_active)
+        self.refresh_generation_journey()
         return state
     def show_preflight_dialog(self,state):
         d=PreflightDialog(state,export_report=lambda:self.export_preflight(state),open_output_folder=self.open_output_folder,apply_fixes=lambda:self.fix_preflight_issues(state),parent=self)
@@ -2562,6 +2663,7 @@ class MainWindow(QMainWindow):
         self.pauseb.setText('Pause')
         self.stopb.setText('Stop')
         self.update_queue_actions()
+        self.refresh_generation_journey()
 
     def finished(self,s):
         self.monitor_service.finish(s); self.set_generation_controls(active=False); self.generation_status_strip.set_generation_state('Completed',f"{int(s.get('completed',0)):,} jobs completed · {self.current_run_id or 'run'}"); self.dashboard(); self.log.appendPlainText(f'Finished: {json.dumps(s,indent=2)}')
@@ -3216,6 +3318,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Project: Save Project',act('Save Project'),lambda: self.project_controller.current_project is not None),
             PaletteCommand('Project: Save Project As',act('Save Project As'),lambda: self.project_controller.current_project is not None),
             PaletteCommand('Project: Close Project',act('Close Project'),lambda: self.project_controller.current_project is not None),
+            PaletteCommand('Generation: Focus workflow',self.focus_generation_workflow),
             PaletteCommand('Generation: Start Generation',self.start,lambda: bool(self.csv.text().strip()) or self.generation_controller.has_jobs()),
             PaletteCommand('Generation: Dry run',self.dry_run,lambda: bool(self.csv.text().strip()) or self.generation_controller.has_jobs()),
             PaletteCommand('Generation: Pause Generation',self.pause,lambda: self.generation_controller.is_active and not self.generation_controller.is_paused),
