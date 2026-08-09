@@ -31,7 +31,9 @@ from PySide6.QtWidgets import (
 from app.gui.icons import action_icon
 from app.gui.widgets.numeric_spinbox import ControlledDoubleSpinBox, ControlledSpinBox
 from app.gui.widgets.professional_components import InlineFeedbackBar
+from app.gui.widgets.text_batch_preparation import TextBatchPreparationPanel
 from app.gui.widgets.text_studio_quality import TextStudioQualityPanel
+from app.services.text_batch_preparation_service import TextBatchPreparationService
 from app.services.text_source_service import TextSourceEntry, TextSourceService
 from app.services.text_studio_quality import (
     TextStudioQualitySummary,
@@ -93,6 +95,8 @@ class TextStudioWorkspace(QWidget):
         self._restored_section_keys: set[str] = set()
         self._entries: list[TextSourceEntry] = []
         self._quality_summary = analyze_text_studio_entries([])
+        self.preparation_service = TextBatchPreparationService(service)
+        self._preparation_snapshot = self.preparation_service.evaluate([])
         self._loading = False
         self.setObjectName("textStudioWorkspace")
         self.setAcceptDrops(True)
@@ -122,11 +126,15 @@ class TextStudioWorkspace(QWidget):
         self.save_session_button.clicked.connect(self.save_session_as_dialog)
         header_layout.addWidget(self.open_session_button)
         header_layout.addWidget(self.save_session_button)
-        self.import_button = QPushButton("Add enabled jobs")
+        self.import_button = QPushButton("Review & add to queue")
         self.import_button.setIcon(action_icon("project.add_sources"))
         self.import_button.clicked.connect(self._emit_import)
         header_layout.addWidget(self.import_button)
         root.addWidget(header)
+
+        self.preparation_panel = TextBatchPreparationPanel()
+        self.preparation_panel.action_requested.connect(self._handle_preparation_action)
+        root.addWidget(self.preparation_panel)
 
         self.quality_panel = TextStudioQualityPanel()
         self.quality_panel.issues_only_changed.connect(lambda _checked: self._apply_search(self.search.text()))
@@ -174,6 +182,10 @@ class TextStudioWorkspace(QWidget):
     @property
     def quality_summary(self) -> TextStudioQualitySummary:
         return self._quality_summary
+
+    @property
+    def preparation_snapshot(self):
+        return self._preparation_snapshot
 
     def _sources_panel(self) -> QWidget:
         panel = QFrame()
@@ -936,6 +948,15 @@ class TextStudioWorkspace(QWidget):
             max_characters=self.max_characters.value(),
         )
         self.quality_panel.set_summary(self._quality_summary)
+        self._preparation_snapshot = self.preparation_service.evaluate(
+            self._entries,
+            enabled=self._enabled_states(),
+            selected_rows=self._selected_rows(),
+            source_count=self._active_source_input_count(),
+            max_characters=self.max_characters.value(),
+            quality=self._quality_summary,
+        )
+        self.preparation_panel.set_snapshot(self._preparation_snapshot)
         self._annotate_quality_issues()
         minutes, seconds = divmod(int(round(metrics.estimated_seconds)), 60)
         duration = f"{minutes}m {seconds}s" if minutes else f"{seconds}s"
@@ -948,6 +969,58 @@ class TextStudioWorkspace(QWidget):
             "Add all enabled jobs to the generation queue"
             if self._quality_summary.ready_for_import
             else self._quality_summary.status_text
+        )
+
+    def _active_source_input_count(self) -> int:
+        count = 1 if self.manual_text.toPlainText().strip() else 0
+        return count + len(self.selected_document_sections())
+
+    def _handle_preparation_action(self, action: str) -> None:
+        if action == "add-source":
+            self.manual_text.setFocus(Qt.ShortcutFocusReason)
+            self.feedback.show_message("Paste text or add documents to start preparation.", tone="info")
+            return
+        if action == "safe-prepare":
+            self.safe_prepare_enabled()
+            return
+        if action in {"review-duplicates", "review-quality"}:
+            self.quality_panel.issues_only.setChecked(True)
+            self.search.clear()
+            self.chunk_table.setFocus(Qt.ShortcutFocusReason)
+            message = (
+                "Duplicate text is shown for review; removal remains a manual action."
+                if action == "review-duplicates"
+                else "Rows with preparation issues are now filtered for review."
+            )
+            self.feedback.show_message(message, tone="warning")
+            return
+        if action == "queue":
+            self._emit_import()
+
+    def safe_prepare_enabled(self) -> None:
+        if not self._entries:
+            self._handle_preparation_action("add-source")
+            return
+        result = self.preparation_service.safe_prepare(
+            self._entries,
+            enabled=self._enabled_states(),
+            max_characters=self.max_characters.value(),
+            default_extension=self.extension.currentData() or ".mp3",
+        )
+        self._replace_entries_preserving_state(list(result.entries), list(result.enabled))
+        parts = []
+        if result.normalized_jobs:
+            parts.append(f"normalized {result.normalized_jobs:,}")
+        if result.split_jobs:
+            parts.append(
+                f"split {result.split_jobs:,} oversized job(s) into {result.generated_jobs + result.split_jobs:,}"
+            )
+        if result.repaired_filenames:
+            parts.append(f"repaired {result.repaired_filenames:,} filename(s)")
+        detail = " · ".join(parts) if parts else "No safe preparation changes were needed."
+        self.feedback.show_message(
+            f"Safe prepare complete: {detail}",
+            tone="success" if parts else "info",
         )
 
     def _emit_import(self) -> None:

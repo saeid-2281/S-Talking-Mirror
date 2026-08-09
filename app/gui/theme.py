@@ -2618,3 +2618,79 @@ QMainWindow[contrastMode="high"] QAbstractItemView::item:selected {
 DARK_STYLE += _PHASE59_CERTIFICATION_STYLE
 LIGHT_STYLE += _PHASE59_CERTIFICATION_STYLE
 GRAPHITE_STYLE += _PHASE59_CERTIFICATION_STYLE
+
+# Phase 91 Text / Source / Batch Preparation UX 2.0.
+_TEXT_BATCH_PREPARATION_PHASE91_STYLE = r"""
+QFrame#textBatchPreparationPanel {
+    background: palette(base);
+    border: 1px solid palette(midlight);
+    border-radius: 10px;
+}
+QLabel#textBatchPreparationTitle {
+    color: palette(window-text);
+    font-size: 14px;
+    font-weight: 800;
+}
+QLabel#textBatchPreparationSubtitle,
+QLabel#textBatchPreparationDetail {
+    color: palette(mid);
+}
+QLabel#textBatchPreparationStatus {
+    min-height: 22px;
+    padding: 3px 9px;
+    border: 1px solid palette(midlight);
+    border-radius: 10px;
+    background: palette(alternate-base);
+    color: palette(mid);
+    font-size: 10px;
+    font-weight: 800;
+}
+QLabel#textBatchPreparationStatus[tone="success"] {
+    border-color: #16A34A;
+    color: #22C55E;
+    background: rgba(34, 197, 94, 0.11);
+}
+QLabel#textBatchPreparationStatus[tone="warning"] {
+    border-color: #D97706;
+    color: #F59E0B;
+    background: rgba(245, 158, 11, 0.12);
+}
+QLabel#textBatchPreparationStatus[tone="error"] {
+    border-color: #DC2626;
+    color: #EF4444;
+    background: rgba(239, 68, 68, 0.11);
+}
+QLabel#textBatchPreparationStage {
+    min-height: 24px;
+    padding: 3px 7px;
+    border: 1px solid palette(midlight);
+    border-radius: 8px;
+    background: palette(alternate-base);
+    color: palette(mid);
+    font-size: 10px;
+    font-weight: 750;
+}
+QLabel#textBatchPreparationStage[status="pass"] {
+    border-color: #16A34A;
+    color: #22C55E;
+}
+QLabel#textBatchPreparationStage[status="warning"] {
+    border-color: #D97706;
+    color: #F59E0B;
+}
+QLabel#textBatchPreparationStage[status="block"] {
+    border-color: #DC2626;
+    color: #EF4444;
+}
+QPushButton#textBatchPreparationPrimary {
+    min-height: 30px;
+    padding: 4px 12px;
+    font-weight: 800;
+}
+QMainWindow[contrastMode="high"] QFrame#textBatchPreparationPanel {
+    border: 2px solid palette(highlight);
+}
+"""
+DARK_STYLE += _TEXT_BATCH_PREPARATION_PHASE91_STYLE
+LIGHT_STYLE += _TEXT_BATCH_PREPARATION_PHASE91_STYLE
+GRAPHITE_STYLE += _TEXT_BATCH_PREPARATION_PHASE91_STYLE
