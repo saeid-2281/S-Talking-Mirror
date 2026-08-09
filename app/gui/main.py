@@ -48,6 +48,7 @@ from app.gui.widgets.activity_timeline import ActivityTimelineWidget
 from app.gui.widgets.notification_center import NotificationCenterWidget
 from app.gui.widgets.text_studio_workspace import TextStudioWorkspace
 from app.gui.widgets.generation_journey import GenerationJourneyWidget
+from app.gui.widgets.queue_batch_operations import QueueBatchOperationsWidget
 from app.gui.widgets.professional_components import LiveStatusAnnouncer
 from app.models import AppSettings, FailureCategory
 from app.models.product_events import BatchSessionRecord
@@ -57,6 +58,7 @@ from app.services.monitor_formatting import elide_middle, format_characters_per_
 from app.services.text_source_service import TextSourceService
 from app.services.qt_runtime_health_service import QtRuntimeHealthService
 from app.services.crash_recovery_service import CrashRecoveryService
+from app.services.queue_batch_operations_service import QueueBatchOperationsService
 
 COLORS=STATUS_COLORS
 MONITOR_MIN_WIDTH=290
@@ -279,6 +281,7 @@ class MainWindow(QMainWindow):
         self.left_dock=WorkspaceDockWidget('Workspace',self); self.left_dock.setObjectName('workspaceLeftDock'); self.left_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea); self.left_dock.setWidget(self.left_tabs); self.left_dock.setMinimumWidth(270); self.left_dock.setMaximumWidth(340); self.addDockWidget(Qt.LeftDockWidgetArea,self.left_dock)
         self.queue_workspace=QueueWorkspace(); mid=self.queue_workspace; ml=self.queue_workspace.body_layout; self.queue_count_labels={}
         self.generation_journey=GenerationJourneyWidget(self.queue_workspace); self.generation_journey.actionRequested.connect(self.handle_generation_journey_action); self.queue_workspace.root_layout.insertWidget(1,self.generation_journey)
+        self.queue_batch_service=QueueBatchOperationsService(); self.queue_batch_operations=QueueBatchOperationsWidget(self.queue_workspace); self.queue_batch_operations.lensRequested.connect(self.apply_queue_batch_lens); self.queue_batch_operations.groupChanged.connect(lambda _value:self.refresh_queue_batch_operations()); self.queue_batch_operations.useSelectionRequested.connect(self.use_selection_as_scope); self.queue_batch_operations.actionRequested.connect(self.handle_queue_batch_action); self.queue_workspace.root_layout.insertWidget(2,self.queue_batch_operations)
         rangebar=self.queue_workspace.range_layout; self.range_basis=QComboBox(); self.range_basis.addItem('Original source row','row_range'); self.range_basis.addItem('Current displayed order','display_range'); self.range_from=ControlledSpinBox(); self.range_to=ControlledSpinBox(); self.range_from.setRange(0,999999); self.range_to.setRange(0,999999); self.range_from.setSpecialValueText('First'); self.range_to.setSpecialValueText('Last'); self.range_summary_label=QLabel('Range basis: Original source row · all rows'); self.quota_scope_label=QLabel('Quota unavailable'); self.quota_scope_label.setToolTip('Scoped ElevenLabs quota comparison updates after account refresh and range changes.'); self.range_basis.currentIndexChanged.connect(self.apply_row_range); self.range_from.valueChanged.connect(self.apply_row_range); self.range_to.valueChanged.connect(self.apply_row_range); rangebar.addWidget(QLabel('Range basis')); rangebar.addWidget(self.range_basis); rangebar.addWidget(QLabel('From')); rangebar.addWidget(self.range_from); rangebar.addWidget(QLabel('To')); rangebar.addWidget(self.range_to); rangebar.addWidget(self.range_summary_label,1); rangebar.addWidget(self.quota_scope_label)
         qbar=self.queue_workspace.command_layout; actionbar=self.queue_workspace.action_layout
         self.queue_search=QLineEdit(); self.queue_search.setObjectName('queueSearch'); self.queue_search.setPlaceholderText('Search filename, source or text…'); self.queue_search.setClearButtonEnabled(True); self.queue_search.setAccessibleName('Search generation queue'); self.queue_search.setAccessibleDescription('Filter jobs by filename, source or text'); self.queue_search.setMinimumWidth(220); self.queue_search.setMaximumWidth(360); self.queue_search.textChanged.connect(self.queue_search_changed)
@@ -351,7 +354,7 @@ class MainWindow(QMainWindow):
             self.table=QueueTableView(); self.table.setObjectName('queueTable'); self.table.setItemDelegateForColumn(5,QueueStatusDelegate(self.table)); self.queue_adapter=QueueViewAdapter(self.table,parent=self)
         else:
             self.table=QTableWidget(0,12); self.table.setHorizontalHeaderLabels(['Source row','Filename','Source','Worksheet','Characters','Status','Provider','Voice','Model','Duration','Retry','Output']); configure_queue_table(self.table); self.queue_adapter=QueueViewAdapter(self.table,jobs_provider=self.displayed_queue_jobs,parent=self)
-        self.queue_workspace.bind_table(self.table,QSettings()); self.table.setContextMenuPolicy(Qt.CustomContextMenu); self.table.horizontalHeader().sectionClicked.connect(self.queue_header_clicked); self.queue_adapter.selection_changed.connect(self.preview); self.queue_adapter.selection_changed.connect(self.update_queue_actions); self.queue_adapter.selection_changed.connect(self.update_selection_scope_summary); self.queue_adapter.context_menu_requested.connect(self.queue_context_menu); self.queue_adapter.cell_double_clicked.connect(lambda *_: self.play_selected_output()); ml.addWidget(self.table); split.addWidget(mid)
+        self.queue_workspace.bind_table(self.table,QSettings()); self.table.setContextMenuPolicy(Qt.CustomContextMenu); self.table.horizontalHeader().sectionClicked.connect(self.queue_header_clicked); self.queue_adapter.selection_changed.connect(self.preview); self.queue_adapter.selection_changed.connect(self.update_queue_actions); self.queue_adapter.selection_changed.connect(self.update_selection_scope_summary); self.queue_adapter.selection_changed.connect(self.refresh_queue_batch_operations); self.queue_adapter.context_menu_requested.connect(self.queue_context_menu); self.queue_adapter.cell_double_clicked.connect(lambda *_: self.play_selected_output()); ml.addWidget(self.table); split.addWidget(mid)
         pb=DockPanelGroupBox('Selected row'); self.selected_row_panel=pb
         self.queue_details=QueueDetailsPane(pb,play_output=self.play_selected_output,open_output=self.open_selected_output,stop_playback=self.audio_player_service.stop,copy_output=self.copy_selected_output_path)
         self.pname=self.queue_details.pname; self.pstatus=self.queue_details.pstatus; self.pmeta=self.queue_details.pmeta; self.presolved=self.queue_details.presolved; self.poutput=self.queue_details.poutput; self.pretry=self.queue_details.pretry; self.ptext=self.queue_details.ptext
@@ -521,7 +524,8 @@ class MainWindow(QMainWindow):
         self.setProperty('responsiveMode',mode_value)
         self.application_shell.set_responsive_mode(mode)
         self.queue_workspace.set_responsive_mode(mode)
-        if hasattr(self,'generation_journey'): self.generation_journey.set_compact_mode(mode is WorkspaceBreakpoint.COMPACT)
+        self._responsive_overlay_compact=mode is WorkspaceBreakpoint.COMPACT
+        self._sync_workspace_overlay_compact()
         self.main_toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly if state.toolbar_icon_only else Qt.ToolButtonTextBesideIcon)
         self.main_toolbar.setProperty('responsiveMode',mode_value)
 
@@ -708,6 +712,15 @@ class MainWindow(QMainWindow):
         self.activity_center.show_output_workspace()
         if hasattr(self,'view_activity_action'): self.view_activity_action.setChecked(True)
         return workspace
+    def _sync_workspace_overlay_compact(self):
+        compact=bool(
+            getattr(self,'_workspace_preset_compact',False)
+            or getattr(self,'_responsive_overlay_compact',False)
+        )
+        if hasattr(self,'generation_journey'):
+            self.generation_journey.set_compact_mode(compact)
+        if hasattr(self,'queue_batch_operations'):
+            self.queue_batch_operations.set_compact_mode(compact)
     def apply_workspace_preset(self,name,save=False):
         if not hasattr(self,'main_splitter'): return
         profile=self.workspace_profiles.select(name) if save else self.workspace_profiles.get(name)
@@ -716,10 +729,11 @@ class MainWindow(QMainWindow):
         self.apply_density(profile.density,persist=save)
         if hasattr(self,'application_shell'):
             self.application_shell.set_header_mode(profile.header_mode,metrics_visible=profile.metrics_visible)
+        preset_compact=profile.density=='compact' or profile.name=='Focus Mode'
+        self._workspace_preset_compact=preset_compact
         if hasattr(self,'queue_workspace'):
-            self.queue_workspace.set_compact_mode(profile.density=='compact' or profile.name=='Focus Mode')
-        if hasattr(self,'generation_journey'):
-            self.generation_journey.set_compact_mode(profile.density=='compact' or profile.name=='Focus Mode')
+            self.queue_workspace.set_compact_mode(preset_compact)
+        self._sync_workspace_overlay_compact()
         if hasattr(self,'left_dock'): self.left_dock.setVisible(profile.left_dock_visible)
         if hasattr(self,'right_dock'): self.right_dock.setVisible(profile.right_dock_visible)
         if hasattr(self,'main_toolbar'): self.main_toolbar.setVisible(profile.toolbar_visible)
@@ -750,7 +764,7 @@ class MainWindow(QMainWindow):
         button.setMenu(menu); return button
     def build_generation_menu(self):
         self.generation_menu=QMenu('Generation',self); self.menuBar().addMenu(self.generation_menu)
-        workflow_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Generation Workflow'); workflow_action.setShortcut(QKeySequence('Ctrl+Alt+G')); workflow_action.triggered.connect(self.focus_generation_workflow); self.actions_by_name['Generation Workflow']=workflow_action; self.generation_menu.addSeparator()
+        workflow_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Generation Workflow'); workflow_action.setShortcut(QKeySequence('Ctrl+Alt+G')); workflow_action.triggered.connect(self.focus_generation_workflow); self.actions_by_name['Generation Workflow']=workflow_action; batch_action=self.generation_menu.addAction(action_icon('queue'),'Queue Batch Operations'); batch_action.setShortcut(QKeySequence('Ctrl+Alt+Q')); batch_action.triggered.connect(self.focus_queue_batch_operations); self.actions_by_name['Queue Batch Operations']=batch_action; self.generation_menu.addSeparator()
         self.show_monitor_action=self.generation_menu.addAction('Show/Hide Generation Monitor'); self.show_monitor_action.setCheckable(True); self.show_monitor_action.setChecked(True); self.show_monitor_action.triggered.connect(self.toggle_generation_monitor); self.actions_by_name['Show/Hide Generation Monitor']=self.show_monitor_action
         self.dry_run_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Dry run'); self.dry_run_action.triggered.connect(self.dry_run); self.actions_by_name['Dry run']=self.dry_run_action; self.actions_by_name['Run Preflight']=self.dry_run_action
         for text,handler,shortcut,ic in [('Start Generation',self.start,'Ctrl+Return','generation.start'),('Pause/Resume',self.pause,'Ctrl+Space','generation.pause'),('Stop Generation',self.stop,'Shift+Esc','generation.stop'),('Voice Browser',self.open_voice_browser,'Ctrl+Shift+V','provider.browse_voices')]:
@@ -2607,6 +2621,46 @@ class MainWindow(QMainWindow):
         self.update_queue_scope_summary(jobs)
         self.update_selection_scope_summary(jobs)
         self.update_queue_actions()
+        self.refresh_queue_batch_operations(jobs)
+    def refresh_queue_batch_operations(self,visible_jobs=None):
+        if not hasattr(self,'queue_batch_operations'): return
+        jobs=list(visible_jobs if visible_jobs is not None else self.displayed_queue_jobs())
+        selected_rows=[job.row_number for job in self.selected_queue_jobs()]
+        group_by=str(self.queue_batch_operations.group_by.currentData() or 'status')
+        snapshot=self.queue_batch_service.snapshot(
+            jobs,
+            selected_rows=selected_rows,
+            quota_remaining=self.generation_controller.quota_remaining,
+            group_by=group_by,
+            default_provider=self.provider.currentText(),
+            default_voice=self.voice.text(),
+        )
+        self.queue_batch_operations.update_snapshot(snapshot)
+    def apply_queue_batch_lens(self,lens):
+        if not hasattr(self,'queue_batch_operations'): return
+        jobs=list(self.displayed_queue_jobs())
+        selected_rows=[job.row_number for job in self.selected_queue_jobs()]
+        row_ids=self.queue_batch_service.lens_job_ids(
+            str(lens or 'all'),
+            jobs,
+            selected_rows=selected_rows,
+            quota_remaining=self.generation_controller.quota_remaining,
+        )
+        self.table.clearSelection()
+        if row_ids: self.queue_adapter.restore_selection(row_ids)
+        self.update_queue_scope_summary(jobs); self.refresh_queue_batch_operations(jobs)
+        self.statusBar().showMessage(f'Batch lens selected {len(row_ids):,} job(s).',4000)
+    def handle_queue_batch_action(self,code):
+        handlers={
+            'retry_failed':self.retry_failed,
+            'skip_selected':self.skip_selected,
+            'reset_selected':self.reset_selected,
+            'clear_completed':self.clear_completed,
+        }
+        handler=handlers.get(str(code or ''))
+        if handler is not None: handler()
+    def focus_queue_batch_operations(self):
+        if hasattr(self,'queue_batch_operations'): self.queue_batch_operations.focus_lens()
     def update_queue_scope_summary(self,visible_jobs=None):
         if not hasattr(self,'queue_scope_summary'): return
         visible=list(visible_jobs if visible_jobs is not None else self.displayed_queue_jobs())
@@ -2763,7 +2817,7 @@ class MainWindow(QMainWindow):
                 if Path(job.filename).name==target_name:
                     self.queue_adapter.set_progress(job.row_number,100.0 if status=='completed' else None)
                     break
-        self.update_queue_summary_strip(); self.update_queue_scope_summary(jobs); self.update_selection_scope_summary(jobs); self.update_queue_actions()
+        self.update_queue_summary_strip(); self.update_queue_scope_summary(jobs); self.update_selection_scope_summary(jobs); self.update_queue_actions(); self.refresh_queue_batch_operations(jobs)
 
     def progress(self,i,total,name,status,duration,retry,error):
         self.bar.setMaximum(total); self.bar.setValue(i); self.generation_status_strip.set_progress_detail(i,total,status=status,filename=Path(name).name if name else ''); self.monitor_service.handle_progress(self.generation_controller.jobs,status=status,name=name,duration=duration,retry=retry,error=error); self.refresh_queue_progress(name,status); self.sync_execution_session('running')
@@ -3438,6 +3492,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Project: Save Project As',act('Save Project As'),lambda: self.project_controller.current_project is not None),
             PaletteCommand('Project: Close Project',act('Close Project'),lambda: self.project_controller.current_project is not None),
             PaletteCommand('Generation: Focus workflow',self.focus_generation_workflow),
+            PaletteCommand('Queue: Batch Operations',self.focus_queue_batch_operations),
             PaletteCommand('Generation: Start Generation',self.start,lambda: bool(self.csv.text().strip()) or self.generation_controller.has_jobs()),
             PaletteCommand('Generation: Dry run',self.dry_run,lambda: bool(self.csv.text().strip()) or self.generation_controller.has_jobs()),
             PaletteCommand('Generation: Pause Generation',self.pause,lambda: self.generation_controller.is_active and not self.generation_controller.is_paused),
