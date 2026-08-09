@@ -2060,6 +2060,37 @@ DARK_STYLE += _PHASE31_PROVIDER_WORKSPACE_STYLE
 LIGHT_STYLE += _PHASE31_PROVIDER_WORKSPACE_STYLE
 GRAPHITE_STYLE += _PHASE31_PROVIDER_WORKSPACE_STYLE
 
+# Phase 90 provider intelligence and voice-selection decision surface.
+_PHASE90_PROVIDER_INTELLIGENCE_STYLE = r"""
+QFrame#providerIntelligenceCard {
+    background: palette(base);
+    border: 1px solid palette(dark);
+    border-radius: 10px;
+}
+QFrame#providerIntelligenceCard QLabel#providerOverviewValue[tone="success"] {
+    color: #22C55E;
+}
+QFrame#providerIntelligenceCard QLabel#providerOverviewValue[tone="warning"] {
+    color: #F59E0B;
+}
+QFrame#providerIntelligenceCard QLabel#providerOverviewValue[tone="error"] {
+    color: #EF4444;
+}
+QFrame#providerIntelligenceCard QLabel#providerOverviewValue[tone="neutral"] {
+    color: palette(mid);
+}
+QFrame#providerIntelligenceCard QPushButton#primaryQuietButton,
+QFrame#providerIntelligenceCard QPushButton#secondaryQuietButton {
+    min-height: 28px;
+}
+QMainWindow[contrastMode="high"] QFrame#providerIntelligenceCard {
+    border: 2px solid palette(highlight);
+}
+"""
+DARK_STYLE += _PHASE90_PROVIDER_INTELLIGENCE_STYLE
+LIGHT_STYLE += _PHASE90_PROVIDER_INTELLIGENCE_STYLE
+GRAPHITE_STYLE += _PHASE90_PROVIDER_INTELLIGENCE_STYLE
+
 # Phase 32 audio output, playback and file handoff UX.
 _PHASE32_OUTPUT_PLAYBACK_STYLE = r"""
 QWidget#outputPlaybackWorkspace {

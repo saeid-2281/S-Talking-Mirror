@@ -62,6 +62,7 @@ from app.services.provider_catalog_service import ProviderCatalogService
 from app.services.provider_account_catalog_store import ProviderAccountCatalogStore
 from app.services.provider_identity_service import ProviderIdentityService
 from app.services.provider_readiness_service import ProviderReadinessService
+from app.services.provider_intelligence_service import ProviderIntelligenceService
 from app.services.report_service import ReportService
 from app.services.release_readiness_service import ReleaseReadinessService
 from app.services.release_candidate_service import ReleaseCandidateService
@@ -203,6 +204,7 @@ class ServiceContainer:
     provider_account_catalog_store: ProviderAccountCatalogStore
     provider_identity_service: ProviderIdentityService
     provider_readiness_service: ProviderReadinessService
+    provider_intelligence_service: ProviderIntelligenceService
     product_activity_service: ProductActivityService
     notification_center_service: NotificationCenterService
     activity_timeline_service: ActivityTimelineService
@@ -267,6 +269,7 @@ def create_service_container(
     provider_verification_service = ProviderVerificationService(config, voice_service)
     provider_identity_service = ProviderIdentityService(config.resource_path("app", "resources", "brand"))
     provider_readiness_service = ProviderReadinessService(provider_identity_service)
+    provider_catalog_service = ProviderCatalogService()
     startup_recovery_service = StartupRecoveryService(config, database, job_repository, project_repository)
     session_restore_service = SessionRestoreService(config)
     generation_recovery_service = GenerationRecoveryService(config.cache_dir / "generation-recovery.json")
@@ -280,6 +283,12 @@ def create_service_container(
     generation_cost_capacity_service = GenerationCostCapacityService(
         product_event_repository,
         job_repository,
+    )
+    provider_intelligence_service = ProviderIntelligenceService(
+        provider_readiness_service,
+        provider_catalog_service,
+        voice_service,
+        generation_cost_capacity_service,
     )
     generation_artifact_retention_service = GenerationArtifactRetentionService(config.reports_dir)
     generation_budget_guard_service = GenerationBudgetGuardService(
@@ -544,10 +553,11 @@ def create_service_container(
         generation_safe_resume_service=generation_safe_resume_service,
         pronunciation_dictionary_service=pronunciation_dictionary_service,
         provider_verification_service=provider_verification_service,
-        provider_catalog_service=ProviderCatalogService(),
+        provider_catalog_service=provider_catalog_service,
         provider_account_catalog_store=account_catalog_store,
         provider_identity_service=provider_identity_service,
         provider_readiness_service=provider_readiness_service,
+        provider_intelligence_service=provider_intelligence_service,
         product_activity_service=ProductActivityService(
             product_event_repository,
             notification_center_service,

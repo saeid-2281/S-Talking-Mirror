@@ -27,6 +27,7 @@ from app.gui.design_system import COMPACT, SPACING
 from app.gui.icons import action_icon, icon
 from app.gui.widgets import ControlledDoubleSpinBox, ControlledSpinBox
 from app.gui.widgets.provider_controls import ProviderOverviewCard, ProviderSection
+from app.gui.widgets.provider_intelligence import ProviderIntelligenceCard
 
 
 class IconActionButton(QPushButton):
@@ -140,6 +141,12 @@ class ProviderWorkspaceBuilder:
 
         owner.provider_overview = ProviderOverviewCard()
         root.addWidget(owner.provider_overview)
+
+        owner.provider_intelligence = ProviderIntelligenceCard()
+        owner.provider_intelligence.actionRequested.connect(
+            owner.handle_provider_intelligence_action
+        )
+        root.addWidget(owner.provider_intelligence)
 
         owner.provider = QComboBox()
         owner.provider.addItems(self.PROVIDERS)

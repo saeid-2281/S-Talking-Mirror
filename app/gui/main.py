@@ -188,6 +188,7 @@ class MainWindow(QMainWindow):
         self.operational_persistence_service=context.operational_persistence_service
         self.release_lifecycle_validation_service=context.release_lifecycle_validation_service
         self.final_production_certification_service=context.final_production_certification_service
+        self.provider_intelligence_service=context.provider_intelligence_service
         self.update_delivery_controller=UpdateDeliveryController(context.update_delivery_service,parent=self)
         self.update_delivery_controller.completed.connect(self._background_update_completed)
         self.update_delivery_controller.failed.connect(self._background_update_failed)
@@ -199,6 +200,7 @@ class MainWindow(QMainWindow):
         if not self.safe_mode:
             self.restore_previous_session(); QTimer.singleShot(0,self.offer_generation_recovery); QTimer.singleShot(5000,self.check_updates_on_startup)
         self.update_window_title(); self.update_status_bar()
+        QTimer.singleShot(0,self.refresh_provider_intelligence)
         QTimer.singleShot(0,self.mark_performance_startup_ready)
         if self.crash_recovery_service.session_id: QTimer.singleShot(1200,self.announce_crash_recovery_state)
     def set_initial_geometry(self):
@@ -251,6 +253,7 @@ class MainWindow(QMainWindow):
         self.health_button=QPushButton('Health: checking…'); self.health_button.setFlat(True); self.health_button.clicked.connect(self.developer_tools.show_health_center); self.statusBar().addPermanentWidget(self.health_button)
         self.accessibility_announcer=LiveStatusAnnouncer(self); self.statusBar().addPermanentWidget(self.accessibility_announcer)
         palette_action=QAction('Command Palette',self); palette_action.setShortcut(QKeySequence('Ctrl+K')); palette_action.setShortcutContext(Qt.ApplicationShortcut); palette_action.triggered.connect(self.open_command_palette); self.addAction(palette_action); self.actions_by_name['Command Palette']=palette_action
+        provider_intelligence_action=QAction('Provider Intelligence',self); provider_intelligence_action.setShortcut(QKeySequence('Ctrl+Alt+V')); provider_intelligence_action.setShortcutContext(Qt.ApplicationShortcut); provider_intelligence_action.triggered.connect(self.focus_provider_intelligence); self.addAction(provider_intelligence_action); self.actions_by_name['Provider Intelligence']=provider_intelligence_action
         self.application_shell=ApplicationShell(); self.setCentralWidget(self.application_shell)
         self.project_context_widget=ProjectContextBar(
             self.project_controller.default_output_path,
@@ -1003,6 +1006,118 @@ class MainWindow(QMainWindow):
         )
         self.generation_journey.set_state(state)
 
+    def _provider_intelligence_profile(self):
+        profile_id=self.active_api_profile_id() if hasattr(self,'api_profile') else None
+        if not profile_id:
+            return None
+        try:
+            return self.context.api_profile_service.get_profile(str(profile_id))
+        except (ValueError,AttributeError):
+            return None
+
+    def refresh_provider_intelligence(self,force=False):
+        card=getattr(self,'provider_intelligence',None)
+        if card is None or not hasattr(self,'provider'):
+            return None
+        settings=self.settings()
+        jobs=list(self.generation_controller.generation_jobs()) if hasattr(self,'generation_controller') else []
+        characters=sum(len(job.text) for job in jobs)
+        profile=self._provider_intelligence_profile()
+        catalog=self.context.voice_service.cached_catalog(settings)
+        connection=(
+            self.connection_status.toolTip() or self.connection_status.text()
+            if hasattr(self,'connection_status')
+            else ''
+        )
+        signature=(
+            settings.provider,
+            settings.model_id,
+            settings.voice_id,
+            settings.language_code,
+            settings.active_api_profile_id,
+            getattr(profile,'remaining_characters',None),
+            getattr(profile,'character_limit',None),
+            getattr(profile,'status',None),
+            id(catalog) if catalog is not None else 0,
+            len(catalog.voices) if catalog is not None else 0,
+            len(catalog.models) if catalog is not None else 0,
+            len(jobs),
+            characters,
+            connection,
+        )
+        if not force and signature==getattr(self,'_provider_intelligence_signature',None):
+            return getattr(self,'_provider_intelligence_state',None)
+        project_id=(
+            self.project_controller.current_project.project_id
+            if self.project_controller.current_project
+            else None
+        )
+        try:
+            state=self.provider_intelligence_service.analyze(
+                settings=settings,
+                scoped_jobs=len(jobs),
+                scoped_characters=characters,
+                project_id=project_id,
+                profile=profile,
+                connection_status=connection,
+            )
+        except Exception as exc:
+            self.statusBar().showMessage(f'Provider intelligence unavailable: {exc}',5000)
+            return None
+        self._provider_intelligence_signature=signature
+        self._provider_intelligence_state=state
+        card.set_state(state)
+        return state
+
+    def handle_provider_intelligence_action(self,code):
+        if code=='apply-suggestion':
+            self.apply_provider_intelligence_suggestion(); return
+        if code=='browse-voices':
+            self.open_voice_browser(); return
+        if code=='refresh-catalog':
+            dialog=self.open_voice_browser()
+            if dialog is not None:
+                QTimer.singleShot(0,dialog.refresh_catalog)
+            return
+        if code=='quota-scope':
+            index=self.scope_selector.findData('quota_batch') if hasattr(self,'scope_selector') else -1
+            if index>=0:
+                self.scope_selector.setCurrentIndex(index)
+                self.statusBar().showMessage('Generation scope changed to Automatic quota batch.',5000)
+            return
+        if code=='preflight':
+            self.dry_run(); return
+        if code=='queue':
+            self.table.setFocus(Qt.OtherFocusReason); return
+        if code=='provider':
+            self.left_dock.show(); self.left_dock.raise_(); self.left_tabs.setCurrentIndex(0)
+            self.provider.setFocus(Qt.OtherFocusReason)
+
+    def apply_provider_intelligence_suggestion(self):
+        state=getattr(self,'_provider_intelligence_state',None)
+        if state is None or not state.suggestion.has_changes:
+            self.statusBar().showMessage('No provider selection suggestion is available.',4000); return
+        suggestion=state.suggestion
+        with self.settings_controller.loading():
+            if suggestion.model_id:
+                self.set_model_value(suggestion.model_id)
+            if suggestion.voice_id:
+                self.voice.setText(suggestion.voice_id)
+        self.settings_changed()
+        parts=[]
+        if suggestion.model_name or suggestion.model_id:
+            parts.append(f'Model {suggestion.model_name or suggestion.model_id}')
+        if suggestion.voice_name or suggestion.voice_id:
+            parts.append(f'Voice {suggestion.voice_name or suggestion.voice_id}')
+        self.statusBar().showMessage(f"Applied compatible selection: {' · '.join(parts)}",6000)
+        self.refresh_provider_intelligence(force=True)
+
+    def focus_provider_intelligence(self):
+        self.left_dock.show(); self.left_dock.raise_(); self.left_tabs.setCurrentIndex(0)
+        if hasattr(self,'provider_intelligence'):
+            self.provider_intelligence.primary_action.setFocus(Qt.ShortcutFocusReason)
+        self.statusBar().showMessage('Provider intelligence focused.',3000)
+
     def open_text_studio(self):
         if not hasattr(self,'text_studio_dock'):
             return
@@ -1737,12 +1852,14 @@ class MainWindow(QMainWindow):
         dialog.catalog_refreshed.connect(self.voice_catalog_refreshed)
         dialog.show()
         self.voice_browser_dialog=dialog
+        return dialog
     def voice_catalog_refreshed(self,catalog):
         tier=catalog.account.tier if catalog.account else 'unknown tier'
         remaining=catalog.account.remaining_characters if catalog.account else None
         quota=f', {remaining:,} remaining' if remaining is not None else ''
         self.set_provider_status(f"Connected: {tier}, {len(catalog.voices)} voices, {sum(1 for model in catalog.models if model.can_do_text_to_speech)} TTS models{quota}")
         self.populate_model_dropdown(catalog.models)
+        self.refresh_provider_intelligence(force=True)
     def apply_selected_voice(self,voice_id,voice_name):
         self.voice.setText(voice_id); self.settings_changed(); self.statusBar().showMessage(f'Voice selected: {voice_name}',5000)
     def apply_selected_model(self,model_id):
@@ -1898,6 +2015,7 @@ class MainWindow(QMainWindow):
         self.connection_status.setText(concise)
         self.connection_status.setAccessibleName(f'Provider connection status: {text}')
         if hasattr(self,'provider_overview'): self.refresh_provider_workspace_summary()
+        self.refresh_provider_intelligence(force=True)
     def open_account_details(self):
         profile_id=self.active_api_profile_id() if hasattr(self,'api_profile') else None
         profile=None
@@ -2800,6 +2918,7 @@ class MainWindow(QMainWindow):
         for card in self.cards.values(): card.set_active(bool(getattr(card,'filter_text','')) and card.filter_text==current)
         self.update_source_output_strip()
         self.update_quota_scope_label(scoped_jobs)
+        self.refresh_provider_intelligence()
         if hasattr(self,'health_button'): self.update_status_bar()
     def create_report(self,summary):
         report_summary=dict(summary); report_summary['run_id']=self.current_run_id or ''
@@ -3327,6 +3446,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Generation: Retry Failed',self.retry_failed,lambda: any(j.status.value=='failed' for j in self.generation_controller.jobs)),
             PaletteCommand('Generation: Open Output Folder',self.open_output_folder,lambda: Path(self.out.text() or self.project_controller.default_output_path).exists()),
             PaletteCommand('Generation: Show/Hide Generation Monitor',lambda:self.actions_by_name['Show/Hide Generation Monitor'].trigger()),
+            PaletteCommand('Provider: Intelligence & Selection',self.focus_provider_intelligence),
             PaletteCommand('Voice: Browse and Preview Voices',self.open_voice_browser,lambda: self.voice_browser_button.isEnabled()),
             PaletteCommand('Settings: Provider Accounts',act('Provider accounts')),
             PaletteCommand('Settings: Pronunciation Dictionaries',act('Pronunciation dictionaries')),
