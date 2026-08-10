@@ -15,10 +15,12 @@ from app.models.offline_tts_engine import (
     OfflineVoiceDescriptor,
 )
 from app.models.piper_runtime import PiperRuntimeHealth
+from app.providers.kokoro_runtime import KokoroRuntimeHealth, KokoroRuntimeService, shared_kokoro_runtime_service
 from app.providers.piper_runtime import (
     PiperRuntimeService,
     shared_piper_runtime_service,
 )
+from app.services.piper_model_manager import PiperManagedVoice, PiperModelManager
 
 
 @dataclass(frozen=True)
@@ -35,9 +37,9 @@ class OfflineEngineSpec:
 class OfflineTTSEngineService:
     """Inventory and explicit lifecycle authority for local TTS runtimes.
 
-    Inventory and voice discovery remain read-only. Phase 97 adds explicit Piper
-    warm/restart lifecycle controls, but this service still does not install
-    packages, download voices, synthesize audio, or mutate provider settings.
+    Inventory and voice discovery remain read-only. Phase 102 adds explicit local
+    model/runtime management actions, but inventory still never installs packages,
+    downloads voices, synthesizes audio, or mutates provider settings.
     """
 
     SPECS = (
@@ -55,8 +57,8 @@ class OfflineTTSEngineService:
             display_name="Kokoro Local",
             provider_id="kokoro",
             dependency_name="kokoro",
-            asset_kind="runtime-managed",
-            accelerators=("Runtime managed",),
+            asset_kind="runtime-catalog",
+            accelerators=("PyTorch runtime",),
         ),
     )
 
@@ -67,11 +69,15 @@ class OfflineTTSEngineService:
         module_finder: Callable[[str], object | None] | None = None,
         executable_finder: Callable[[str], str | None] | None = None,
         piper_runtime: PiperRuntimeService | None = None,
+        kokoro_runtime: KokoroRuntimeService | None = None,
+        piper_model_manager: PiperModelManager | None = None,
     ) -> None:
         self.runtime = runtime
         self._module_finder = module_finder or importlib.util.find_spec
         self._executable_finder = executable_finder or shutil.which
         self.piper_runtime = piper_runtime or shared_piper_runtime_service()
+        self.kokoro_runtime = kokoro_runtime or shared_kokoro_runtime_service()
+        self.piper_model_manager = piper_model_manager or PiperModelManager(runtime)
 
     def inventory(self, settings: AppSettings | None = None) -> OfflineEngineInventory:
         active = settings or AppSettings()
@@ -112,9 +118,25 @@ class OfflineTTSEngineService:
         settings: AppSettings | None = None,
     ) -> tuple[OfflineVoiceDescriptor, ...]:
         spec = self._spec(engine_id)
+        active = settings or AppSettings()
+        if spec.engine_id == "kokoro":
+            selected_voice = active.voice_id.strip() if active.provider == "kokoro" else ""
+            return tuple(
+                OfflineVoiceDescriptor(
+                    engine_id="kokoro",
+                    voice_id=voice.voice_id,
+                    display_name=voice.display_name,
+                    model_path=f"runtime://kokoro/{voice.voice_id}",
+                    language_code=voice.language_code,
+                    sample_rate=self.kokoro_runtime.SAMPLE_RATE,
+                    size_bytes=0,
+                    config_present=True,
+                    selected=voice.voice_id == selected_voice,
+                )
+                for voice in self.kokoro_runtime.voices_for_language(active.language_code)
+            )
         if spec.asset_kind != "onnx":
             return ()
-        active = settings or AppSettings()
         selected = self._selected_model(active, spec.engine_id)
         candidates: dict[str, Path] = {}
 
@@ -125,7 +147,7 @@ class OfflineTTSEngineService:
             if not root.is_dir():
                 continue
             try:
-                models = sorted(root.glob("*.onnx"))
+                models = sorted(root.rglob("*.onnx"))
             except OSError:
                 continue
             for model in models[:200]:
@@ -208,6 +230,15 @@ class OfflineTTSEngineService:
             runtime_fallback_reason=runtime_health.fallback_reason,
         )
 
+
+    def inspect_piper_voice(self, model_path: str | Path) -> PiperManagedVoice:
+        return self.piper_model_manager.inspect(model_path)
+
+    def import_piper_voice(self, model_path: str | Path) -> PiperManagedVoice:
+        """Explicitly copy a validated local Piper voice into the managed model root."""
+
+        return self.piper_model_manager.import_voice(model_path)
+
     def piper_runtime_health(self, settings: AppSettings | None = None) -> PiperRuntimeHealth:
         active = settings or AppSettings(provider="piper")
         selected = self._selected_model(active, "piper")
@@ -224,6 +255,20 @@ class OfflineTTSEngineService:
         selected = self._selected_model(active, "piper")
         return self.piper_runtime.restart(selected)
 
+
+    def kokoro_runtime_health(self) -> KokoroRuntimeHealth:
+        return self.kokoro_runtime.health()
+
+    def warm_kokoro(self, settings: AppSettings) -> KokoroRuntimeHealth:
+        issue = self.kokoro_runtime.certification_issue(settings.language_code)
+        if issue:
+            raise ValueError(issue)
+        return self.kokoro_runtime.warm(settings.language_code)
+
+    def restart_kokoro(self, settings: AppSettings | None = None) -> int:
+        active = settings or AppSettings(provider="kokoro")
+        return self.kokoro_runtime.restart(active.language_code)
+
     def _runtime_managed_snapshot(
         self,
         spec: OfflineEngineSpec,
@@ -233,10 +278,65 @@ class OfflineTTSEngineService:
         executable_path: str | None,
         installed: bool,
     ) -> OfflineEngineSnapshot:
-        selected_voice = settings.voice_id.strip() if settings.provider == spec.provider_id else ""
-        configured = installed
-        ready = installed
-        issues = () if installed else (f"Optional dependency is missing: {spec.dependency_name}",)
+        if spec.engine_id != "kokoro":
+            selected_voice = settings.voice_id.strip() if settings.provider == spec.provider_id else ""
+            configured = installed
+            ready = installed
+            issues = () if installed else (f"Optional dependency is missing: {spec.dependency_name}",)
+            return OfflineEngineSnapshot(
+                engine_id=spec.engine_id,
+                display_name=spec.display_name,
+                provider_id=spec.provider_id,
+                dependency_name=spec.dependency_name,
+                installed=installed,
+                module_available=module_available,
+                executable_path=executable_path,
+                runtime_mode="python-api" if module_available else "unavailable",
+                configured=configured,
+                ready=ready,
+                selected_voice_id=selected_voice or None,
+                voices=(),
+                accelerators=spec.accelerators,
+                state="Runtime available" if installed else "Runtime missing",
+                summary=(
+                    "Runtime-managed local engine is available."
+                    if installed
+                    else "Install the optional local runtime to enable this provider."
+                ),
+                issues=issues,
+            )
+
+        selected_voice = settings.voice_id.strip() if settings.provider == "kokoro" else ""
+        certification_issue = self.kokoro_runtime.certification_issue(
+            settings.language_code,
+            selected_voice or None,
+        )
+        voices = self.discover_voices("kokoro", settings)
+        configured = installed and certification_issue is None and bool(selected_voice)
+        ready = configured
+        health = self.kokoro_runtime.health()
+        language = self.kokoro_runtime.language_spec(settings.language_code)
+        issues: list[str] = []
+        if not installed:
+            issues.append("Optional dependency is missing: kokoro")
+        if certification_issue:
+            issues.append(certification_issue)
+        elif not selected_voice:
+            issues.append("Select a certified Kokoro voice for the configured language.")
+
+        if ready:
+            state = "Ready"
+            summary = "Kokoro v1.0 runtime, language, and voice are certified for local synthesis."
+        elif installed and certification_issue:
+            state = "Language not certified"
+            summary = "Kokoro is installed, but the configured language is outside the certified v1.0 set."
+        elif installed:
+            state = "Voice required"
+            summary = "Kokoro is installed and language-certified; select a compatible voice."
+        else:
+            state = "Runtime missing"
+            summary = "Install the optional Kokoro runtime before local synthesis can be enabled."
+
         return OfflineEngineSnapshot(
             engine_id=spec.engine_id,
             display_name=spec.display_name,
@@ -249,15 +349,17 @@ class OfflineTTSEngineService:
             configured=configured,
             ready=ready,
             selected_voice_id=selected_voice or None,
-            voices=(),
+            voices=voices,
             accelerators=spec.accelerators,
-            state="Runtime available" if installed else "Runtime missing",
-            summary=(
-                "Runtime-managed local engine is available."
-                if installed
-                else "Install the optional local runtime to enable this provider."
-            ),
-            issues=issues,
+            state=state,
+            summary=summary,
+            issues=tuple(issues),
+            runtime_loaded=bool(language and language.language_code in health.loaded_language_codes),
+            resolved_accelerator="runtime" if health.pipeline_count else None,
+            runtime_cache_entries=health.pipeline_count,
+            runtime_load_count=health.load_count,
+            runtime_synthesis_count=health.synthesis_count,
+            runtime_last_error=health.last_error,
         )
 
     def _voice_roots(self, engine_id: str, selected: Path | None) -> tuple[Path, ...]:

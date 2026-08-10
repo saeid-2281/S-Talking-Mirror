@@ -167,14 +167,18 @@ def test_phase96_inventory_is_read_only_and_does_not_create_voice_directories(tm
     assert "subprocess" not in source
 
 
-def test_phase96_kokoro_is_a_runtime_managed_engine(tmp_path: Path) -> None:
+def test_phase96_kokoro_runtime_inventory_respects_phase102_language_certification(
+    tmp_path: Path,
+) -> None:
     service = _service(tmp_path, modules={"kokoro"})
     snapshot = service.snapshot("kokoro", AppSettings(provider="kokoro", voice_id="af_heart"))
     assert snapshot.installed is True
-    assert snapshot.ready is True
+    assert snapshot.ready is False
     assert snapshot.runtime_mode == "python-api"
     assert snapshot.selected_voice_id == "af_heart"
     assert snapshot.voices == ()
+    assert snapshot.state == "Language not certified"
+    assert any("does not include Danish" in issue for issue in snapshot.issues)
 
 
 def test_phase96_unknown_engine_is_rejected(tmp_path: Path) -> None:

@@ -48,6 +48,7 @@ class ProviderManifest:
     placeholder_api_key: bool = False
     supports_language_code_fallback: bool = True
     fallback_output_formats: tuple[str, ...] = ("mp3", "wav")
+    forced_file_extension: str | None = None
     profile_metadata_fields: tuple[str, ...] = ()
     profile_management_ready: bool = False
     profile_secret_required: bool = True
@@ -68,6 +69,8 @@ class ProviderManifest:
             raise ValueError("profile metadata field names must be unique")
         if normalized_fields != self.profile_metadata_fields:
             raise ValueError("profile metadata field names must be lowercase stable identifiers")
+        if self.forced_file_extension is not None and not self.forced_file_extension.startswith("."):
+            raise ValueError("forced_file_extension must start with a dot")
 
     @property
     def remote(self) -> bool:

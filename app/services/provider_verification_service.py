@@ -11,6 +11,7 @@ from typing import Callable
 from app.config.runtime import RuntimeConfig
 from app.models.domain import AppSettings
 from app.provider_factory import create_provider
+from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
 from app.services.output_validation_service import OutputValidationService
 from app.services.voice_service import VoiceCatalog, VoiceService
 
@@ -173,7 +174,7 @@ class ProviderVerificationService:
         report_dir = self._report_dir(project_name, started)
         checks: list[ProviderVerificationCheck] = []
         provider = None
-        output_path = report_dir / f"provider-sample{settings.file_extension if settings.provider not in {'mock', 'piper'} else '.wav'}"
+        output_path = report_dir / f"provider-sample{DEFAULT_PROVIDER_REGISTRY.output_extension(settings.provider, settings.file_extension)}"
         try:
             provider = self.provider_factory(settings)
             validation = provider.validate_configuration(settings)

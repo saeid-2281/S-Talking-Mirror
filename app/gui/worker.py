@@ -19,6 +19,7 @@ from app.models.generation_orchestration import (
 )
 from app.models.retry_policy import FailureCategory, RetryHistoryEntry
 from app.provider_factory import create_provider
+from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
 from app.services.failure_analysis_service import FailureAnalysisService
 from app.services.output_validation_service import OutputValidationService
 from app.services.pronunciation_service import PronunciationService
@@ -150,7 +151,7 @@ class GenerationWorker(QObject):
                     self._switch_candidate(0)
 
                 active_settings = self._active_settings()
-                extension = ".wav" if active_settings.provider in {"mock", "piper"} else active_settings.file_extension
+                extension = DEFAULT_PROVIDER_REGISTRY.output_extension(active_settings.provider, active_settings.file_extension)
                 output_path = job.output_path(self.output_dir, extension)
 
                 if db.status_for(self.project_key, job) == "completed" and output_path.exists():
@@ -432,10 +433,8 @@ class GenerationWorker(QObject):
         try:
             for index, job in enumerate(self.jobs, 1):
                 active_settings = self.settings
-                extension = (
-                    ".wav"
-                    if active_settings.provider in {"mock", "piper"}
-                    else active_settings.file_extension
+                extension = DEFAULT_PROVIDER_REGISTRY.output_extension(
+                    active_settings.provider, active_settings.file_extension
                 )
                 output_path = job.output_path(self.output_dir, extension)
                 if db.status_for(self.project_key, job) == "completed" and output_path.exists():
@@ -777,10 +776,8 @@ class GenerationWorker(QObject):
                     raise ProviderError(
                         "Generation cancelled by user.", provider_code="cancelled"
                     )
-                extension = (
-                    ".wav"
-                    if candidate.settings.provider in {"mock", "piper"}
-                    else candidate.settings.file_extension
+                extension = DEFAULT_PROVIDER_REGISTRY.output_extension(
+                    candidate.settings.provider, candidate.settings.file_extension
                 )
                 output_path = job.output_path(self.output_dir, extension)
                 self._write_atomic(output_path, audio)

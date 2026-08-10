@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.config.runtime import RuntimeConfig
 from app.models.domain import AppSettings, JobStatus, TTSJob
+from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
 from app.models.preflight_state import PreflightFix, PreflightIssue, PreflightState
 from app.repositories.voice_repository import VoiceRepository
 from app.services.monitor_formatting import format_duration
@@ -77,7 +78,7 @@ class PreflightService:
             return self.latest
         issues: list[PreflightIssue] = []
         pending = [job for job in jobs if job.status == JobStatus.PENDING]
-        extension = ".wav" if settings.provider in {"mock", "piper"} else settings.file_extension
+        extension = DEFAULT_PROVIDER_REGISTRY.output_extension(settings.provider, settings.file_extension)
         output_ready = self._validate_output_dir(output_dir, issues)
         provider_ready = self._validate_provider(settings, issues)
         provider_ready = self._validate_job_provider_overrides(jobs, settings, issues) and provider_ready
@@ -198,7 +199,7 @@ class PreflightService:
             if fix and job.filename != fix.new_filename:
                 job.filename = fix.new_filename
                 changed += 1
-            output_path = job.output_path(output_dir, ".wav" if settings.provider in {"mock", "piper"} else settings.file_extension)
+            output_path = job.output_path(output_dir, DEFAULT_PROVIDER_REGISTRY.output_extension(settings.provider, settings.file_extension))
             if settings.skip_existing and output_path.exists() and job.status == JobStatus.PENDING:
                 job.status = JobStatus.SKIPPED
                 job.generated_output_path = str(output_path)
@@ -214,7 +215,7 @@ class PreflightService:
         output_dir: Path,
     ) -> list[PreflightFix]:
         seen: dict[str, int] = {}
-        extension = ".wav" if settings.provider in {"mock", "piper"} else settings.file_extension
+        extension = DEFAULT_PROVIDER_REGISTRY.output_extension(settings.provider, settings.file_extension)
         filename_issue_rows = {
             issue.row
             for issue in state.issues
@@ -448,7 +449,7 @@ class PreflightService:
             severity = "hard_error" if capabilities.requires_credential or capabilities.optional_dependency else "warning"
             self._issue(issues, severity, None, settings.provider, card.message, "Open Quick Setup or Provider accounts and complete setup.", "provider_setup_required")
             ready = severity != "hard_error"
-        if capabilities.supported_output_formats and settings.provider not in {"mock", "piper"}:
+        if capabilities.supported_output_formats and not DEFAULT_PROVIDER_REGISTRY.manifest_for(settings.provider).forced_file_extension:
             output_format = (settings.output_format or settings.file_extension.strip(".")).split("_", 1)[0]
             supported = {item.split("_", 1)[0].lower() for item in capabilities.supported_output_formats}
             if output_format.lower() not in supported and settings.file_extension.strip(".").lower() not in supported:

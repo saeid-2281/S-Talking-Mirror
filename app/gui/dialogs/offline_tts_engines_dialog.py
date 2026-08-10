@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFrame,
     QHeaderView,
     QHBoxLayout,
@@ -104,8 +105,14 @@ class OfflineTTSEnginesDialog(QDialog):
         self.warm_runtime_button.clicked.connect(self.warm_piper_runtime)
         self.restart_runtime_button = QPushButton("Restart Piper runtime")
         self.restart_runtime_button.clicked.connect(self.restart_piper_runtime)
+        self.warm_kokoro_button = QPushButton("Warm Kokoro runtime")
+        self.warm_kokoro_button.clicked.connect(self.warm_kokoro_runtime)
+        self.restart_kokoro_button = QPushButton("Restart Kokoro runtime")
+        self.restart_kokoro_button.clicked.connect(self.restart_kokoro_runtime)
         runtime_actions.addWidget(self.warm_runtime_button)
         runtime_actions.addWidget(self.restart_runtime_button)
+        runtime_actions.addWidget(self.warm_kokoro_button)
+        runtime_actions.addWidget(self.restart_kokoro_button)
         engines_layout.addLayout(runtime_actions)
         splitter.addWidget(engines_page)
 
@@ -115,10 +122,13 @@ class OfflineTTSEnginesDialog(QDialog):
         voice_header = QHBoxLayout()
         voice_header.addWidget(QLabel("Discovered voices"))
         voice_header.addStretch()
+        self.import_piper_button = QPushButton("Import Piper voice…")
+        self.import_piper_button.clicked.connect(self.import_piper_voice)
         self.use_voice_button = QPushButton("Use selected Piper voice")
         self.use_voice_button.clicked.connect(self.use_selected_voice)
         self.open_folder_button = QPushButton("Open model folder")
         self.open_folder_button.clicked.connect(self.open_selected_voice_folder)
+        voice_header.addWidget(self.import_piper_button)
         voice_header.addWidget(self.use_voice_button)
         voice_header.addWidget(self.open_folder_button)
         voices_layout.addLayout(voice_header)
@@ -138,8 +148,8 @@ class OfflineTTSEnginesDialog(QDialog):
         splitter.setSizes([280, 300])
 
         note = QLabel(
-            "Phase 97 uses an in-process Piper runtime with model reuse and Auto CPU/CUDA selection. "
-            "Warm/restart actions never start generation; verified downloadable voice packs remain a separate distribution concern."
+            "Phase 102 adds explicit Piper voice import/validation and a certified Kokoro runtime. "
+            "No voice is downloaded automatically. Kokoro Danish remains blocked because it is not in the official v1.0 language set."
         )
         note.setWordWrap(True)
         note.setObjectName("summaryMuted")
@@ -211,22 +221,39 @@ class OfflineTTSEnginesDialog(QDialog):
                     runtime_detail += f" {engine.runtime_fallback_reason}."
                 if engine.runtime_last_error:
                     runtime_detail += f" Last runtime error: {engine.runtime_last_error}."
+            elif engine.engine_id == "kokoro":
+                loaded = "loaded" if engine.runtime_loaded else "cold"
+                runtime_detail = (
+                    f" Kokoro runtime: {loaded} · pipelines {engine.runtime_cache_entries} · "
+                    f"loads {engine.runtime_load_count} · syntheses {engine.runtime_synthesis_count}."
+                )
+                if engine.runtime_last_error:
+                    runtime_detail += f" Last runtime error: {engine.runtime_last_error}."
             self.engine_detail.setText(
                 f"{engine.summary} Runtime: {engine.runtime_mode}. Accelerators: {accelerators}."
                 f"{runtime_detail} {issues}"
             )
 
+        piper_selected = bool(engine and engine.engine_id == "piper")
+        kokoro_selected = bool(engine and engine.engine_id == "kokoro")
         runtime_action_allowed = bool(
-            engine
-            and engine.engine_id == "piper"
+            piper_selected
+            and engine
             and engine.module_available
             and engine.configured
             and not self.generation_active()
         )
+        self.warm_runtime_button.setVisible(piper_selected)
+        self.restart_runtime_button.setVisible(piper_selected)
         self.warm_runtime_button.setEnabled(runtime_action_allowed)
-        self.restart_runtime_button.setEnabled(
-            bool(engine and engine.engine_id == "piper" and not self.generation_active())
+        self.restart_runtime_button.setEnabled(bool(piper_selected and not self.generation_active()))
+        self.warm_kokoro_button.setVisible(kokoro_selected)
+        self.restart_kokoro_button.setVisible(kokoro_selected)
+        self.warm_kokoro_button.setEnabled(
+            bool(kokoro_selected and engine and engine.module_available and engine.configured and not self.generation_active())
         )
+        self.restart_kokoro_button.setEnabled(bool(kokoro_selected and not self.generation_active()))
+        self.import_piper_button.setEnabled(bool(piper_selected and not self.generation_active()))
 
         self.voice_table.setRowCount(len(voices))
         for row, voice in enumerate(voices):
@@ -273,6 +300,54 @@ class OfflineTTSEnginesDialog(QDialog):
         self.refresh()
         self.summary_label.setText(f"Piper runtime restarted · {cleared} cached model(s) cleared")
 
+    def warm_kokoro_runtime(self) -> None:
+        if self.generation_active():
+            QMessageBox.warning(self, "Kokoro runtime", "Stop the active generation run before changing runtime state.")
+            return
+        try:
+            health = self.service.warm_kokoro(self.settings_provider())
+        except Exception as exc:
+            QMessageBox.warning(self, "Kokoro runtime", str(exc))
+            return
+        self.refresh()
+        self.summary_label.setText(
+            f"Kokoro warm · {health.pipeline_count} pipeline(s) · {health.load_count} load(s)"
+        )
+
+    def restart_kokoro_runtime(self) -> None:
+        if self.generation_active():
+            QMessageBox.warning(self, "Kokoro runtime", "Stop the active generation run before changing runtime state.")
+            return
+        cleared = self.service.restart_kokoro(self.settings_provider())
+        self.refresh()
+        self.summary_label.setText(f"Kokoro runtime restarted · {cleared} pipeline(s) cleared")
+
+    def import_piper_voice(self) -> None:
+        if self.generation_active():
+            QMessageBox.warning(
+                self,
+                "Generation is active",
+                "Stop the current generation run before importing a Piper voice.",
+            )
+            return
+        path, _filter = QFileDialog.getOpenFileName(
+            self,
+            "Import Piper ONNX voice",
+            "",
+            "Piper voice (*.onnx)",
+        )
+        if not path:
+            return
+        try:
+            managed = self.service.import_piper_voice(path)
+        except Exception as exc:
+            QMessageBox.warning(self, "Piper voice import", str(exc))
+            return
+        if self.apply_piper_voice is not None:
+            self.apply_piper_voice(str(managed.model_path))
+        self.refresh()
+        self.summary_label.setText(f"Imported Piper voice: {managed.voice_id}")
+
     def selected_voice(self) -> OfflineVoiceDescriptor | None:
         engine = self.inventory.engine(self.selected_engine_id() or "")
         if engine is None:
@@ -292,7 +367,7 @@ class OfflineTTSEnginesDialog(QDialog):
             and not self.generation_active()
         )
         self.use_voice_button.setEnabled(can_apply)
-        self.open_folder_button.setEnabled(bool(voice))
+        self.open_folder_button.setEnabled(bool(voice and voice.engine_id == "piper"))
 
     def use_selected_voice(self) -> None:
         voice = self.selected_voice()

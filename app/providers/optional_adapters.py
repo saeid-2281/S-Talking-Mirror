@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import html
+import threading
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -9,6 +10,7 @@ from app.exceptions import ConfigurationError, ProviderError
 from app.models import AppSettings
 from app.models.provider_contract import ProviderCapabilities, ProviderConfigurationResult, ProviderNormalizedError
 from app.providers.base import TTSProvider
+from app.providers.kokoro_runtime import KokoroRuntimeService, shared_kokoro_runtime_service
 
 
 class OptionalSetupProvider(TTSProvider):
@@ -1157,32 +1159,106 @@ class KokoroLocalProvider(OptionalSetupProvider):
     provider_id = "kokoro"
     display_name = "Kokoro Local"
     dependency_name = "kokoro"
-    setup_hint = "Kokoro requires the optional local runtime and voice/model assets."
+    setup_hint = "Kokoro requires kokoro>=0.9.4,<1 and a certified language/voice."
     remote = False
     credential_fields = ()
     output_formats = ("wav",)
+
+    def __init__(
+        self,
+        settings: AppSettings,
+        *,
+        runtime: KokoroRuntimeService | None = None,
+    ) -> None:
+        super().__init__(settings)
+        self.runtime = runtime or shared_kokoro_runtime_service()
+        self._cancel_event = threading.Event()
+
+    def capabilities(self) -> ProviderCapabilities:
+        available = self.dependency_available()
+        return ProviderCapabilities(
+            provider_id=self.provider_id,
+            display_name=self.display_name,
+            remote=False,
+            requires_credential=False,
+            supports_voice_listing=available,
+            supports_model_listing=available,
+            supports_language_code=True,
+            supports_speed=True,
+            supports_cancellation=True,
+            supported_output_formats=self.output_formats,
+            optional_dependency=self.dependency_name,
+        )
 
     def validate_configuration(self, settings: AppSettings) -> ProviderConfigurationResult:
         base = super().validate_configuration(settings)
         if not base.ok:
             return base
-        return ProviderConfigurationResult(True, "Kokoro runtime is available. Language support comes from the installed runtime.")
+        issue = self.runtime.certification_issue(settings.language_code, settings.voice_id or None)
+        if issue:
+            return ProviderConfigurationResult(False, issue)
+        if not settings.voice_id.strip():
+            return ProviderConfigurationResult(
+                False,
+                "Select a certified Kokoro voice for the configured language.",
+            )
+        return ProviderConfigurationResult(
+            True,
+            "Kokoro runtime and language/voice certification are ready.",
+        )
+
+    def test_connection(self) -> ProviderConfigurationResult:
+        validation = self.validate_configuration(self.settings)
+        if not validation.ok:
+            return validation
+        return ProviderConfigurationResult(
+            True,
+            "Kokoro local runtime configuration is certified. Use explicit warm-up to load model assets.",
+        )
+
+    def list_voices(self) -> list[dict]:
+        if not self.dependency_available():
+            return []
+        return [
+            {
+                "voice_id": voice.voice_id,
+                "name": voice.display_name,
+                "language_code": voice.language_code,
+                "category": "kokoro-v1.0",
+                "labels": {"language": voice.language_code, "runtime": "local"},
+            }
+            for voice in self.runtime.voices_for_language(self.settings.language_code)
+        ]
+
+    def list_models(self) -> list[dict]:
+        if not self.dependency_available():
+            return []
+        if self.runtime.language_spec(self.settings.language_code) is None:
+            return []
+        return [
+            {
+                "model_id": self.runtime.MODEL_ID,
+                "name": "Kokoro 82M v1.0",
+                "category": "local-open-weight",
+            }
+        ]
 
     def synthesize(self, text: str, settings: AppSettings) -> bytes:
-        result = self.validate_configuration(settings)
-        if not result.ok:
-            raise ConfigurationError(result.message)
-        try:
-            from kokoro import KPipeline
-            import soundfile as sf
-            import io
+        validation = self.validate_configuration(settings)
+        if not validation.ok:
+            raise ConfigurationError(validation.message)
+        self._cancel_event.clear()
+        return self.runtime.synthesize(
+            text,
+            language_code=settings.language_code,
+            voice_id=settings.voice_id,
+            speed=settings.speed,
+            timeout_seconds=settings.timeout_seconds,
+            cancel_event=self._cancel_event,
+        )
 
-            pipeline = KPipeline(lang_code=settings.language_code or "a")
-            audio_chunks = []
-            for _graphemes, _phonemes, audio in pipeline(text, voice=settings.voice_id or None):
-                audio_chunks.extend(audio)
-            buffer = io.BytesIO()
-            sf.write(buffer, audio_chunks, 24000, format="WAV")
-            return buffer.getvalue()
-        except Exception as exc:
-            raise ProviderError(str(exc), provider_code="kokoro_synthesis_error") from exc
+    def cancel(self) -> None:
+        self._cancel_event.set()
+
+    def close(self) -> None:
+        self._cancel_event.set()

@@ -17,6 +17,7 @@ from PySide6 import QtCore
 import app
 from app.config.runtime import RuntimeConfig
 from app.models import AppSettings, GenerationReport, ProjectState, ReportJob, TTSJob
+from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
 from app.services.monitor_formatting import (
     format_characters_per_minute,
     format_duration,
@@ -250,7 +251,7 @@ class ReportService:
         return raw
 
     def _report_jobs(self, jobs: list[TTSJob], output_dir: Path, settings: AppSettings) -> list[ReportJob]:
-        extension = ".wav" if settings.provider in {"mock", "piper"} else settings.file_extension
+        extension = DEFAULT_PROVIDER_REGISTRY.output_extension(settings.provider, settings.file_extension)
         pronunciation_service = PronunciationService()
         report_jobs: list[ReportJob] = []
         for job in jobs:

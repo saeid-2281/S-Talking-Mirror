@@ -14,6 +14,7 @@ DEFAULT_PROVIDER_MANIFESTS: tuple[ProviderManifest, ...] = (
         setup_kind="test",
         verified_locally=True,
         fallback_output_formats=("wav",),
+        forced_file_extension=".wav",
         controls=ProviderControlPolicy(
             connection_test=False,
             voice_browser_fallback=True,
@@ -29,6 +30,7 @@ DEFAULT_PROVIDER_MANIFESTS: tuple[ProviderManifest, ...] = (
         setup_kind="local_model",
         optional_dependency="piper",
         fallback_output_formats=("wav",),
+        forced_file_extension=".wav",
         controls=ProviderControlPolicy(
             local_model_path=True,
             voice_browser_fallback=True,
@@ -132,6 +134,12 @@ DEFAULT_PROVIDER_MANIFESTS: tuple[ProviderManifest, ...] = (
         setup_kind="optional_local",
         optional_dependency="kokoro",
         fallback_output_formats=("wav",),
+        forced_file_extension=".wav",
+        controls=ProviderControlPolicy(
+            voice_browser_fallback=True,
+            model_listing_fallback=True,
+            voice_required=True,
+        ),
     ),
 )
 
@@ -173,6 +181,10 @@ class ProviderRegistry:
             production_supported=False,
             controls=ProviderControlPolicy(api_profile=True),
         )
+
+    def output_extension(self, provider_id: str, requested: str) -> str:
+        manifest = self.manifest_for(provider_id)
+        return manifest.forced_file_extension or requested
 
     def is_local(self, provider_id: str) -> bool:
         return self.manifest_for(provider_id).locality == "local"

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.models.domain import AppSettings, JobStatus, TTSJob
+from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
 from app.repositories.job_repository import JobRepository
 from app.models.retry_policy import FailureCategory, RetryBatchResult
 from app.services.failure_analysis_service import FailureAnalysisService, RetryPolicyService
@@ -244,6 +245,6 @@ class QueueService:
 
     @staticmethod
     def extension_for(settings: AppSettings | None) -> str:
-        if settings and settings.provider in {"mock", "piper"}:
+        if settings is None:
             return ".wav"
-        return settings.file_extension if settings else ".wav"
+        return DEFAULT_PROVIDER_REGISTRY.output_extension(settings.provider, settings.file_extension)

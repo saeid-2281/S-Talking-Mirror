@@ -17,6 +17,7 @@ from app.models.persistence import VoiceRecord
 from app.models.voice_preview import VoicePreviewResult
 from app.models.provider_catalog_sync import CatalogDiagnostics
 from app.provider_factory import create_provider
+from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
 from app.repositories.voice_repository import VoiceRepository
 from app.services.pronunciation_service import PronunciationService
 from app.services.preview_service import PreviewService
@@ -705,6 +706,9 @@ class VoiceService:
 
     @staticmethod
     def _preview_extension(settings: AppSettings) -> str:
+        forced = DEFAULT_PROVIDER_REGISTRY.manifest_for(settings.provider).forced_file_extension
+        if forced:
+            return forced
         if settings.provider not in {"openai", "azure", "google", "aws_polly"}:
             return settings.file_extension or ".bin"
         simple = (settings.output_format or "").split("_", 1)[0].casefold()
