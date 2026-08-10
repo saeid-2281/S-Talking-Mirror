@@ -33,6 +33,7 @@ from app.gui.update_delivery_controller import UpdateDeliveryController
 from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,DistributionReadinessDialog,FinalReleaseDialog,UpgradeRecoveryDialog,UpdateDeliveryDialog,CrashRecoveryDialog,PerformanceStabilityDialog,SecuritySupplyChainDialog,UxAccessibilityCertificationDialog,ProductionReleaseCertificationDialog,StableReleasePromotionDialog,PostGaMaintenanceDialog,IncidentSupportDialog,IncidentTriageDialog,IncidentResolutionDialog,IncidentPreventionDialog,PreventionEffectivenessDialog,ReliabilityAssuranceDialog,ReliabilityAssuranceRenewalDialog,ServiceContinuityDialog,ServiceLevelObjectivesDialog,CapacityReadinessDialog,DegradationReadinessDialog,RecoveryReplayDialog,BillingReconciliationDialog,BillingDisputeResolutionDialog,ProviderCreditCloseDialog,FinancialAuditDialog,ProviderGovernanceDialog,OperationsWorkspaceDialog,FinalProductionCertificationDialog,ReleaseLifecycleValidationDialog,OperationsCommandCenterDialog,EvidenceRefreshDialog,OperationalReadinessDialog,OperationalPersistenceDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.dialogs.project_session_workflow_dialog import ProjectSessionWorkflowDialog
 from app.gui.dialogs.offline_tts_engines_dialog import OfflineTTSEnginesDialog
+from app.gui.dialogs.unified_voice_model_catalog_dialog import UnifiedVoiceModelCatalogDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -431,16 +432,17 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Smart Provider Routing','Offline TTS Engines','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Voice & Model Catalog','Smart Provider Routing','Offline TTS Engines','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
     def build_settings_menu(self):
         self.settings_menu=QMenu('Settings',self); self.menuBar().addMenu(self.settings_menu)
-        for tx,fn,ic in [('Provider accounts',self.open_provider_accounts,'provider.accounts'),('Offline TTS Engines',self.open_offline_tts_engines,'settings'),('Pronunciation dictionaries',self.open_pronunciation_dictionaries,'pronunciation.dictionary')]:
+        for tx,fn,ic in [('Provider accounts',self.open_provider_accounts,'provider.accounts'),('Voice & Model Catalog',self.open_unified_voice_model_catalog,'provider.browse_voices'),('Offline TTS Engines',self.open_offline_tts_engines,'settings'),('Pronunciation dictionaries',self.open_pronunciation_dictionaries,'pronunciation.dictionary')]:
             a=self.settings_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
         self.settings_menu.addSeparator(); save_defaults=self.settings_menu.addAction(icon('save'),'Save current as defaults'); save_defaults.triggered.connect(self.save_settings); self.actions_by_name['Save current as defaults']=save_defaults
         self.actions_by_name['Provider accounts'].setShortcut(QKeySequence('Ctrl+Shift+P'))
+        self.actions_by_name['Voice & Model Catalog'].setShortcut(QKeySequence('Ctrl+Alt+V'))
         self.actions_by_name['Offline TTS Engines'].setShortcut(QKeySequence('Ctrl+Shift+L'))
         self.actions_by_name['Pronunciation dictionaries'].setShortcut(QKeySequence('Ctrl+Shift+D'))
     def build_view_menu(self):
@@ -900,7 +902,7 @@ class MainWindow(QMainWindow):
         if dialog.exec()==QDialog.Accepted:
             settings=dialog.selected_settings(); self.provider.setCurrentText(settings.provider); self.set_model_value(settings.model_id); self.voice.setText(settings.voice_id); self.set_language_value(settings.language_code); self.save_global_preferences(settings); self.settings_changed()
     def show_shortcut_reference(self):
-        self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Shift+T Add text source\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Alt+S Smart Provider Routing\nCtrl+Shift+L Offline TTS Engines\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nCtrl+Shift+F Focus queue\nCtrl+Alt+I Interface settings\nCtrl+1 Provider panel\nCtrl+2 Generation queue\nCtrl+3 Inspector panel\nCtrl+4 Activity panel\nCtrl+5 Generation controls\nCtrl+6 Output playback\nCtrl+7 Text Studio\nF6 Cycle major panels')
+        self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Shift+T Add text source\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Alt+V Voice & Model Catalog\nCtrl+Alt+S Smart Provider Routing\nCtrl+Shift+L Offline TTS Engines\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nCtrl+Shift+F Focus queue\nCtrl+Alt+I Interface settings\nCtrl+1 Provider panel\nCtrl+2 Generation queue\nCtrl+3 Inspector panel\nCtrl+4 Activity panel\nCtrl+5 Generation controls\nCtrl+6 Output playback\nCtrl+7 Text Studio\nF6 Cycle major panels')
     def open_about_dialog(self):
         dialog=AboutDialog(self.context.container.runtime,open_diagnostics=self.export_diagnostics,parent=self); dialog.exec()
     def build_project_sources_panel(self):
@@ -1950,6 +1952,38 @@ class MainWindow(QMainWindow):
         failover=self.context.api_profile_service.failover_settings(provider_id)
         self.set_combo_data(self.failover,str(failover.mode))
         self.context.voice_service.invalidate_provider_cache(); self.invalidate_preflight(); self.update_quota_scope_label(); self.set_provider_status('Provider account state changed.'); self.refresh_smart_provider_routing(force=True)
+    def open_unified_voice_model_catalog(self):
+        dialog=UnifiedVoiceModelCatalogDialog(
+            self.context.unified_voice_model_catalog_service,
+            self.settings,
+            open_account_manager=self.open_provider_accounts,
+            generation_active=lambda:self.generation_controller.is_active,
+            parent=self,
+        )
+        dialog.settings_selected.connect(self.apply_unified_catalog_settings)
+        dialog.show()
+        self.unified_voice_model_catalog_dialog=dialog
+        return dialog
+    def apply_unified_catalog_settings(self,settings):
+        if self.generation_controller.is_active:
+            self.notifications.warning('Voice & Model Catalog','Stop the active generation run before changing provider, voice, or model selection.')
+            return False
+        provider_changed=settings.provider!=self.provider.currentText()
+        with self.settings_controller.loading():
+            if provider_changed:
+                self.provider.setCurrentText(settings.provider)
+            self.refresh_api_profiles()
+            if settings.active_api_profile_id:
+                self.set_combo_data(self.api_profile,settings.active_api_profile_id)
+            if settings.model_id:
+                self.set_model_value(settings.model_id)
+            if settings.voice_id:
+                self.voice.setText(settings.voice_id)
+            if settings.language_code:
+                self.set_language_value(settings.language_code)
+        self.settings_changed(); self.invalidate_preflight(); self.refresh_compatible_voice_state(); self.refresh_provider_intelligence(force=True)
+        self.statusBar().showMessage(f'Catalog selection applied to {settings.provider}. Run preflight before generation.',7000)
+        return True
     def open_pronunciation_dictionaries(self):
         dialog=PronunciationDictionaryDialog(self.context.pronunciation_dictionary_service,self.settings,parent=self)
         dialog.dictionaries_changed.connect(self.pronunciation_dictionaries_changed)
@@ -2169,27 +2203,20 @@ class MainWindow(QMainWindow):
         self.model.blockSignals(False); self.set_model_value(current); self.refresh_compatible_voice_state()
     def refresh_models(self):
         provider_id=self.provider.currentText()
-        if provider_id=='openai':
-            from app.providers.openai_speech import OPENAI_SPEECH_MODELS
-            self.model.blockSignals(True); self.model.clear()
-            for model in OPENAI_SPEECH_MODELS: self.model.addItem(model,model)
-            self.model.blockSignals(False); self.set_model_value(self.current_model_id()); self.statusBar().showMessage('OpenAI Speech models loaded from supported API configuration.',5000); return
-        if provider_id=='cartesia':
-            from app.providers.cartesia import CARTESIA_TTS_MODELS
-            current=self.current_model_id(); self.model.blockSignals(True); self.model.clear()
-            for model in CARTESIA_TTS_MODELS: self.model.addItem(model,model)
-            self.model.blockSignals(False); self.set_model_value(current if current in CARTESIA_TTS_MODELS else CARTESIA_TTS_MODELS[0]); self.statusBar().showMessage('Cartesia Sonic models loaded from the production API contract.',5000); return
-        if provider_id=='resemble':
-            from app.providers.resemble import RESEMBLE_MODEL_ID
-            self.model.blockSignals(True); self.model.clear(); self.model.addItem('Resemble Ultra (voice-managed)',RESEMBLE_MODEL_ID); self.model.blockSignals(False); self.set_model_value(RESEMBLE_MODEL_ID); self.statusBar().showMessage('Resemble uses the model associated with the selected voice.',5000); return
-        if provider_id=='murf':
-            from app.providers.murf import MURF_MODEL_ID
-            self.model.blockSignals(True); self.model.clear(); self.model.addItem('Murf Gen2 (non-streaming)',MURF_MODEL_ID); self.model.blockSignals(False); self.set_model_value(MURF_MODEL_ID); self.statusBar().showMessage('Murf Gen2 non-streaming model loaded from the production API contract.',5000); return
-        if provider_id in {'azure','google','aws_polly','kokoro'}:
-            self.model.blockSignals(True); self.model.clear(); self.model.addItem('Configured by provider setup',''); self.model.blockSignals(False); self.statusBar().showMessage('Provider model list is available after setup/connection.',5000); return
-        cached=self.context.voice_service.cached_catalog(self.settings())
-        if cached: self.populate_model_dropdown(cached.models); self.statusBar().showMessage('Models refreshed from cache.',5000)
-        else: self.statusBar().showMessage('No cached models yet. Open Voice Browser or test connection to refresh.',7000)
+        models=self.context.unified_voice_model_catalog_service.models_for_provider(provider_id,self.settings())
+        if models:
+            current=self.current_model_id()
+            model_ids={model.model_id for model in models}
+            self.populate_model_dropdown(models)
+            if current not in model_ids:
+                self.set_model_value(models[0].model_id)
+                self.refresh_compatible_voice_state()
+            cached=self.context.voice_service.available_catalog(self.settings(),allow_stale=True)
+            source='account catalog' if cached is not None and cached.models else 'built-in provider contract'
+            self.statusBar().showMessage(f'Models loaded from unified {source}.',5000)
+            return
+        self.model.blockSignals(True); self.model.clear(); self.model.addItem('Catalog refresh required',''); self.model.blockSignals(False)
+        self.statusBar().showMessage('No model catalog is available yet. Refresh this provider in Voice & Model Catalog.',7000)
     def pick_csv(self):
         p,_=QFileDialog.getOpenFileName(self,'CSV',str(self.project_controller.last_csv_dir),'CSV (*.csv)')
         if p: self.csv.setText(p); self.project_controller.update_csv_path(Path(p)); self.update_window_title(); self.invalidate_preflight(); self.load_csv(); self.update_status_bar()
@@ -3804,6 +3831,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Provider: Smart Routing',self.focus_smart_provider_routing),
             PaletteCommand('Provider: Offline TTS Engines',self.open_offline_tts_engines),
             PaletteCommand('Voice: Browse and Preview Voices',self.open_voice_browser,lambda: self.voice_browser_button.isEnabled()),
+            PaletteCommand('Voice: Unified Voice & Model Catalog',self.open_unified_voice_model_catalog),
             PaletteCommand('Settings: Provider Accounts',act('Provider accounts')),
             PaletteCommand('Settings: Pronunciation Dictionaries',act('Pronunciation dictionaries')),
             PaletteCommand('Help: Quick Setup',act('Quick Setup')),

@@ -222,6 +222,29 @@ class VoiceService:
             return cached[1]
         return None
 
+    def available_catalog(
+        self,
+        settings: AppSettings,
+        *,
+        allow_stale: bool = False,
+    ) -> VoiceCatalog | None:
+        """Return an existing account-scoped catalog without network access.
+
+        Phase 106 uses this for the unified cross-provider catalog. In-memory data
+        wins; otherwise the persisted account snapshot may be loaded explicitly.
+        This method never calls a provider adapter.
+        """
+
+        cached = self.cached_catalog(settings)
+        if cached is not None:
+            return cached
+        if self.catalog_store is None:
+            return None
+        persisted = self.catalog_store.load(settings, allow_stale=allow_stale)
+        if persisted is not None and not allow_stale:
+            self._catalog_cache[self._cache_key(settings)] = (time.monotonic(), persisted)
+        return persisted
+
     def catalog_diagnostics(
         self,
         settings: AppSettings,
@@ -465,7 +488,7 @@ class VoiceService:
         normalized_text = text.strip()
         if not normalized_text:
             raise ValueError("Preview text cannot be empty.")
-        preview_settings = settings.model_copy(update={"voice_id": item.voice_id})
+        preview_settings = self._preview_settings(item, settings)
         self.validate_selection(item, preview_settings)
         cached = self.preview_service.find_cached(
             item.provider,
@@ -540,31 +563,67 @@ class VoiceService:
     def clear_previews_for_voice(self, item: VoiceItem) -> int:
         return self.preview_service.clear_for_voice(item.provider, item.voice_id)
 
+    def _preview_settings(self, item: VoiceItem, settings: AppSettings) -> AppSettings:
+        """Resolve a deterministic preview-only model without mutating generation settings.
+
+        Provider switches can leave ``AppSettings.model_id`` carrying a model from the
+        previous provider.  When the selected provider catalog exposes exactly one TTS
+        model, there is no user choice to preserve for preview: use that sole compatible
+        model on a copy of the settings.  Multi-model providers remain strict and require
+        an explicit model selection.
+        """
+
+        preview_settings = settings.model_copy(update={"voice_id": item.voice_id})
+        catalog = self.available_catalog(preview_settings, allow_stale=True)
+        if catalog is None:
+            return preview_settings
+
+        tts_models = tuple(model for model in catalog.models if model.can_do_text_to_speech)
+        model_ids = {model.model_id for model in tts_models}
+        if preview_settings.model_id in model_ids or len(tts_models) != 1:
+            return preview_settings
+
+        candidate = tts_models[0]
+        if item.compatible_model_ids and candidate.model_id not in item.compatible_model_ids:
+            return preview_settings
+        return preview_settings.model_copy(update={"model_id": candidate.model_id})
+
     def validate_selection(self, item: VoiceItem, settings: AppSettings) -> None:
-        catalog = self.cached_catalog(settings)
+        catalog = self.available_catalog(settings, allow_stale=True)
         voices = {voice.voice_id: voice for voice in catalog.voices} if catalog else {}
         if voices and item.voice_id not in voices:
             raise ProviderError(
                 f"Selected {item.provider} voice was not found or is inaccessible.",
                 provider_code="voice_not_found",
             )
-        if item.provider != "elevenlabs":
-            return
         models = {model.model_id: model for model in catalog.models} if catalog else {}
         selected = voices.get(item.voice_id, item)
-        if models and settings.model_id not in models:
-            raise ProviderError("Selected ElevenLabs model was not found.", provider_code="model_not_found")
+        if models and settings.model_id and settings.model_id not in models:
+            raise ProviderError(
+                f"Selected {item.provider} model was not found.",
+                provider_code="model_not_found",
+            )
         model = models.get(settings.model_id)
         if model and not model.can_do_text_to_speech:
-            raise ProviderError("Selected ElevenLabs model does not support text-to-speech.", provider_code="model_not_found")
-        if selected.compatible_model_ids and settings.model_id not in selected.compatible_model_ids:
-            raise ProviderError("Selected ElevenLabs model is not compatible with this voice.", provider_code="model_voice_incompatible")
+            raise ProviderError(
+                f"Selected {item.provider} model does not support text-to-speech.",
+                provider_code="model_not_found",
+            )
+        if (
+            settings.model_id
+            and selected.compatible_model_ids
+            and settings.model_id not in selected.compatible_model_ids
+        ):
+            raise ProviderError(
+                f"Selected {item.provider} model is not compatible with this voice.",
+                provider_code="model_voice_incompatible",
+            )
 
     def cached_preview_path(self, item: VoiceItem, text: str, settings: AppSettings) -> Path | None:
         normalized_text = text.strip()
         if not normalized_text:
             return None
-        preview_settings = settings.model_copy(update={"voice_id": item.voice_id})
+        preview_settings = self._preview_settings(item, settings)
         extension = self._preview_extension(preview_settings)
         cache_key = self._preview_cache_key(item, normalized_text, preview_settings)
         safe_name = re.sub(r"[^\w.-]+", "_", item.name, flags=re.UNICODE).strip("._") or "voice"

@@ -75,6 +75,7 @@ from app.services.generation_performance_service import GenerationPerformanceSer
 from app.services.preflight_service import PreflightService
 from app.services.provider_account_catalog_store import ProviderAccountCatalogStore, ProviderCatalogSnapshotInfo
 from app.services.provider_accounts_center_service import ProviderAccountsCenterService
+from app.services.unified_voice_model_catalog_service import UnifiedVoiceModelCatalogService
 from app.services.preview_service import PreviewService
 from app.services.pronunciation_dictionary_service import PronunciationDictionaryService
 from app.services.project_manager import ProjectManager
@@ -157,6 +158,7 @@ __all__ = [
     "PreflightService",
     "ProviderAccountCatalogStore",
     "ProviderAccountsCenterService",
+    "UnifiedVoiceModelCatalogService",
     "ProviderCatalogSnapshotInfo",
     "PreviewService",
     "PronunciationDictionaryService",
