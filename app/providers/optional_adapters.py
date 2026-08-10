@@ -83,59 +83,287 @@ class AzureSpeechProvider(OptionalSetupProvider):
     provider_id = "azure"
     display_name = "Azure AI Speech"
     dependency_name = "azure.cognitiveservices.speech"
-    setup_hint = "Azure Speech requires the optional azure provider dependency plus region and credential metadata."
-    credential_fields = ("subscription_key", "region", "endpoint")
+    setup_hint = (
+        "Azure Speech requires the optional azure provider dependency, "
+        "a Speech resource key, and either region or endpoint metadata."
+    )
+    credential_fields = ("api_key", "region", "endpoint")
+    output_formats = ("mp3", "wav", "opus", "pcm")
+
+    def __init__(self, settings: AppSettings) -> None:
+        super().__init__(settings)
+        self._active_synthesizer = None
+
+    def capabilities(self) -> ProviderCapabilities:
+        available = self.dependency_available()
+        return ProviderCapabilities(
+            provider_id=self.provider_id,
+            display_name=self.display_name,
+            remote=True,
+            requires_credential=True,
+            supports_voice_listing=available,
+            supports_model_listing=False,
+            supports_language_code=True,
+            supports_ssml=True,
+            supports_speed=True,
+            supports_pitch=True,
+            supports_volume=True,
+            supports_quota_lookup=False,
+            supports_cancellation=True,
+            supported_output_formats=self.output_formats,
+            credential_fields=self.credential_fields,
+            optional_dependency=self.dependency_name,
+        )
 
     def validate_configuration(self, settings: AppSettings) -> ProviderConfigurationResult:
         base = super().validate_configuration(settings)
         if not base.ok:
             return base
-        if not settings.api_key:
-            return ProviderConfigurationResult(False, "Azure Speech subscription key is required.")
-        if not settings.language_code:
-            return ProviderConfigurationResult(False, "Azure Speech region/language metadata is required.")
-        return ProviderConfigurationResult(True, "Azure Speech SDK is available.")
+        if not settings.api_key.strip():
+            return ProviderConfigurationResult(
+                False,
+                "Azure Speech resource key is required.",
+            )
+        region = self._option(settings, "region")
+        endpoint = self._option(settings, "endpoint")
+        if not region and not endpoint:
+            return ProviderConfigurationResult(
+                False,
+                "Azure Speech profile requires a region or endpoint.",
+            )
+        if endpoint and not endpoint.casefold().startswith("https://"):
+            return ProviderConfigurationResult(
+                False,
+                "Azure Speech endpoint must use HTTPS.",
+            )
+        return ProviderConfigurationResult(
+            True,
+            "Azure Speech SDK and resource metadata are configured.",
+        )
+
+    def test_connection(self) -> ProviderConfigurationResult:
+        validation = self.validate_configuration(self.settings)
+        if not validation.ok:
+            return validation
+        voices = self.list_voices()
+        return ProviderConfigurationResult(
+            True,
+            f"Azure Speech connected; {len(voices)} voice(s) discovered.",
+        )
 
     def list_voices(self) -> list[dict]:
-        if not self.dependency_available():
-            return []
+        validation = self.validate_configuration(self.settings)
+        if not validation.ok:
+            raise ConfigurationError(validation.message)
         try:
             import azure.cognitiveservices.speech as speechsdk
 
-            config = speechsdk.SpeechConfig(subscription=self.settings.api_key, region=self.settings.language_code or "westus")
-            voices = speechsdk.SpeechSynthesizer(speech_config=config, audio_config=None).get_voices_async().get()
+            config = self._speech_config(self.settings, speechsdk)
+            synthesizer = speechsdk.SpeechSynthesizer(
+                speech_config=config,
+                audio_config=None,
+            )
+            outcome = synthesizer.get_voices_async().get()
+            voices = getattr(outcome, "voices", ()) or ()
             return [
-                {"voice_id": voice.short_name, "name": voice.local_name or voice.short_name, "locale": voice.locale}
-                for voice in getattr(voices, "voices", [])
+                {
+                    "voice_id": voice.short_name,
+                    "name": voice.local_name or voice.short_name,
+                    "locale": voice.locale,
+                    "category": "azure-neural",
+                    "description": str(getattr(voice, "voice_type", "") or ""),
+                    "labels": {
+                        "language": str(voice.locale or ""),
+                        "gender": str(getattr(voice, "gender", "") or ""),
+                    },
+                }
+                for voice in voices
+                if str(getattr(voice, "short_name", "") or "").strip()
             ]
-        except Exception:
-            return []
+        except ConfigurationError:
+            raise
+        except Exception as exc:
+            raise self._provider_error(exc, "azure_voice_catalog_error") from exc
+
+    def list_languages(self) -> list[dict[str, str]]:
+        locales = sorted(
+            {
+                str(voice.get("locale") or "").strip()
+                for voice in self.list_voices()
+                if str(voice.get("locale") or "").strip()
+            },
+            key=str.casefold,
+        )
+        return [{"language_code": locale, "name": locale} for locale in locales]
 
     def synthesize(self, text: str, settings: AppSettings) -> bytes:
-        result = self.validate_configuration(settings)
-        if not result.ok:
-            raise ConfigurationError(result.message)
+        validation = self.validate_configuration(settings)
+        if not validation.ok:
+            raise ConfigurationError(validation.message)
+        if not str(settings.voice_id or "").strip():
+            raise ConfigurationError("Azure Speech voice is required.")
         try:
             import azure.cognitiveservices.speech as speechsdk
 
-            config = speechsdk.SpeechConfig(subscription=settings.api_key, region=settings.language_code or "westus")
-            if settings.voice_id:
-                config.speech_synthesis_voice_name = settings.voice_id
-            synthesizer = speechsdk.SpeechSynthesizer(speech_config=config, audio_config=None)
-            ssml = self.safe_ssml(text, settings)
-            outcome = synthesizer.speak_ssml_async(ssml).get()
-            if outcome.reason != speechsdk.ResultReason.SynthesizingAudioCompleted:
-                raise ProviderError("Azure Speech synthesis failed.", provider_code=str(outcome.reason))
-            return bytes(outcome.audio_data)
+            config = self._speech_config(settings, speechsdk)
+            config.speech_synthesis_voice_name = settings.voice_id
+            output_format = self._sdk_output_format(settings, speechsdk)
+            config.set_speech_synthesis_output_format(output_format)
+
+            synthesizer = speechsdk.SpeechSynthesizer(
+                speech_config=config,
+                audio_config=None,
+            )
+            self._active_synthesizer = synthesizer
+            try:
+                outcome = synthesizer.speak_ssml_async(
+                    self.safe_ssml(text, settings)
+                ).get()
+            finally:
+                self._active_synthesizer = None
+
+            if outcome.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+                audio = bytes(outcome.audio_data)
+                if not audio:
+                    raise ProviderError(
+                        "Azure Speech returned empty audio.",
+                        retryable=True,
+                        provider_code="empty_audio",
+                    )
+                return audio
+
+            details = speechsdk.SpeechSynthesisCancellationDetails.from_result(outcome)
+            error_details = str(getattr(details, "error_details", "") or "")
+            error_code = str(getattr(details, "error_code", "") or "")
+            raise ProviderError(
+                "Azure Speech synthesis was cancelled by the service.",
+                retryable=self._retryable_message(f"{error_code} {error_details}"),
+                provider_code="azure_synthesis_cancelled",
+                technical_details=f"{error_code}: {error_details}"[:500],
+            )
+        except (ConfigurationError, ProviderError):
+            raise
         except Exception as exc:
-            raise ProviderError(str(exc), provider_code="azure_synthesis_error") from exc
+            raise self._provider_error(exc, "azure_synthesis_error") from exc
+
+    def cancel(self) -> None:
+        synthesizer = self._active_synthesizer
+        if synthesizer is None:
+            return
+        stop = getattr(synthesizer, "stop_speaking_async", None)
+        if callable(stop):
+            try:
+                operation = stop()
+                get = getattr(operation, "get", None)
+                if callable(get):
+                    get()
+            except Exception:
+                # Cancellation is best effort; generation state remains
+                # authoritative and late results are discarded upstream.
+                pass
+
+    def normalize_error(self, error: Exception) -> ProviderNormalizedError:
+        if isinstance(error, ProviderError):
+            return ProviderNormalizedError(
+                error.provider_code or "azure_error",
+                error.user_message,
+                retryable=error.retryable,
+                request_id=error.request_id,
+                safe_details=error.technical_details or "",
+            )
+        return super().normalize_error(error)
+
+    @classmethod
+    def _speech_config(cls, settings: AppSettings, speechsdk):
+        endpoint = cls._option(settings, "endpoint")
+        if endpoint:
+            return speechsdk.SpeechConfig(
+                subscription=settings.api_key,
+                endpoint=endpoint,
+            )
+        return speechsdk.SpeechConfig(
+            subscription=settings.api_key,
+            region=cls._option(settings, "region"),
+        )
+
+    @classmethod
+    def _sdk_output_format(cls, settings: AppSettings, speechsdk):
+        simple = (settings.output_format or "mp3").split("_", 1)[0].casefold()
+        names = {
+            "mp3": "Audio24Khz96KBitRateMonoMp3",
+            "wav": "Riff24Khz16BitMonoPcm",
+            "opus": "Ogg24Khz16BitMonoOpus",
+            "pcm": "Raw24Khz16BitMonoPcm",
+        }
+        name = names.get(simple)
+        if not name:
+            raise ConfigurationError(
+                f"Unsupported Azure Speech output format: {simple}."
+            )
+        try:
+            return getattr(speechsdk.SpeechSynthesisOutputFormat, name)
+        except AttributeError as exc:
+            raise ConfigurationError(
+                f"Installed Azure Speech SDK does not support {simple} output."
+            ) from exc
+
+    @classmethod
+    def safe_ssml(cls, text: str, settings: AppSettings) -> str:
+        voice = html.escape(settings.voice_id or "", quote=True)
+        lang = html.escape(cls._ssml_language(settings), quote=True)
+        body = html.escape(text, quote=False)
+        rate_delta = round((float(settings.speed) - 1.0) * 100)
+        rate = f"{rate_delta:+d}%"
+        return (
+            f"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='{lang}'>"
+            f"<voice name='{voice}'><prosody rate='{rate}'>{body}</prosody></voice>"
+            "</speak>"
+        )
+
+    @classmethod
+    def _ssml_language(cls, settings: AppSettings) -> str:
+        language = str(settings.language_code or "").strip()
+        if "-" in language:
+            return language
+        voice = str(settings.voice_id or "").strip()
+        parts = voice.split("-")
+        if len(parts) >= 2 and len(parts[0]) == 2 and len(parts[1]) == 2:
+            return f"{parts[0]}-{parts[1]}"
+        common = {"da": "da-DK", "en": "en-US"}
+        return common.get(language.casefold(), language or "en-US")
 
     @staticmethod
-    def safe_ssml(text: str, settings: AppSettings) -> str:
-        voice = html.escape(settings.voice_id or "en-US-JennyNeural", quote=True)
-        lang = html.escape(settings.language_code or "en-US", quote=True)
-        body = html.escape(text, quote=False)
-        return f"<speak version='1.0' xml:lang='{lang}'><voice name='{voice}'>{body}</voice></speak>"
+    def _option(settings: AppSettings, key: str) -> str:
+        value = settings.provider_options.get(key)
+        return str(value or "").strip()
+
+    @classmethod
+    def _provider_error(cls, error: Exception, code: str) -> ProviderError:
+        message = str(error)
+        return ProviderError(
+            "Azure Speech request failed.",
+            retryable=cls._retryable_message(message),
+            provider_code=code,
+            technical_details=message[:500],
+        )
+
+    @staticmethod
+    def _retryable_message(message: str) -> bool:
+        lower = message.casefold()
+        return any(
+            token in lower
+            for token in (
+                "timeout",
+                "temporar",
+                "throttl",
+                "too many requests",
+                "429",
+                "502",
+                "503",
+                "service unavailable",
+                "connection",
+            )
+        )
 
 
 class GoogleCloudTTSProvider(OptionalSetupProvider):

@@ -33,10 +33,11 @@ class ProviderCatalogSnapshotInfo:
 class ProviderAccountCatalogStore:
     """Persist provider catalog snapshots per account without storing secrets.
 
-    The on-disk identity combines provider, profile id, and a one-way API-key
-    fingerprint. This prevents two saved accounts from sharing voice/model data
-    while allowing the same account to reuse its most recent catalog after an
-    application restart.
+    The on-disk identity combines provider, profile id, a one-way API-key
+    fingerprint, and safe provider metadata such as Azure region/endpoint.
+    This prevents two resources or saved accounts from sharing voice/model data
+    while allowing the same account configuration to reuse its most recent
+    catalog after an application restart.
     """
 
     SCHEMA_VERSION = 1
@@ -49,7 +50,13 @@ class ProviderAccountCatalogStore:
     def identity_for(self, settings: AppSettings) -> str:
         profile_id = str(settings.active_api_profile_id or "temporary")
         secret_digest = hashlib.sha256((settings.api_key or "").encode("utf-8")).hexdigest()
-        payload = f"{settings.provider}:{profile_id}:{secret_digest}"
+        options = json.dumps(
+            settings.provider_options or {},
+            sort_keys=True,
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+        payload = f"{settings.provider}:{profile_id}:{secret_digest}:{options}"
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def path_for(self, settings: AppSettings) -> Path:

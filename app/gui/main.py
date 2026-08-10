@@ -1832,15 +1832,16 @@ class MainWindow(QMainWindow):
     def slider(self,v): s=QSlider(Qt.Horizontal); s.setRange(0,100); s.setValue(v); return s
     def refresh_api_profiles(self):
         if not hasattr(self,'api_profile'): return
+        provider_id=self.provider.currentText() if hasattr(self,'provider') else 'elevenlabs'
         current=self.api_profile.currentData() if self.api_profile.count() else None
         self.api_profile.blockSignals(True); self.api_profile.clear(); self.api_profile.addItem('Temporary key / no profile',None)
-        for profile in self.context.api_profile_service.list_profiles('elevenlabs'):
+        for profile in self.context.api_profile_service.list_profiles(provider_id):
             suffix=' active' if profile.active else ''
             quota=f' · {profile.remaining_characters:,} chars' if profile.remaining_characters is not None else ''
             self.api_profile.addItem(f'{profile.display_name}{suffix}{quota}',profile.profile_id)
         index=self.api_profile.findData(current)
         if index<0:
-            active=self.context.api_profile_service.active_profile('elevenlabs')
+            active=self.context.api_profile_service.active_profile(provider_id)
             index=self.api_profile.findData(active.profile_id) if active else -1
         self.api_profile.setCurrentIndex(index if index>=0 else 0); self.api_profile.blockSignals(False)
         if hasattr(self,'provider_overview') and hasattr(self,'connection_status'): self.refresh_provider_workspace_summary()
@@ -1939,13 +1940,14 @@ class MainWindow(QMainWindow):
         self.set_provider_status('Offline Piper voice selected. Run preflight before generation.')
         return True
     def open_provider_accounts(self):
-        dialog=ProviderAccountsDialog(self.context.api_profile_service,self.context.voice_service,self.settings,generation_active=lambda:self.generation_controller.is_active,verification_service=self.context.provider_verification_service,parent=self)
+        dialog=ProviderAccountsDialog(self.context.api_profile_service,self.context.voice_service,self.settings,generation_active=lambda:self.generation_controller.is_active,verification_service=self.context.provider_verification_service,provider_catalog_service=self.context.provider_catalog_service,parent=self)
         dialog.profiles_changed.connect(self.provider_accounts_changed)
         dialog.show()
         self.provider_accounts_dialog=dialog
     def provider_accounts_changed(self):
         self.refresh_api_profiles()
-        failover=self.context.api_profile_service.failover_settings('elevenlabs')
+        provider_id=self.provider.currentText() if hasattr(self,'provider') else 'elevenlabs'
+        failover=self.context.api_profile_service.failover_settings(provider_id)
         self.set_combo_data(self.failover,str(failover.mode))
         self.context.voice_service.invalidate_provider_cache(); self.invalidate_preflight(); self.update_quota_scope_label(); self.set_provider_status('Provider account state changed.'); self.refresh_smart_provider_routing(force=True)
     def open_pronunciation_dictionaries(self):
@@ -1956,7 +1958,17 @@ class MainWindow(QMainWindow):
     def pronunciation_dictionaries_changed(self):
         self.invalidate_preflight(); self.settings_changed(); self.dashboard(); self.statusBar().showMessage('Pronunciation dictionary state changed.',5000)
     def provider_changed(self,n):
-        self.provider.setToolTip(f'{self.provider_display_name(n)} ({n})'); self.update_provider_controls(n); self.dashboard(); self.update_status_bar()
+        previous=getattr(self,'_credential_provider_id',None)
+        if previous is not None and previous!=n and hasattr(self,'key'):
+            self.key.blockSignals(True); self.key.clear(); self.key.blockSignals(False)
+        self._credential_provider_id=n
+        self.provider.setToolTip(f'{self.provider_display_name(n)} ({n})'); self.refresh_api_profiles()
+        profile_id=self.active_api_profile_id() if hasattr(self,'api_profile') else None
+        if profile_id and hasattr(self,'key'):
+            secret=self.context.api_profile_service.api_key_for(str(profile_id))
+            if secret is not None:
+                self.key.blockSignals(True); self.key.setText(secret); self.key.blockSignals(False)
+        self.update_provider_controls(n); self.dashboard(); self.update_status_bar()
         if n!='elevenlabs' and hasattr(self,'connection_status'): self.set_provider_status('Not tested'); self.context.voice_service.invalidate_provider_cache()
         if hasattr(self,'model'): self.refresh_models()
         if hasattr(self,'monitor_service'): self.refresh_monitor_queue()
@@ -2218,9 +2230,25 @@ class MainWindow(QMainWindow):
         if self.notifications.confirmation('Use repaired CSV?',message):
             self.replace_project_csv_with_repaired(repaired); return True
         return False
-    def settings_values(self): return SettingsViewData(provider=self.provider.currentText(),api_key=self.key.text(),voice_id=self.voice.text(),model_id=self.current_model_id(),language_code=self.current_language_code(),piper_model_path=self.piper.text() or None,stability=self.stability.value()/100,similarity_boost=self.similarity.value()/100,style=self.style.value()/100,speed=self.speed.value(),short_text_pronunciation_aid=self.pronunciation_aid.isChecked(),delay_seconds=self.delay.value(),max_retries=self.retries.value(),use_speaker_boost=self.boost.isChecked(),skip_existing=self.skip.isChecked(),active_api_profile_id=self.active_api_profile_id(),api_profile_failover=self.current_failover_mode(),generation_scope=self.current_scope_mode(),execution_order=self.current_execution_order(),pronunciation_dictionary_locators=self.active_pronunciation_locators(),active_pronunciation_dictionary_id=self.active_pronunciation_dictionary_id(),job_pronunciation_overrides=self.job_pronunciation_overrides)
+    def active_provider_options(self):
+        profile_id=self.active_api_profile_id()
+        if not profile_id: return {}
+        try:
+            profile=self.context.api_profile_service.get_profile(str(profile_id))
+        except ValueError:
+            return {}
+        if profile.provider!=self.provider.currentText(): return {}
+        fields=self.context.provider_catalog_service.manifest_for(profile.provider).profile_metadata_fields
+        return {field:str(profile.metadata.get(field) or '').strip() for field in fields if str(profile.metadata.get(field) or '').strip()}
+    def settings_values(self): return SettingsViewData(provider=self.provider.currentText(),api_key=self.key.text(),voice_id=self.voice.text(),model_id=self.current_model_id(),language_code=self.current_language_code(),piper_model_path=self.piper.text() or None,stability=self.stability.value()/100,similarity_boost=self.similarity.value()/100,style=self.style.value()/100,speed=self.speed.value(),short_text_pronunciation_aid=self.pronunciation_aid.isChecked(),delay_seconds=self.delay.value(),max_retries=self.retries.value(),use_speaker_boost=self.boost.isChecked(),skip_existing=self.skip.isChecked(),active_api_profile_id=self.active_api_profile_id(),provider_options=self.active_provider_options(),api_profile_failover=self.current_failover_mode(),generation_scope=self.current_scope_mode(),execution_order=self.current_execution_order(),pronunciation_dictionary_locators=self.active_pronunciation_locators(),active_pronunciation_dictionary_id=self.active_pronunciation_dictionary_id(),job_pronunciation_overrides=self.job_pronunciation_overrides)
     def settings(self):
-        settings=self.settings_controller.from_view_data(self.settings_values()); failover=self.context.api_profile_service.failover_settings(settings.provider); return settings.model_copy(update={'api_profile_failover_max_switches':failover.max_switches_per_run,'api_profile_failover_sequence_mode':failover.sequence_mode,'api_profile_failover_manual_sequence':list(failover.manual_sequence),'allow_unknown_quota_override':failover.allow_unknown_quota_override})
+        settings=self.settings_controller.from_view_data(self.settings_values())
+        profile_id=settings.active_api_profile_id
+        if profile_id:
+            try: settings=self.context.api_profile_service.apply_profile(settings,str(profile_id))
+            except ValueError: pass
+        failover=self.context.api_profile_service.failover_settings(settings.provider)
+        return settings.model_copy(update={'api_profile_failover_max_switches':failover.max_switches_per_run,'api_profile_failover_sequence_mode':failover.sequence_mode,'api_profile_failover_manual_sequence':list(failover.manual_sequence),'allow_unknown_quota_override':failover.allow_unknown_quota_override})
     def settings_changed(self):
         s=self.settings()
         if self.settings_controller.settings_changed(s):
@@ -2290,12 +2318,11 @@ class MainWindow(QMainWindow):
         return base.model_copy(update=updates)
     def test_elevenlabs_connection(self):
         settings=self.settings()
-        if settings.provider!='elevenlabs':
-            result=self.context.provider_catalog_service.card_for(settings.provider,settings); self.set_provider_status(f'{result.setup_state}: {result.message}'); return
         self.test_connection_button.setEnabled(False); self.set_provider_status('Testing...')
         self._connection_thread,self._connection_worker=start_connection_test(self,self.context.voice_service,settings,self.connection_test_finished)
     def connection_test_finished(self,result):
-        self.test_connection_button.setEnabled(self.provider.currentText()=='elevenlabs'); self._last_connection_key=self.key.text()
+        policy=self.context.provider_catalog_service.control_policy_for(self.provider.currentText())
+        self.test_connection_button.setEnabled(policy.connection_test); self._last_connection_key=self.key.text()
         cap=result.capability
         if cap:
             remaining=f", {cap.remaining_characters:,} remaining" if cap.remaining_characters is not None else ""
@@ -2341,7 +2368,21 @@ class MainWindow(QMainWindow):
             with self.settings_controller.loading():
                 self.provider.setCurrentText(s.provider); self.key.setText(s.api_key); self.voice.setText(s.voice_id); self.set_model_value(s.model_id); self.set_language_value(s.language_code); self.set_combo_data(self.api_profile,s.active_api_profile_id); self.set_combo_data(self.failover,s.api_profile_failover); self.set_combo_data(self.scope_selector,s.generation_scope); self.set_combo_data(self.order_selector,s.execution_order); self.job_pronunciation_overrides=dict(s.job_pronunciation_overrides); self.piper.setText(s.piper_model_path or ''); self.stability.setValue(int(s.stability*100)); self.similarity.setValue(int(s.similarity_boost*100)); self.style.setValue(int(s.style*100)); self.speed.setValue(s.speed); self.delay.setValue(s.delay_seconds); self.retries.setValue(s.max_retries); self.boost.setChecked(s.use_speaker_boost); self.pronunciation_aid.setChecked(s.short_text_pronunciation_aid); self.skip.setChecked(s.skip_existing)
         if hasattr(self,'api_profile') and self.api_profile.currentData() is None:
-            active=self.context.api_profile_service.active_profile('elevenlabs')
+            active=None
+            if s and s.active_api_profile_id:
+                try: active=self.context.api_profile_service.get_profile(str(s.active_api_profile_id))
+                except ValueError: active=None
+                if active and active.provider!=self.provider.currentText():
+                    with self.settings_controller.loading(): self.provider.setCurrentText(active.provider)
+                    self.refresh_api_profiles()
+            if active is None:
+                active=self.context.api_profile_service.active_profile(self.provider.currentText())
+            if active is None and self.provider.currentText()=='mock':
+                legacy_active=[profile for profile in self.context.api_profile_service.list_profiles() if profile.active and profile.enabled]
+                if len(legacy_active)==1:
+                    active=legacy_active[0]
+                    with self.settings_controller.loading(): self.provider.setCurrentText(active.provider)
+                    self.refresh_api_profiles()
             if active:
                 self.set_combo_data(self.api_profile,active.profile_id)
                 secret=self.context.api_profile_service.api_key_for(active.profile_id)

@@ -50,6 +50,7 @@ class ProviderAccountsDialog(QDialog):
         *,
         generation_active: Callable[[], bool] | None = None,
         verification_service: ProviderVerificationService | None = None,
+        provider_catalog_service=None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -58,6 +59,7 @@ class ProviderAccountsDialog(QDialog):
         self.settings_provider = settings_provider
         self.generation_active = generation_active or (lambda: False)
         self.verification_service = verification_service
+        self.provider_catalog_service = provider_catalog_service
         self.sync_controller = ProviderAccountSyncController(voice_service, parent=self)
         self.sync_controller.started.connect(self._sync_started)
         self.sync_controller.completed.connect(self._sync_completed)
@@ -86,7 +88,7 @@ class ProviderAccountsDialog(QDialog):
         title_box.setSpacing(1)
         title = QLabel("Provider accounts")
         title.setObjectName("dialogTitle")
-        subtitle = QLabel("Manage named credentials, account status and failover order.")
+        subtitle = QLabel("Manage named credentials, provider settings, account status and supported failover policies.")
         subtitle.setObjectName("dialogSubtitle")
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
@@ -94,7 +96,7 @@ class ProviderAccountsDialog(QDialog):
         header_layout.addWidget(QLabel("Provider"))
         self.provider = QComboBox()
         self.provider.setMinimumWidth(180)
-        self.provider.addItem("ElevenLabs", "elevenlabs")
+        self._populate_provider_combo()
         header_layout.addWidget(self.provider)
         root.addWidget(header)
 
@@ -115,7 +117,7 @@ class ProviderAccountsDialog(QDialog):
         temporary_layout = QHBoxLayout(self.temporary_banner)
         temporary_layout.setContentsMargins(10, 7, 10, 7)
         temporary_layout.setSpacing(8)
-        self.temporary_label = QLabel("A temporary API key is active in the main Provider panel. Save it as a named account to manage quota, testing and failover.")
+        self.temporary_label = QLabel("A temporary provider credential is active in the main Provider panel. Save it as a named account for testing, catalog sync and provider-specific settings.")
         self.temporary_label.setWordWrap(True)
         self.temporary_save = QPushButton("Save as account")
         self.temporary_save.setIcon(action_icon("provider.add_profile"))
@@ -163,6 +165,7 @@ class ProviderAccountsDialog(QDialog):
         for text, icon_name, handler in [
             ("Rename", "provider.rename_profile", self.rename_profile),
             ("Replace key", "provider.replace_key", self.replace_key),
+            ("Provider settings", "settings", self.edit_provider_settings),
             ("Enable/disable", "provider.toggle_enabled", self.toggle_enabled),
             ("Delete", "provider.delete_profile", self.delete_profile),
             ("Run live verification", "provider.live_verification", self.run_live_verification),
@@ -205,7 +208,7 @@ class ProviderAccountsDialog(QDialog):
         empty_layout = QVBoxLayout(self.empty_state)
         empty_layout.setContentsMargins(24, 24, 24, 24)
         empty_layout.addStretch()
-        empty_title = QLabel("No saved ElevenLabs accounts")
+        empty_title = QLabel("No saved provider accounts")
         empty_title.setObjectName("emptyTitle")
         empty_title.setAlignment(Qt.AlignCenter)
         empty_help = QLabel("Add an account, use a temporary key, or learn how named profiles work.")
@@ -367,7 +370,8 @@ class ProviderAccountsDialog(QDialog):
         self.details_last_checked = QLabel("—")
         self.details_catalog_saved = QLabel("—")
         self.details_key = QLabel("—")
-        for label in [self.details_tier, self.details_health, self.details_provider, self.details_last_checked, self.details_catalog_saved, self.details_key]:
+        self.details_configuration = QLabel("—")
+        for label in [self.details_tier, self.details_health, self.details_provider, self.details_last_checked, self.details_catalog_saved, self.details_key, self.details_configuration]:
             label.setTextInteractionFlags(Qt.TextSelectableByMouse)
             label.setWordWrap(True)
         self.details_form.addRow("Provider", self.details_provider)
@@ -376,6 +380,7 @@ class ProviderAccountsDialog(QDialog):
         self.details_form.addRow("Last checked", self.details_last_checked)
         self.details_form.addRow("Catalog saved", self.details_catalog_saved)
         self.details_form.addRow("Credential", self.details_key)
+        self.details_form.addRow("Provider settings", self.details_configuration)
         account_layout.addLayout(self.details_form)
         details.addWidget(account_card)
         details.addStretch()
@@ -450,6 +455,7 @@ class ProviderAccountsDialog(QDialog):
         failover_root.addLayout(failover_actions)
         failover_root.addStretch()
         self.tabs.addTab(failover_page, action_icon("general.warning"), "Failover")
+        self.provider.currentIndexChanged.connect(self._provider_changed)
 
         close_row = QHBoxLayout()
         close_row.addStretch()
@@ -459,6 +465,95 @@ class ProviderAccountsDialog(QDialog):
         close_row.addWidget(close)
         root.addLayout(close_row)
         self.provider.currentIndexChanged.connect(self.refresh)
+    def _populate_provider_combo(self) -> None:
+        self.provider.clear()
+        if self.provider_catalog_service is None:
+            self.provider.addItem("ElevenLabs", "elevenlabs")
+            return
+        for provider_id in self.provider_catalog_service.provider_ids():
+            manifest = self.provider_catalog_service.manifest_for(provider_id)
+            if not manifest.controls.api_profile or not manifest.profile_management_ready:
+                continue
+            self.provider.addItem(manifest.display_name, provider_id)
+        if self.provider.count() == 0:
+            self.provider.addItem("ElevenLabs", "elevenlabs")
+        current_provider = str(getattr(self.settings_provider(), "provider", "") or "")
+        current_index = self.provider.findData(current_provider)
+        if current_index >= 0:
+            self.provider.setCurrentIndex(current_index)
+
+    def _manifest_for(self, provider_id: str):
+        if self.provider_catalog_service is None:
+            return None
+        return self.provider_catalog_service.manifest_for(str(provider_id or "elevenlabs"))
+
+    def _provider_display_name(self, provider_id: str) -> str:
+        manifest = self._manifest_for(provider_id)
+        return manifest.display_name if manifest is not None else str(provider_id).replace("_", " ").title()
+
+    def _metadata_fields(self, provider_id: str) -> tuple[str, ...]:
+        manifest = self._manifest_for(provider_id)
+        return tuple(manifest.profile_metadata_fields) if manifest is not None else ()
+
+    def _prompt_profile_metadata(
+        self,
+        provider_id: str,
+        initial: dict[str, str] | None = None,
+    ) -> dict[str, str] | None:
+        fields = self._metadata_fields(provider_id)
+        metadata = dict(initial or {})
+        labels = {
+            "region": "Region",
+            "endpoint": "Endpoint (optional if region is set)",
+            "project_id": "Project ID",
+            "credential_reference": "Credential reference",
+            "aws_profile": "AWS profile",
+        }
+        for field in fields:
+            value, ok = QInputDialog.getText(
+                self,
+                f"{self._provider_display_name(provider_id)} settings",
+                labels.get(field, field.replace("_", " ").title()),
+                text=str(metadata.get(field, "")),
+            )
+            if not ok:
+                return None
+            value = value.strip()
+            if value:
+                metadata[field] = value
+            else:
+                metadata.pop(field, None)
+        if "region" in fields and "endpoint" in fields and not metadata.get("region") and not metadata.get("endpoint"):
+            QMessageBox.warning(
+                self,
+                "Provider settings",
+                f"{self._provider_display_name(provider_id)} requires a region or endpoint.",
+            )
+            return None
+        return metadata
+
+    def _provider_changed(self, _index: int = -1) -> None:
+        self.sync_controller.cancel_all()
+
+    def edit_provider_settings(self) -> None:
+        profile = self.selected_profile()
+        if profile is None or not self.ensure_editable():
+            return
+        metadata = self._prompt_profile_metadata(profile.provider, profile.metadata)
+        if metadata is None:
+            return
+        store = getattr(self.voice_service, "catalog_store", None)
+        if store is not None:
+            store.remove_profile(profile.provider, profile.profile_id)
+        merged = dict(profile.metadata)
+        for field in self._metadata_fields(profile.provider):
+            if field in metadata:
+                merged[field] = metadata[field]
+            else:
+                merged.pop(field, None)
+        self.service.update_profile_metadata(profile.profile_id, merged)
+        self._changed()
+
     @staticmethod
     def _metric_widget(title: str, value_label: QLabel) -> QFrame:
         metric = QFrame()
@@ -485,9 +580,12 @@ class ProviderAccountsDialog(QDialog):
             self.active_account_label.setText(
                 f"Active: {active_profile.display_name}" if active_profile else "Active: none"
             )
-        temporary_key = str(getattr(self.settings_provider(), "api_key", "") or "").strip()
-        self.temporary_banner.setVisible(bool(temporary_key))
-        self.temporary_save.setEnabled(bool(temporary_key))
+        current_settings = self.settings_provider()
+        temporary_key = str(getattr(current_settings, "api_key", "") or "").strip()
+        temporary_matches = str(getattr(current_settings, "provider", "")) == str(provider)
+        temporary_unprofiled = not getattr(current_settings, "active_api_profile_id", None)
+        self.temporary_banner.setVisible(bool(temporary_key and temporary_matches and temporary_unprofiled))
+        self.temporary_save.setEnabled(bool(temporary_key and temporary_matches and temporary_unprofiled))
         self.table.setRowCount(len(profiles))
         for row, profile in enumerate(profiles):
             snapshot = self._catalog_snapshot(profile)
@@ -526,17 +624,13 @@ class ProviderAccountsDialog(QDialog):
         self.max_switches.setValue(settings.max_switches_per_run)
         self._set_combo(self.sequence_mode, settings.sequence_mode)
         self.allow_unknown_quota.setChecked(settings.allow_unknown_quota_override)
+        manifest = self._manifest_for(provider)
+        self.tabs.setTabEnabled(1, bool(manifest and manifest.controls.account_failover))
         self._selection_changed()
 
     def _settings_for_profile(self, profile: ApiProfile) -> AppSettings:
-        key = self.service.api_key_for(profile.profile_id) or ""
-        return self.settings_provider().model_copy(
-            update={
-                "provider": profile.provider,
-                "api_key": key,
-                "active_api_profile_id": profile.profile_id,
-            }
-        )
+        base = self.settings_provider().model_copy(update={"provider": profile.provider})
+        return self.service.apply_profile(base, profile.profile_id)
 
     def _catalog_snapshot(self, profile: ApiProfile):
         store = getattr(self.voice_service, "catalog_store", None)
@@ -571,15 +665,20 @@ class ProviderAccountsDialog(QDialog):
         if not key:
             QMessageBox.information(self, "Provider accounts", "No temporary API key is currently available.")
             return
-        name, ok = QInputDialog.getText(self, "Save temporary key", "Account name", text="My ElevenLabs account")
+        provider = str(self.provider.currentData() or "elevenlabs")
+        name, ok = QInputDialog.getText(self, "Save temporary key", "Account name", text=f"My {self._provider_display_name(provider)} account")
         if not ok or not name.strip():
+            return
+        metadata = self._prompt_profile_metadata(provider)
+        if metadata is None:
             return
         try:
             self.service.create_profile(
                 name.strip(),
-                provider=self.provider.currentData(),
+                provider=provider,
                 api_key=key,
-                active=not self.service.list_profiles(self.provider.currentData()),
+                active=not self.service.list_profiles(provider),
+                metadata=metadata,
             )
         except ValueError as exc:
             QMessageBox.warning(self, "Provider accounts", str(exc))
@@ -589,13 +688,28 @@ class ProviderAccountsDialog(QDialog):
     def add_profile(self) -> None:
         if not self.ensure_editable():
             return
+        provider = str(self.provider.currentData() or "elevenlabs")
+        display_name = self._provider_display_name(provider)
         name, ok = QInputDialog.getText(self, "Add profile", "Profile name")
-        if not ok:
+        if not ok or not name.strip():
             return
-        key, ok = QInputDialog.getText(self, "API key", "ElevenLabs API key", QLineEdit.Password)
-        if not ok:
+        key, ok = QInputDialog.getText(self, "Provider credential", f"{display_name} credential / API key", QLineEdit.Password)
+        if not ok or not key.strip():
             return
-        self.service.create_profile(name, provider=self.provider.currentData(), api_key=key, active=not self.service.list_profiles(self.provider.currentData()))
+        metadata = self._prompt_profile_metadata(provider)
+        if metadata is None:
+            return
+        try:
+            self.service.create_profile(
+                name.strip(),
+                provider=provider,
+                api_key=key.strip(),
+                active=not self.service.list_profiles(provider),
+                metadata=metadata,
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "Provider accounts", str(exc))
+            return
         self._changed()
 
     def rename_profile(self) -> None:
@@ -681,6 +795,13 @@ class ProviderAccountsDialog(QDialog):
         profile = self.selected_profile()
         if not profile:
             return
+        if profile.provider != "elevenlabs":
+            QMessageBox.information(
+                self,
+                "Provider verification",
+                "This legacy live verification workflow is ElevenLabs-specific. Use Test or Refresh for this provider.",
+            )
+            return
         if self.generation_active():
             QMessageBox.warning(self, "Provider verification", "Live verification is blocked while generation is running.")
             return
@@ -747,10 +868,13 @@ class ProviderAccountsDialog(QDialog):
     def enter_temporary_key(self) -> None:
         if not self.ensure_editable():
             return
-        key, ok = QInputDialog.getText(self, "Temporary key", "Temporary API key", QLineEdit.Password)
+        provider = str(self.provider.currentData() or "elevenlabs")
+        key, ok = QInputDialog.getText(self, "Temporary credential", f"{self._provider_display_name(provider)} credential / API key", QLineEdit.Password)
         if ok and self.parent() and hasattr(self.parent(), "key"):
+            if hasattr(self.parent(), "provider"):
+                self.parent().provider.setCurrentText(provider)
             self.parent().key.setText(key)
-            self.parent().set_provider_status("Temporary key entered. It is not saved to a profile.")
+            self.parent().set_provider_status("Temporary provider credential entered. It is not saved to a profile.")
             self.profiles_changed.emit()
 
     def copy_safe_summary(self) -> None:
@@ -949,6 +1073,7 @@ class ProviderAccountsDialog(QDialog):
             self.details_catalog_saved.setText("—")
             self.details_last_checked.setText("—")
             self.details_key.setText("—")
+            self.details_configuration.setText("—")
             self.details_badge.style().unpolish(self.details_badge)
             self.details_badge.style().polish(self.details_badge)
             return
@@ -963,7 +1088,7 @@ class ProviderAccountsDialog(QDialog):
             status = f"{status}\n{profile.last_error}"
         self.details_status.setText(status)
         self.details_status.setToolTip(status)
-        self.details_provider.setText("ElevenLabs" if profile.provider == "elevenlabs" else profile.provider)
+        self.details_provider.setText(self._provider_display_name(profile.provider))
         self.details_tier.setText(profile.account_tier or "Unknown")
         if profile.remaining_characters is None:
             self.details_quota.setText("Unavailable")
@@ -1000,6 +1125,9 @@ class ProviderAccountsDialog(QDialog):
         self.details_catalog_saved.setText(snapshot.saved_at or "Not cached")
         self.details_last_checked.setText(profile.last_checked_at or "Not checked")
         self.details_key.setText(profile.masked_key if profile.has_saved_key else "No saved credential")
+        fields = self._metadata_fields(profile.provider)
+        visible_metadata = [f"{field}={profile.metadata.get(field, '—')}" for field in fields]
+        self.details_configuration.setText(" · ".join(visible_metadata) if visible_metadata else "No provider-specific settings")
 
     def closeEvent(self, event) -> None:  # noqa: ANN001, N802
         self.sync_controller.cancel_all()

@@ -71,7 +71,7 @@ def test_optional_provider_adapters_report_missing_dependencies_without_import_c
         result = provider.validate_configuration(provider.settings)
         assert provider.capabilities().provider_id == cls.provider_id
         assert result.ok is False or result.ok is True
-        if not result.ok:
+        if not result.ok and not provider.dependency_available():
             assert result.missing_dependency
             with pytest.raises(ConfigurationError):
                 provider.synthesize("Hej", provider.settings)

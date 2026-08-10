@@ -269,17 +269,35 @@ class VoiceService:
         )
 
     def test_connection(self, settings: AppSettings, *, force_refresh: bool = False) -> ProviderConnectionResult:
-        """Validate the selected ElevenLabs account and summarize its catalog.
+        """Validate one provider account and summarize its account-scoped catalog.
 
-        Normal callers reuse the short-lived account-specific catalog cache. UI
-        actions that explicitly promise a remote refresh can pass
-        ``force_refresh=True``. Keeping the default cached preserves the original
-        connection-test contract and avoids duplicate provider calls when the
-        same account is tested repeatedly.
+        ElevenLabs keeps its catalog-first path because that call also supplies
+        quota/account metadata. Other providers use their live ``test_connection``
+        contract before refreshing the normalized voice/model catalog.
         """
-        if settings.provider != "elevenlabs":
-            return ProviderConnectionResult("network_error", "Connection test is only available for ElevenLabs.")
         try:
+            if settings.provider != "elevenlabs":
+                provider = create_provider(settings)
+                try:
+                    validation = provider.validate_configuration(settings)
+                    if not validation.ok:
+                        return ProviderConnectionResult(
+                            self._configuration_status(validation.message),
+                            validation.message,
+                            retryable=False,
+                        )
+                    live = provider.test_connection()
+                    if not live.ok:
+                        return ProviderConnectionResult(
+                            self._configuration_status(live.message),
+                            live.message,
+                            retryable=False,
+                        )
+                finally:
+                    close = getattr(provider, "close", None)
+                    if callable(close):
+                        close()
+
             catalog = self.refresh_catalog(settings, force=force_refresh)
             capability = ProviderCapability(
                 voice_count=len(catalog.voices),
@@ -306,7 +324,11 @@ class VoiceService:
                 request_id=exc.request_id,
             )
         except ConfigurationError as exc:
-            return ProviderConnectionResult("invalid_key", str(exc), retryable=False)
+            return ProviderConnectionResult(
+                self._configuration_status(str(exc)),
+                str(exc),
+                retryable=False,
+            )
         except Exception as exc:
             return ProviderConnectionResult("network_error", f"Network error: {exc}", retryable=True)
 
@@ -458,7 +480,7 @@ class VoiceService:
                 latency_ms=max(0, int((perf_counter() - started) * 1000)),
             )
 
-        extension = ".mp3" if item.provider == "elevenlabs" else ".wav"
+        extension = self._preview_extension(preview_settings)
         cache_key = self._preview_cache_key(item, normalized_text, preview_settings)
         safe_name = re.sub(r"[^\w.-]+", "_", item.name, flags=re.UNICODE).strip("._") or "voice"
         target = self.preview_directory / f"{item.provider}-{safe_name}-{cache_key[:16]}{extension}"
@@ -518,13 +540,16 @@ class VoiceService:
         return self.preview_service.clear_for_voice(item.provider, item.voice_id)
 
     def validate_selection(self, item: VoiceItem, settings: AppSettings) -> None:
-        if item.provider != "elevenlabs":
-            return
         catalog = self.cached_catalog(settings)
         voices = {voice.voice_id: voice for voice in catalog.voices} if catalog else {}
-        models = {model.model_id: model for model in catalog.models} if catalog else {}
         if voices and item.voice_id not in voices:
-            raise ProviderError("Selected ElevenLabs voice was not found or is inaccessible.", provider_code="voice_not_found")
+            raise ProviderError(
+                f"Selected {item.provider} voice was not found or is inaccessible.",
+                provider_code="voice_not_found",
+            )
+        if item.provider != "elevenlabs":
+            return
+        models = {model.model_id: model for model in catalog.models} if catalog else {}
         selected = voices.get(item.voice_id, item)
         if models and settings.model_id not in models:
             raise ProviderError("Selected ElevenLabs model was not found.", provider_code="model_not_found")
@@ -539,7 +564,7 @@ class VoiceService:
         if not normalized_text:
             return None
         preview_settings = settings.model_copy(update={"voice_id": item.voice_id})
-        extension = ".mp3" if item.provider == "elevenlabs" else ".wav"
+        extension = self._preview_extension(preview_settings)
         cache_key = self._preview_cache_key(item, normalized_text, preview_settings)
         safe_name = re.sub(r"[^\w.-]+", "_", item.name, flags=re.UNICODE).strip("._") or "voice"
         target = self.preview_directory / f"{item.provider}-{safe_name}-{cache_key[:16]}{extension}"
@@ -650,18 +675,47 @@ class VoiceService:
     @staticmethod
     def _connection_status(error: ProviderError) -> str:
         code = (error.provider_code or "").lower()
-        if code == "invalid_api_key":
+        if code in {"invalid_api_key", "credential_or_permission"}:
             return "invalid_key"
-        if code in {"permission_denied", "paid_plan_required"}:
+        if code in {"permission_denied", "paid_plan_required", "model_not_found", "invalid_request"}:
             return "permission_issue"
         return "network_error" if error.retryable else "permission_issue"
+
+    @staticmethod
+    def _configuration_status(message: str) -> str:
+        lower = str(message or "").casefold()
+        if "key" in lower or "credential" in lower or "subscription" in lower:
+            return "invalid_key"
+        return "permission_issue"
 
     @staticmethod
     def _cache_key(settings: AppSettings) -> tuple[str, str]:
         profile = str(settings.active_api_profile_id or "temporary")
         secret_digest = hashlib.sha256((settings.api_key or "").encode("utf-8")).hexdigest()
-        identity = hashlib.sha256(f"{profile}:{secret_digest}".encode("utf-8")).hexdigest()
+        option_payload = json.dumps(
+            settings.provider_options,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        identity = hashlib.sha256(
+            f"{profile}:{secret_digest}:{option_payload}".encode("utf-8")
+        ).hexdigest()
         return settings.provider, identity
+
+    @staticmethod
+    def _preview_extension(settings: AppSettings) -> str:
+        if settings.provider not in {"openai", "azure"}:
+            return settings.file_extension or ".bin"
+        simple = (settings.output_format or "").split("_", 1)[0].casefold()
+        return {
+            "mp3": ".mp3",
+            "wav": ".wav",
+            "opus": ".opus",
+            "aac": ".aac",
+            "flac": ".flac",
+            "pcm": ".pcm",
+        }.get(simple, settings.file_extension or ".bin")
 
     @staticmethod
     def _preview_cache_key(item: VoiceItem, text: str, settings: AppSettings) -> str:
@@ -677,6 +731,7 @@ class VoiceService:
             "speed": settings.speed,
             "language_code": settings.language_code,
             "output_format": settings.output_format,
+            "provider_options": settings.provider_options,
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 

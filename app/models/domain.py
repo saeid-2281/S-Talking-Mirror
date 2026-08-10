@@ -36,6 +36,7 @@ class AppSettings(BaseModel):
     active_pronunciation_dictionary_id: str | None = None
     job_pronunciation_overrides: dict[int, str] = Field(default_factory=dict)
     active_api_profile_id: str | None = None
+    provider_options: dict[str, Any] = Field(default_factory=dict)
     api_profile_failover: str = "never"
     api_profile_failover_max_switches: int = Field(default=1, ge=0, le=20)
     api_profile_failover_sequence_mode: str = "active_then_backups"

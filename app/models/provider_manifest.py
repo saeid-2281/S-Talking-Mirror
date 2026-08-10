@@ -48,6 +48,8 @@ class ProviderManifest:
     placeholder_api_key: bool = False
     supports_language_code_fallback: bool = True
     fallback_output_formats: tuple[str, ...] = ("mp3", "wav")
+    profile_metadata_fields: tuple[str, ...] = ()
+    profile_management_ready: bool = False
     controls: ProviderControlPolicy = ProviderControlPolicy()
 
     def __post_init__(self) -> None:
@@ -58,6 +60,13 @@ class ProviderManifest:
             raise ValueError("display_name is required")
         if self.locality == "local" and self.credential_mode != "none":
             raise ValueError("local providers cannot require cloud credentials")
+        normalized_fields = tuple(field.strip().casefold() for field in self.profile_metadata_fields)
+        if any(not field for field in normalized_fields):
+            raise ValueError("profile metadata field names cannot be blank")
+        if len(set(normalized_fields)) != len(normalized_fields):
+            raise ValueError("profile metadata field names must be unique")
+        if normalized_fields != self.profile_metadata_fields:
+            raise ValueError("profile metadata field names must be lowercase stable identifiers")
 
     @property
     def remote(self) -> bool:

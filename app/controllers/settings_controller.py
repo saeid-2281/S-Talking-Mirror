@@ -71,6 +71,7 @@ class SettingsController:
             use_speaker_boost=settings.use_speaker_boost,
             skip_existing=settings.skip_existing,
             active_api_profile_id=settings.active_api_profile_id,
+            provider_options=dict(settings.provider_options),
             api_profile_failover=settings.api_profile_failover,
             api_profile_failover_max_switches=settings.api_profile_failover_max_switches,
             api_profile_failover_sequence_mode=settings.api_profile_failover_sequence_mode,

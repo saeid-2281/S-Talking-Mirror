@@ -8,6 +8,7 @@ from typing import Any
 
 from app.models.api_profile import ApiProfile, ApiProfileFailoverMode, ApiProfileStatus, FailoverSettings, ProfileSwitchDecision
 from app.models.provider_health import evaluate_provider_health
+from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
 from app.services.secure_credentials import SecureCredentialStore
 
 
@@ -34,6 +35,7 @@ class ApiProfileService:
         enabled: bool = True,
         priority: int = 100,
         active: bool = False,
+        metadata: dict[str, str] | None = None,
     ) -> ApiProfile:
         name = self._unique_name(display_name.strip() or "Provider profile", provider)
         profile = ApiProfile(
@@ -44,6 +46,7 @@ class ApiProfileService:
             priority=priority,
             active=active,
             has_saved_key=bool(api_key),
+            metadata=self._safe_metadata(metadata),
         )
         profiles = self.list_profiles()
         if active:
@@ -86,6 +89,11 @@ class ApiProfileService:
     def replace_key(self, profile_id: str, api_key: str) -> ApiProfile:
         profile = self.get_profile(profile_id)
         return self.update_profile(profile, api_key=api_key)
+
+    def update_profile_metadata(self, profile_id: str, metadata: dict[str, str]) -> ApiProfile:
+        profile = self.get_profile(profile_id)
+        profile.metadata = self._safe_metadata(metadata)
+        return self.update_profile(profile)
 
     def set_enabled(self, profile_id: str, enabled: bool) -> ApiProfile:
         profile = self.get_profile(profile_id)
@@ -215,13 +223,34 @@ class ApiProfileService:
             )
         return "\n".join(lines) or "No provider profiles configured."
 
-    def apply_profile_key(self, settings: Any, profile_id: str | None) -> Any:
+    def apply_profile(self, settings: Any, profile_id: str | None) -> Any:
         if not profile_id:
             return settings
+        profile = self.get_profile(profile_id)
+        if str(getattr(settings, "provider", "")) != profile.provider:
+            raise ValueError(
+                f"Provider profile {profile.display_name!r} belongs to {profile.provider}, "
+                f"not {getattr(settings, 'provider', '') or 'unknown'}."
+            )
+        manifest = DEFAULT_PROVIDER_REGISTRY.manifest_for(profile.provider)
+        provider_options = dict(getattr(settings, "provider_options", {}) or {})
+        for field in manifest.profile_metadata_fields:
+            provider_options.pop(field, None)
+            value = str(profile.metadata.get(field) or "").strip()
+            if value:
+                provider_options[field] = value
+        update: dict[str, Any] = {
+            "active_api_profile_id": profile_id,
+            "provider_options": provider_options,
+        }
         secret = self.api_key_for(profile_id)
-        if not secret:
-            return settings
-        return settings.model_copy(update={"api_key": secret, "active_api_profile_id": profile_id})
+        if secret:
+            update["api_key"] = secret
+        return settings.model_copy(update=update)
+
+    def apply_profile_key(self, settings: Any, profile_id: str | None) -> Any:
+        """Backward-compatible alias that now also applies safe profile metadata."""
+        return self.apply_profile(settings, profile_id)
 
     def choose_failover(
         self,
@@ -356,6 +385,16 @@ class ApiProfileService:
             return ApiProfileFailoverMode(str(mode or "").lower())
         except ValueError:
             return ApiProfileFailoverMode.NEVER
+
+    @staticmethod
+    def _safe_metadata(metadata: dict[str, str] | None) -> dict[str, str]:
+        if not metadata:
+            return {}
+        return {
+            str(key).strip(): str(value).strip()
+            for key, value in metadata.items()
+            if str(key).strip() and str(value).strip()
+        }
 
     def _unique_name(self, display_name: str, provider: str) -> str:
         names = {profile.display_name.casefold() for profile in self.list_profiles(provider)}

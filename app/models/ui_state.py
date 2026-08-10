@@ -35,6 +35,7 @@ class SettingsViewData:
     use_speaker_boost: bool
     skip_existing: bool
     active_api_profile_id: str | None = None
+    provider_options: dict[str, str] | None = None
     api_profile_failover: str = "never"
     api_profile_failover_max_switches: int = 1
     api_profile_failover_sequence_mode: str = "active_then_backups"
@@ -65,6 +66,7 @@ class SettingsViewData:
             overwrite_existing=False,
             piper_model_path=self.piper_model_path,
             active_api_profile_id=self.active_api_profile_id,
+            provider_options=dict(self.provider_options or {}),
             api_profile_failover=self.api_profile_failover,
             api_profile_failover_max_switches=self.api_profile_failover_max_switches,
             api_profile_failover_sequence_mode=self.api_profile_failover_sequence_mode,

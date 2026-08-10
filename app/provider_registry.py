@@ -44,6 +44,7 @@ DEFAULT_PROVIDER_MANIFESTS: tuple[ProviderManifest, ...] = (
         setup_kind="credential",
         retry_ready=True,
         placeholder_api_key=True,
+        profile_management_ready=True,
         controls=ProviderControlPolicy(
             api_profile=True,
             api_key=True,
@@ -65,6 +66,7 @@ DEFAULT_PROVIDER_MANIFESTS: tuple[ProviderManifest, ...] = (
         retry_ready=True,
         placeholder_api_key=True,
         supports_language_code_fallback=False,
+        profile_management_ready=True,
         controls=ProviderControlPolicy(
             api_profile=True,
             api_key=True,
@@ -80,7 +82,13 @@ DEFAULT_PROVIDER_MANIFESTS: tuple[ProviderManifest, ...] = (
         setup_kind="optional_cloud",
         optional_dependency="azure.cognitiveservices.speech",
         placeholder_api_key=True,
-        controls=ProviderControlPolicy(api_profile=True),
+        retry_ready=True,
+        profile_metadata_fields=("region", "endpoint"),
+        profile_management_ready=True,
+        controls=ProviderControlPolicy(
+            api_profile=True,
+            voice_browser_fallback=True,
+        ),
     ),
     ProviderManifest(
         "google",
