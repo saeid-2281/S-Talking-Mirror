@@ -60,7 +60,12 @@ class ProviderCatalogService:
             validation = provider.validate_configuration(provider_settings)
         except Exception as exc:
             validation = ProviderConfigurationResult(False, str(exc), missing_dependency=capabilities.optional_dependency)
-        missing_credential = capabilities.requires_credential and not provider_settings.api_key
+        manifest = self.manifest_for(provider_id)
+        missing_credential = (
+            capabilities.requires_credential
+            and manifest.profile_secret_required
+            and not provider_settings.api_key
+        )
         badges: list[str] = ["Cloud" if capabilities.remote else "Local"]
         if not capabilities.remote:
             badges.append("Offline")
@@ -80,7 +85,7 @@ class ProviderCatalogService:
             setup_state="Ready" if validation.ok and not missing_credential else "Setup required",
             badges=tuple(dict.fromkeys(badges)),
             missing_dependency=validation.missing_dependency,
-            message="Credential profile or API key is required." if missing_credential else validation.message,
+            message="Saved provider credential is required." if missing_credential else validation.message,
         )
 
     def _construct_settings(self, provider_id: str, settings: AppSettings | None) -> AppSettings:

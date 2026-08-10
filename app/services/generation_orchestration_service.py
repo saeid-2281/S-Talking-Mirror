@@ -870,7 +870,7 @@ class GenerationOrchestrationService:
         if primary_profile is None:
             primary_profile = next((profile for profile in profiles if profile.active), None)
 
-        if primary_profile is not None and primary_profile.has_saved_key:
+        if primary_profile is not None and primary_profile.credential_ready:
             primary_candidate = self._candidate(
                 project_id,
                 self.api_profiles.apply_profile_key(settings, primary_profile.profile_id),
@@ -908,8 +908,8 @@ class GenerationOrchestrationService:
             if not profile.enabled:
                 excluded.append({"profile": profile.display_name, "reason": "disabled"})
                 continue
-            if not profile.has_saved_key:
-                excluded.append({"profile": profile.display_name, "reason": "no saved credential"})
+            if not profile.credential_ready:
+                excluded.append({"profile": profile.display_name, "reason": "no usable credential configuration"})
                 continue
             if not profile.is_usable:
                 excluded.append({"profile": profile.display_name, "reason": str(profile.status)})

@@ -97,7 +97,15 @@ DEFAULT_PROVIDER_MANIFESTS: tuple[ProviderManifest, ...] = (
         credential_mode="profile",
         setup_kind="optional_cloud",
         optional_dependency="google.cloud.texttospeech",
-        controls=ProviderControlPolicy(api_profile=True),
+        retry_ready=True,
+        profile_metadata_fields=("credential_reference", "project_id", "api_endpoint"),
+        profile_management_ready=True,
+        profile_secret_required=False,
+        controls=ProviderControlPolicy(
+            api_profile=True,
+            voice_browser_fallback=True,
+            model_listing_fallback=True,
+        ),
     ),
     ProviderManifest(
         "aws_polly",
@@ -106,7 +114,15 @@ DEFAULT_PROVIDER_MANIFESTS: tuple[ProviderManifest, ...] = (
         credential_mode="profile",
         setup_kind="optional_cloud",
         optional_dependency="boto3",
-        controls=ProviderControlPolicy(api_profile=True),
+        retry_ready=True,
+        profile_metadata_fields=("aws_profile", "region"),
+        profile_management_ready=True,
+        profile_secret_required=False,
+        controls=ProviderControlPolicy(
+            api_profile=True,
+            voice_browser_fallback=True,
+            model_listing_fallback=True,
+        ),
     ),
     ProviderManifest(
         "kokoro",

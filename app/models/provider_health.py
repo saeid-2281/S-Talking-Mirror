@@ -43,14 +43,14 @@ def evaluate_provider_health(
             quota_percent,
             latency,
         )
-    if not profile.has_saved_key or profile.status in {
+    if not profile.credential_ready or profile.status in {
         ApiProfileStatus.UNAVAILABLE,
         ApiProfileStatus.INVALID,
     }:
         return ProviderAccountHealth(
             ProviderHealthState.OFFLINE,
             "Offline",
-            profile.last_error or "Account is unavailable or has no usable credential.",
+            profile.last_error or "Account is unavailable or has no usable credential configuration.",
             False,
             quota_percent,
             latency,

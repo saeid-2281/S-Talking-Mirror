@@ -62,12 +62,23 @@ class ApiProfile:
             self.status = ApiProfileStatus.UNAVAILABLE if self.enabled else ApiProfileStatus.INVALID
 
     @property
+    def credential_ready(self) -> bool:
+        from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
+
+        manifest = DEFAULT_PROVIDER_REGISTRY.manifest_for(self.provider)
+        return manifest.profile_credential_ready(has_saved_secret=self.has_saved_key)
+
+    @property
     def masked_key(self) -> str:
-        return "Saved key" if self.has_saved_key else "No saved key"
+        if self.has_saved_key:
+            return "Saved key"
+        if self.credential_ready:
+            return "External credentials"
+        return "No saved credential"
 
     @property
     def is_usable(self) -> bool:
-        return self.enabled and self.has_saved_key and self.status not in {
+        return self.enabled and self.credential_ready and self.status not in {
             ApiProfileStatus.EXHAUSTED,
             ApiProfileStatus.UNAVAILABLE,
             ApiProfileStatus.INVALID,

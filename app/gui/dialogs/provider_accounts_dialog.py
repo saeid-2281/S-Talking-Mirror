@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Callable
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -162,6 +163,7 @@ class ProviderAccountsDialog(QDialog):
         self.more_button.setMinimumHeight(34)
         self.more_button.setIcon(action_icon("general.more"))
         self.more_menu = QMenu(self)
+        self.more_actions: dict[str, QAction] = {}
         for text, icon_name, handler in [
             ("Rename", "provider.rename_profile", self.rename_profile),
             ("Replace key", "provider.replace_key", self.replace_key),
@@ -176,6 +178,7 @@ class ProviderAccountsDialog(QDialog):
         ]:
             action = self.more_menu.addAction(action_icon(icon_name), text)
             action.triggered.connect(handler)
+            self.more_actions[text] = action
         self.more_button.setMenu(self.more_menu)
         buttons.addWidget(self.move_up_button)
         buttons.addWidget(self.move_down_button)
@@ -495,6 +498,10 @@ class ProviderAccountsDialog(QDialog):
         manifest = self._manifest_for(provider_id)
         return tuple(manifest.profile_metadata_fields) if manifest is not None else ()
 
+    def _profile_secret_required(self, provider_id: str) -> bool:
+        manifest = self._manifest_for(provider_id)
+        return bool(manifest.profile_secret_required) if manifest is not None else True
+
     def _prompt_profile_metadata(
         self,
         provider_id: str,
@@ -506,8 +513,9 @@ class ProviderAccountsDialog(QDialog):
             "region": "Region",
             "endpoint": "Endpoint (optional if region is set)",
             "project_id": "Project ID",
-            "credential_reference": "Credential reference",
-            "aws_profile": "AWS profile",
+            "credential_reference": "Credential reference (optional; ADC is used when blank)",
+            "api_endpoint": "API endpoint hostname (optional)",
+            "aws_profile": "AWS profile (optional; default chain is used when blank)",
         }
         for field in fields:
             value, ok = QInputDialog.getText(
@@ -634,7 +642,7 @@ class ProviderAccountsDialog(QDialog):
 
     def _catalog_snapshot(self, profile: ApiProfile):
         store = getattr(self.voice_service, "catalog_store", None)
-        if store is None or not profile.has_saved_key:
+        if store is None or not profile.credential_ready:
             from app.services.provider_account_catalog_store import ProviderCatalogSnapshotInfo
 
             return ProviderCatalogSnapshotInfo(False, False)
@@ -693,9 +701,17 @@ class ProviderAccountsDialog(QDialog):
         name, ok = QInputDialog.getText(self, "Add profile", "Profile name")
         if not ok or not name.strip():
             return
-        key, ok = QInputDialog.getText(self, "Provider credential", f"{display_name} credential / API key", QLineEdit.Password)
-        if not ok or not key.strip():
-            return
+        key: str | None = None
+        if self._profile_secret_required(provider):
+            entered, ok = QInputDialog.getText(
+                self,
+                "Provider credential",
+                f"{display_name} credential / API key",
+                QLineEdit.Password,
+            )
+            if not ok or not entered.strip():
+                return
+            key = entered.strip()
         metadata = self._prompt_profile_metadata(provider)
         if metadata is None:
             return
@@ -703,7 +719,7 @@ class ProviderAccountsDialog(QDialog):
             self.service.create_profile(
                 name.strip(),
                 provider=provider,
-                api_key=key.strip(),
+                api_key=key,
                 active=not self.service.list_profiles(provider),
                 metadata=metadata,
             )
@@ -920,13 +936,14 @@ class ProviderAccountsDialog(QDialog):
             self.service.update_profile(profile)
             self.refresh()
             return False
-        key = self.service.api_key_for(profile.profile_id)
-        if not key:
-            profile.status = ApiProfileStatus.INVALID
-            profile.last_error = "Missing saved key"
-            self.service.update_profile(profile)
-            self.refresh()
-            return False
+        if self._profile_secret_required(profile.provider):
+            key = self.service.api_key_for(profile.profile_id)
+            if not key:
+                profile.status = ApiProfileStatus.INVALID
+                profile.last_error = "Missing saved credential"
+                self.service.update_profile(profile)
+                self.refresh()
+                return False
         settings = self._settings_for_profile(profile)
         if force:
             self.voice_service.invalidate_provider_cache(settings)
@@ -1045,7 +1062,14 @@ class ProviderAccountsDialog(QDialog):
         self.move_up_button.setEnabled(has_selection and row > 0)
         self.move_down_button.setEnabled(has_selection and 0 <= row < self.table.rowCount() - 1)
         self.more_button.setEnabled(True)
-        self._update_details(self.selected_profile())
+        profile = self.selected_profile()
+        if hasattr(self, "more_actions"):
+            secret_required = bool(profile and self._profile_secret_required(profile.provider))
+            if "Replace key" in self.more_actions:
+                self.more_actions["Replace key"].setEnabled(secret_required)
+            if "Use temporary key" in self.more_actions:
+                self.more_actions["Use temporary key"].setEnabled(secret_required)
+        self._update_details(profile)
 
     def _update_details(self, profile: ApiProfile | None) -> None:
         enabled = profile is not None
@@ -1124,7 +1148,7 @@ class ProviderAccountsDialog(QDialog):
         self.details_catalog_state.setToolTip(catalog_tip)
         self.details_catalog_saved.setText(snapshot.saved_at or "Not cached")
         self.details_last_checked.setText(profile.last_checked_at or "Not checked")
-        self.details_key.setText(profile.masked_key if profile.has_saved_key else "No saved credential")
+        self.details_key.setText(profile.masked_key)
         fields = self._metadata_fields(profile.provider)
         visible_metadata = [f"{field}={profile.metadata.get(field, '—')}" for field in fields]
         self.details_configuration.setText(" · ".join(visible_metadata) if visible_metadata else "No provider-specific settings")

@@ -705,12 +705,13 @@ class VoiceService:
 
     @staticmethod
     def _preview_extension(settings: AppSettings) -> str:
-        if settings.provider not in {"openai", "azure"}:
+        if settings.provider not in {"openai", "azure", "google", "aws_polly"}:
             return settings.file_extension or ".bin"
         simple = (settings.output_format or "").split("_", 1)[0].casefold()
         return {
             "mp3": ".mp3",
             "wav": ".wav",
+            "ogg": ".ogg",
             "opus": ".opus",
             "aac": ".aac",
             "flac": ".flac",

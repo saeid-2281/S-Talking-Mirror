@@ -200,8 +200,8 @@ class ApiProfileService:
                 excluded.append({"profile": profile.display_name, "reason": "current account"})
             elif not profile.enabled:
                 excluded.append({"profile": profile.display_name, "reason": "disabled"})
-            elif not profile.has_saved_key:
-                excluded.append({"profile": profile.display_name, "reason": "no saved key"})
+            elif not profile.credential_ready:
+                excluded.append({"profile": profile.display_name, "reason": "no usable credential configuration"})
             elif profile.status == ApiProfileStatus.EXHAUSTED:
                 excluded.append({"profile": profile.display_name, "reason": "exhausted"})
         target = self.get_profile(decision.target_profile_id) if decision.target_profile_id else None

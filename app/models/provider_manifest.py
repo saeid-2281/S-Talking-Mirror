@@ -50,6 +50,7 @@ class ProviderManifest:
     fallback_output_formats: tuple[str, ...] = ("mp3", "wav")
     profile_metadata_fields: tuple[str, ...] = ()
     profile_management_ready: bool = False
+    profile_secret_required: bool = True
     controls: ProviderControlPolicy = ProviderControlPolicy()
 
     def __post_init__(self) -> None:
@@ -79,3 +80,15 @@ class ProviderManifest:
     @property
     def credential_setup_available(self) -> bool:
         return self.credential_mode in {"none", "api_key", "profile", "profile_or_key"}
+
+    def profile_credential_ready(self, *, has_saved_secret: bool) -> bool:
+        """Return whether a named profile has the credential material this provider needs.
+
+        Some providers (Google ADC and AWS named/default profiles) resolve credentials
+        outside S-Talking's secure credential store.  Cloud providers that use an API
+        key or subscription key keep the historical saved-secret requirement.
+        """
+
+        if self.credential_mode == "none":
+            return True
+        return bool(has_saved_secret) if self.profile_secret_required else True

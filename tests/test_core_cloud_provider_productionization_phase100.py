@@ -34,8 +34,8 @@ def test_phase100_provider_options_round_trip_and_registry_contract() -> None:
     assert azure.profile_management_ready is True
     assert azure.profile_metadata_fields == ("region", "endpoint")
     assert azure.controls.api_profile is True
-    assert DEFAULT_PROVIDER_REGISTRY.manifest_for("google").profile_management_ready is False
-    assert DEFAULT_PROVIDER_REGISTRY.manifest_for("aws_polly").profile_management_ready is False
+    # Later provider phases may promote Google/AWS without changing the Phase 100
+    # OpenAI/Azure contract asserted above.
 
 
 def test_phase100_profile_applies_only_declared_provider_metadata(tmp_path: Path) -> None:
