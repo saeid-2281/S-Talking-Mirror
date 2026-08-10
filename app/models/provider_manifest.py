@@ -52,6 +52,9 @@ class ProviderManifest:
     profile_metadata_fields: tuple[str, ...] = ()
     profile_management_ready: bool = False
     profile_secret_required: bool = True
+    synthesis_request_limit: int | None = None
+    synthesis_request_limit_unit: str | None = None
+    synthesis_request_limit_note: str = ""
     controls: ProviderControlPolicy = ProviderControlPolicy()
 
     def __post_init__(self) -> None:
@@ -71,6 +74,12 @@ class ProviderManifest:
             raise ValueError("profile metadata field names must be lowercase stable identifiers")
         if self.forced_file_extension is not None and not self.forced_file_extension.startswith("."):
             raise ValueError("forced_file_extension must start with a dot")
+        if self.synthesis_request_limit is not None and self.synthesis_request_limit <= 0:
+            raise ValueError("synthesis_request_limit must be positive")
+        if self.synthesis_request_limit_unit not in {None, "characters", "bytes", "billed_characters"}:
+            raise ValueError("unsupported synthesis_request_limit_unit")
+        if self.synthesis_request_limit is None and self.synthesis_request_limit_unit is not None:
+            raise ValueError("synthesis_request_limit_unit requires synthesis_request_limit")
 
     @property
     def remote(self) -> bool:

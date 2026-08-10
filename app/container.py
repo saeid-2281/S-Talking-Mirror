@@ -62,6 +62,7 @@ from app.services.provider_catalog_service import ProviderCatalogService
 from app.services.provider_account_catalog_store import ProviderAccountCatalogStore
 from app.services.provider_accounts_center_service import ProviderAccountsCenterService
 from app.services.unified_voice_model_catalog_service import UnifiedVoiceModelCatalogService
+from app.services.provider_cost_quota_limits_service import ProviderCostQuotaLimitsService
 from app.services.provider_identity_service import ProviderIdentityService
 from app.services.provider_readiness_service import ProviderReadinessService
 from app.services.provider_intelligence_service import ProviderIntelligenceService
@@ -210,6 +211,7 @@ class ServiceContainer:
     provider_account_catalog_store: ProviderAccountCatalogStore
     provider_accounts_center_service: ProviderAccountsCenterService
     unified_voice_model_catalog_service: UnifiedVoiceModelCatalogService
+    provider_cost_quota_limits_service: ProviderCostQuotaLimitsService
     provider_identity_service: ProviderIdentityService
     provider_readiness_service: ProviderReadinessService
     provider_intelligence_service: ProviderIntelligenceService
@@ -310,6 +312,12 @@ def create_service_container(
     generation_cost_capacity_service = GenerationCostCapacityService(
         product_event_repository,
         job_repository,
+    )
+    provider_cost_quota_limits_service = ProviderCostQuotaLimitsService(
+        api_profile_service,
+        provider_catalog_service,
+        unified_voice_model_catalog_service,
+        generation_cost_capacity_service,
     )
     provider_intelligence_service = ProviderIntelligenceService(
         provider_readiness_service,
@@ -594,6 +602,7 @@ def create_service_container(
         provider_account_catalog_store=account_catalog_store,
         provider_accounts_center_service=provider_accounts_center_service,
         unified_voice_model_catalog_service=unified_voice_model_catalog_service,
+        provider_cost_quota_limits_service=provider_cost_quota_limits_service,
         provider_identity_service=provider_identity_service,
         provider_readiness_service=provider_readiness_service,
         provider_intelligence_service=provider_intelligence_service,

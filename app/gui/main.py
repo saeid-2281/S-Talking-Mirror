@@ -34,6 +34,7 @@ from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifact
 from app.gui.dialogs.project_session_workflow_dialog import ProjectSessionWorkflowDialog
 from app.gui.dialogs.offline_tts_engines_dialog import OfflineTTSEnginesDialog
 from app.gui.dialogs.unified_voice_model_catalog_dialog import UnifiedVoiceModelCatalogDialog
+from app.gui.dialogs.provider_cost_quota_limits_dialog import ProviderCostQuotaLimitsDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -432,17 +433,18 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Voice & Model Catalog','Smart Provider Routing','Offline TTS Engines','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Voice & Model Catalog','Provider Cost / Quota / Limits','Smart Provider Routing','Offline TTS Engines','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
     def build_settings_menu(self):
         self.settings_menu=QMenu('Settings',self); self.menuBar().addMenu(self.settings_menu)
-        for tx,fn,ic in [('Provider accounts',self.open_provider_accounts,'provider.accounts'),('Voice & Model Catalog',self.open_unified_voice_model_catalog,'provider.browse_voices'),('Offline TTS Engines',self.open_offline_tts_engines,'settings'),('Pronunciation dictionaries',self.open_pronunciation_dictionaries,'pronunciation.dictionary')]:
+        for tx,fn,ic in [('Provider accounts',self.open_provider_accounts,'provider.accounts'),('Voice & Model Catalog',self.open_unified_voice_model_catalog,'provider.browse_voices'),('Provider Cost / Quota / Limits',self.open_provider_cost_quota_limits,'report'),('Offline TTS Engines',self.open_offline_tts_engines,'settings'),('Pronunciation dictionaries',self.open_pronunciation_dictionaries,'pronunciation.dictionary')]:
             a=self.settings_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
         self.settings_menu.addSeparator(); save_defaults=self.settings_menu.addAction(icon('save'),'Save current as defaults'); save_defaults.triggered.connect(self.save_settings); self.actions_by_name['Save current as defaults']=save_defaults
         self.actions_by_name['Provider accounts'].setShortcut(QKeySequence('Ctrl+Shift+P'))
         self.actions_by_name['Voice & Model Catalog'].setShortcut(QKeySequence('Ctrl+Alt+V'))
+        self.actions_by_name['Provider Cost / Quota / Limits'].setShortcut(QKeySequence('Ctrl+Alt+C'))
         self.actions_by_name['Offline TTS Engines'].setShortcut(QKeySequence('Ctrl+Shift+L'))
         self.actions_by_name['Pronunciation dictionaries'].setShortcut(QKeySequence('Ctrl+Shift+D'))
     def build_view_menu(self):
@@ -902,7 +904,7 @@ class MainWindow(QMainWindow):
         if dialog.exec()==QDialog.Accepted:
             settings=dialog.selected_settings(); self.provider.setCurrentText(settings.provider); self.set_model_value(settings.model_id); self.voice.setText(settings.voice_id); self.set_language_value(settings.language_code); self.save_global_preferences(settings); self.settings_changed()
     def show_shortcut_reference(self):
-        self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Shift+T Add text source\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Alt+V Voice & Model Catalog\nCtrl+Alt+S Smart Provider Routing\nCtrl+Shift+L Offline TTS Engines\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nCtrl+Shift+F Focus queue\nCtrl+Alt+I Interface settings\nCtrl+1 Provider panel\nCtrl+2 Generation queue\nCtrl+3 Inspector panel\nCtrl+4 Activity panel\nCtrl+5 Generation controls\nCtrl+6 Output playback\nCtrl+7 Text Studio\nF6 Cycle major panels')
+        self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Shift+T Add text source\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Alt+V Voice & Model Catalog\nCtrl+Alt+C Provider Cost / Quota / Limits\nCtrl+Alt+S Smart Provider Routing\nCtrl+Shift+L Offline TTS Engines\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nCtrl+Shift+F Focus queue\nCtrl+Alt+I Interface settings\nCtrl+1 Provider panel\nCtrl+2 Generation queue\nCtrl+3 Inspector panel\nCtrl+4 Activity panel\nCtrl+5 Generation controls\nCtrl+6 Output playback\nCtrl+7 Text Studio\nF6 Cycle major panels')
     def open_about_dialog(self):
         dialog=AboutDialog(self.context.container.runtime,open_diagnostics=self.export_diagnostics,parent=self); dialog.exec()
     def build_project_sources_panel(self):
@@ -1963,6 +1965,21 @@ class MainWindow(QMainWindow):
         dialog.settings_selected.connect(self.apply_unified_catalog_settings)
         dialog.show()
         self.unified_voice_model_catalog_dialog=dialog
+        return dialog
+    def open_provider_cost_quota_limits(self):
+        project=self.project_controller.current_project
+        jobs=list(self.generation_controller.generation_jobs()) if hasattr(self,'generation_controller') else []
+        dialog=ProviderCostQuotaLimitsDialog(
+            self.context.provider_cost_quota_limits_service,
+            self.settings,
+            project_id=project.project_id if project else None,
+            scoped_characters=sum(len(job.text) for job in jobs),
+            open_cost_capacity=self.open_generation_cost_capacity,
+            open_accounts=self.open_provider_accounts,
+            parent=self,
+        )
+        dialog.show()
+        self.provider_cost_quota_limits_dialog=dialog
         return dialog
     def apply_unified_catalog_settings(self,settings):
         if self.generation_controller.is_active:

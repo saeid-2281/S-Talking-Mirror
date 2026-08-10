@@ -76,6 +76,7 @@ from app.services.preflight_service import PreflightService
 from app.services.provider_account_catalog_store import ProviderAccountCatalogStore, ProviderCatalogSnapshotInfo
 from app.services.provider_accounts_center_service import ProviderAccountsCenterService
 from app.services.unified_voice_model_catalog_service import UnifiedVoiceModelCatalogService
+from app.services.provider_cost_quota_limits_service import ProviderCostQuotaLimitsService
 from app.services.preview_service import PreviewService
 from app.services.pronunciation_dictionary_service import PronunciationDictionaryService
 from app.services.project_manager import ProjectManager
@@ -159,6 +160,7 @@ __all__ = [
     "ProviderAccountCatalogStore",
     "ProviderAccountsCenterService",
     "UnifiedVoiceModelCatalogService",
+    "ProviderCostQuotaLimitsService",
     "ProviderCatalogSnapshotInfo",
     "PreviewService",
     "PronunciationDictionaryService",

@@ -387,9 +387,16 @@ class UnifiedVoiceModelCatalogService:
                 ),
             )
         if provider_id == "murf":
-            from app.providers.murf import MURF_MODEL_ID
+            from app.providers.murf import MURF_MAX_TEXT_CHARACTERS, MURF_MODEL_ID
 
-            return (VoiceModelItem(MURF_MODEL_ID, "Murf Gen2 (non-streaming)", ()),)
+            return (
+                VoiceModelItem(
+                    MURF_MODEL_ID,
+                    "Murf Gen2 (non-streaming)",
+                    (),
+                    maximum_text_length=MURF_MAX_TEXT_CHARACTERS,
+                ),
+            )
         if provider_id == "piper":
             return (VoiceModelItem("piper-local", "Piper local ONNX", ()),)
         return ()

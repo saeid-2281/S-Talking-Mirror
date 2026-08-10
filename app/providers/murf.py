@@ -17,6 +17,7 @@ from app.providers.base import TTSProvider
 MURF_MODEL_ID = "GEN2"
 MURF_OUTPUT_FORMATS = ("mp3", "wav", "flac", "ogg", "pcm")
 MURF_SAMPLE_RATES = (8000, 24000, 44100, 48000)
+MURF_MAX_TEXT_CHARACTERS = 3000
 
 
 class MurfProvider(TTSProvider):
@@ -158,6 +159,7 @@ class MurfProvider(TTSProvider):
                 "name": "Murf Gen2 (non-streaming)",
                 "languages": languages,
                 "can_do_text_to_speech": True,
+                "maximum_text_length": MURF_MAX_TEXT_CHARACTERS,
             }
         ]
 
@@ -171,6 +173,12 @@ class MurfProvider(TTSProvider):
         validation = self.validate_synthesis_configuration(settings)
         if not validation.ok:
             raise ConfigurationError(validation.message)
+        if len(text) > MURF_MAX_TEXT_CHARACTERS:
+            raise ProviderError(
+                f"Murf input exceeds {MURF_MAX_TEXT_CHARACTERS:,} characters.",
+                retryable=False,
+                provider_code="input_too_large",
+            )
 
         payload: dict[str, Any] = {
             "text": text,

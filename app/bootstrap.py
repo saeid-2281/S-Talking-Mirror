@@ -46,6 +46,7 @@ from app.services.provider_verification_service import ProviderVerificationServi
 from app.services.provider_catalog_service import ProviderCatalogService
 from app.services.provider_accounts_center_service import ProviderAccountsCenterService
 from app.services.unified_voice_model_catalog_service import UnifiedVoiceModelCatalogService
+from app.services.provider_cost_quota_limits_service import ProviderCostQuotaLimitsService
 from app.services.provider_identity_service import ProviderIdentityService
 from app.services.provider_readiness_service import ProviderReadinessService
 from app.services.provider_intelligence_service import ProviderIntelligenceService
@@ -181,6 +182,7 @@ class ApplicationContext:
     provider_catalog_service: ProviderCatalogService
     provider_accounts_center_service: ProviderAccountsCenterService
     unified_voice_model_catalog_service: UnifiedVoiceModelCatalogService
+    provider_cost_quota_limits_service: ProviderCostQuotaLimitsService
     provider_identity_service: ProviderIdentityService
     provider_readiness_service: ProviderReadinessService
     provider_intelligence_service: ProviderIntelligenceService
@@ -283,6 +285,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         provider_catalog_service=services.provider_catalog_service,
         provider_accounts_center_service=services.provider_accounts_center_service,
         unified_voice_model_catalog_service=services.unified_voice_model_catalog_service,
+        provider_cost_quota_limits_service=services.provider_cost_quota_limits_service,
         provider_identity_service=services.provider_identity_service,
         provider_readiness_service=services.provider_readiness_service,
         provider_intelligence_service=services.provider_intelligence_service,
