@@ -10,6 +10,7 @@ from app.models.smart_provider_routing import (
     SmartProviderRoutingState,
 )
 from app.services.offline_tts_engine_service import OfflineTTSEngineService
+from app.provider_registry import DEFAULT_PROVIDER_REGISTRY, ProviderRegistry
 from app.services.provider_readiness_service import ProviderReadinessService
 
 
@@ -23,17 +24,17 @@ class SmartProviderRoutingService:
     user action before preflight.
     """
 
-    LOCAL_PROVIDERS = {"mock", "piper", "kokoro"}
-
     def __init__(
         self,
         readiness_service: ProviderReadinessService,
         offline_tts_engine_service: OfflineTTSEngineService,
         cost_capacity_service=None,
+        registry: ProviderRegistry | None = None,
     ) -> None:
         self.readiness_service = readiness_service
         self.offline_tts_engine_service = offline_tts_engine_service
         self.cost_capacity_service = cost_capacity_service
+        self.registry = registry or DEFAULT_PROVIDER_REGISTRY
 
     def analyze(
         self,
@@ -174,7 +175,7 @@ class SmartProviderRoutingService:
     ) -> ProviderRouteCandidate:
         provider_id = str(settings.provider or "mock").strip().casefold()
         readiness = self.readiness_service.readiness_for(provider_id, settings)
-        locality = "local" if provider_id in self.LOCAL_PROVIDERS else "cloud"
+        locality = self.registry.manifest_for(provider_id).locality
         ready = not readiness.blocks_generation
         detail = readiness.reason or readiness.state
         lowered = str(connection_status or "").casefold()

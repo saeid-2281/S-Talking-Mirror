@@ -1035,7 +1035,7 @@ class MainWindow(QMainWindow):
             'quota_batch':'Quota-sized batch',
         }
         voice=self.voice.text().strip() if hasattr(self,'voice') else ''
-        voice_required=provider_id not in {'mock','piper'}
+        voice_required=self.context.provider_catalog_service.control_policy_for(provider_id).voice_required
         state=build_generation_journey_state(
             total_jobs=len(jobs),
             total_characters=sum(len(job.text) for job in jobs),
@@ -1964,27 +1964,29 @@ class MainWindow(QMainWindow):
         if hasattr(self,'project_controller') and not self.settings_controller.is_loading: self.project_controller.update_provider(n); self.update_window_title()
         if hasattr(self,'provider_overview'): self.refresh_provider_workspace_summary()
     def update_provider_controls(self,provider_id):
-        capabilities=self.context.provider_catalog_service.capabilities_for(provider_id,self.settings())
-        self.key.setEnabled(capabilities.requires_credential and provider_id in {'elevenlabs','openai'})
-        self.api_profile.setEnabled(capabilities.requires_credential and provider_id in {'elevenlabs','openai','azure','google','aws_polly'})
-        self.failover.setEnabled(provider_id=='elevenlabs')
-        self.test_connection_button.setEnabled(capabilities.requires_credential or provider_id in {'piper','kokoro'})
-        self.voice.setEnabled(True); self.voice_browser_button.setEnabled(capabilities.supports_voice_listing or provider_id in {'elevenlabs','mock','piper','openai'})
-        self.model.setEnabled(capabilities.supports_model_listing or provider_id in {'elevenlabs','openai','piper'})
+        catalog=self.context.provider_catalog_service
+        capabilities=catalog.capabilities_for(provider_id,self.settings())
+        policy=catalog.control_policy_for(provider_id)
+        self.key.setEnabled(capabilities.requires_credential and policy.api_key)
+        self.api_profile.setEnabled(capabilities.requires_credential and policy.api_profile)
+        self.failover.setEnabled(policy.account_failover)
+        self.test_connection_button.setEnabled(policy.connection_test)
+        self.voice.setEnabled(True); self.voice_browser_button.setEnabled(capabilities.supports_voice_listing or policy.voice_browser_fallback)
+        self.model.setEnabled(capabilities.supports_model_listing or policy.model_listing_fallback)
         self.language.setEnabled(capabilities.supports_language_code)
-        self.stability.setVisible(provider_id=='elevenlabs'); self.similarity.setVisible(provider_id=='elevenlabs'); self.style.setVisible(capabilities.supports_styles or provider_id=='elevenlabs'); self.boost.setVisible(provider_id=='elevenlabs')
-        self.piper.setEnabled(provider_id=='piper')
+        self.stability.setVisible(policy.stability); self.similarity.setVisible(policy.similarity); self.style.setVisible(capabilities.supports_styles or policy.style); self.boost.setVisible(policy.speaker_boost)
+        self.piper.setEnabled(policy.local_model_path)
         field_rows=getattr(self,'provider_field_rows',{})
         visibility={
-            'api_profile': capabilities.requires_credential and provider_id in {'elevenlabs','openai','azure','google','aws_polly'},
-            'api_key': capabilities.requires_credential and provider_id in {'elevenlabs','openai'},
+            'api_profile': capabilities.requires_credential and policy.api_profile,
+            'api_key': capabilities.requires_credential and policy.api_key,
             'language': capabilities.supports_language_code,
-            'piper': provider_id=='piper',
-            'stability': provider_id=='elevenlabs',
-            'similarity': provider_id=='elevenlabs',
-            'style': capabilities.supports_styles or provider_id=='elevenlabs',
-            'failover': provider_id=='elevenlabs',
-            'boost': provider_id=='elevenlabs',
+            'piper': policy.local_model_path,
+            'stability': policy.stability,
+            'similarity': policy.similarity,
+            'style': capabilities.supports_styles or policy.style,
+            'failover': policy.account_failover,
+            'boost': policy.speaker_boost,
         }
         for key,visible in visibility.items():
             field=field_rows.get(key)
@@ -1999,7 +2001,7 @@ class MainWindow(QMainWindow):
             try: capabilities=self.context.provider_catalog_service.capabilities_for(provider_id,self.settings())
             except Exception: capabilities=None
         display_name=getattr(capabilities,'display_name',None) or self.provider_display_name(provider_id)
-        remote=bool(getattr(capabilities,'remote',provider_id not in {'mock','piper','kokoro'}))
+        remote=bool(getattr(capabilities,'remote',not self.context.provider_catalog_service.is_local(provider_id)))
         provider_mode='Cloud provider' if remote else 'Local / offline provider'
 
         status=self.connection_status.text().strip() if hasattr(self,'connection_status') else 'Not tested'

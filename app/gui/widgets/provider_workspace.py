@@ -29,6 +29,7 @@ from app.gui.widgets import ControlledDoubleSpinBox, ControlledSpinBox
 from app.gui.widgets.provider_controls import ProviderOverviewCard, ProviderSection
 from app.gui.widgets.provider_intelligence import ProviderIntelligenceCard
 from app.gui.widgets.smart_provider_routing import SmartProviderRoutingCard
+from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
 
 
 class IconActionButton(QPushButton):
@@ -80,7 +81,7 @@ class ProviderWorkspaceResult:
 class ProviderWorkspaceBuilder:
     """Builds the provider panel while preserving MainWindow's public attributes."""
 
-    PROVIDERS = ["mock", "piper", "elevenlabs", "openai", "azure", "google", "aws_polly", "kokoro"]
+    PROVIDERS = list(DEFAULT_PROVIDER_REGISTRY.provider_ids())
 
     def __init__(self, owner) -> None:
         self.owner = owner
@@ -159,7 +160,7 @@ class ProviderWorkspaceBuilder:
         root.addWidget(owner.smart_provider_routing)
 
         owner.provider = QComboBox()
-        owner.provider.addItems(self.PROVIDERS)
+        owner.provider.addItems(owner.context.provider_catalog_service.provider_ids())
         owner.provider.setToolTip(
             "Select the synthesis provider. Display names and readiness remain available in status and diagnostics."
         )
