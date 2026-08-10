@@ -17,7 +17,7 @@ EXPECTED = ("mock", "piper", "elevenlabs", "openai", "azure", "google", "aws_pol
 
 
 def test_phase99_registry_covers_existing_provider_factory_in_stable_order() -> None:
-    assert DEFAULT_PROVIDER_REGISTRY.provider_ids() == EXPECTED
+    assert DEFAULT_PROVIDER_REGISTRY.provider_ids()[: len(EXPECTED)] == EXPECTED
     assert set(EXPECTED).issubset(available_provider_ids())
     catalog = ProviderCatalogService()
     assert catalog.provider_ids()[: len(EXPECTED)] == EXPECTED

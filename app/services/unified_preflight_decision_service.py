@@ -11,6 +11,7 @@ from app.models.unified_preflight_decision import (
     UnifiedPreflightDecision,
     UnifiedPreflightSignal,
 )
+from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
 
 
 class UnifiedPreflightDecisionService:
@@ -188,7 +189,7 @@ class UnifiedPreflightDecisionService:
                     )
                 )
             if (
-                plan.provider in {"elevenlabs", "openai", "azure", "google", "aws_polly"}
+                DEFAULT_PROVIDER_REGISTRY.manifest_for(plan.provider).remote
                 and not plan.cost_available
                 and "pricing_unavailable" not in check_codes
             ):

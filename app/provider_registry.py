@@ -141,6 +141,40 @@ DEFAULT_PROVIDER_MANIFESTS: tuple[ProviderManifest, ...] = (
             voice_required=True,
         ),
     ),
+    ProviderManifest(
+        "cartesia",
+        "Cartesia",
+        locality="cloud",
+        credential_mode="profile_or_key",
+        setup_kind="credential",
+        retry_ready=True,
+        placeholder_api_key=True,
+        fallback_output_formats=("mp3", "wav"),
+        profile_management_ready=True,
+        controls=ProviderControlPolicy(
+            api_profile=True,
+            api_key=True,
+            voice_browser_fallback=True,
+            model_listing_fallback=True,
+        ),
+    ),
+    ProviderManifest(
+        "deepgram",
+        "Deepgram Aura",
+        locality="cloud",
+        credential_mode="profile_or_key",
+        setup_kind="credential",
+        retry_ready=True,
+        placeholder_api_key=True,
+        fallback_output_formats=("mp3", "wav", "opus", "flac", "aac", "pcm"),
+        profile_management_ready=True,
+        controls=ProviderControlPolicy(
+            api_profile=True,
+            api_key=True,
+            voice_browser_fallback=True,
+            model_listing_fallback=True,
+        ),
+    ),
 )
 
 

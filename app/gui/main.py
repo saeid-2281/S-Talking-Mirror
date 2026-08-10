@@ -2174,6 +2174,11 @@ class MainWindow(QMainWindow):
             self.model.blockSignals(True); self.model.clear()
             for model in OPENAI_SPEECH_MODELS: self.model.addItem(model,model)
             self.model.blockSignals(False); self.set_model_value(self.current_model_id()); self.statusBar().showMessage('OpenAI Speech models loaded from supported API configuration.',5000); return
+        if provider_id=='cartesia':
+            from app.providers.cartesia import CARTESIA_TTS_MODELS
+            current=self.current_model_id(); self.model.blockSignals(True); self.model.clear()
+            for model in CARTESIA_TTS_MODELS: self.model.addItem(model,model)
+            self.model.blockSignals(False); self.set_model_value(current if current in CARTESIA_TTS_MODELS else CARTESIA_TTS_MODELS[0]); self.statusBar().showMessage('Cartesia Sonic models loaded from the production API contract.',5000); return
         if provider_id in {'azure','google','aws_polly','kokoro'}:
             self.model.blockSignals(True); self.model.clear(); self.model.addItem('Configured by provider setup',''); self.model.blockSignals(False); self.statusBar().showMessage('Provider model list is available after setup/connection.',5000); return
         cached=self.context.voice_service.cached_catalog(self.settings())

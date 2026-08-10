@@ -5,6 +5,7 @@ from math import ceil
 from typing import Callable
 
 from app.models.generation_planning import BatchGenerationPlan, GenerationPlanScenario
+from app.provider_registry import DEFAULT_PROVIDER_REGISTRY, ProviderRegistry
 
 
 class GenerationPlanningService:
@@ -15,11 +16,16 @@ class GenerationPlanningService:
     latest provider quota snapshot into a small immutable plan.
     """
 
-    CLOUD_PROVIDERS = {"elevenlabs", "openai", "azure", "google", "aws_polly"}
-
-    def __init__(self, cost_capacity_service=None, *, now_factory: Callable[[], datetime] | None = None) -> None:
+    def __init__(
+        self,
+        cost_capacity_service=None,
+        *,
+        now_factory: Callable[[], datetime] | None = None,
+        registry: ProviderRegistry | None = None,
+    ) -> None:
         self.cost_capacity_service = cost_capacity_service
         self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
+        self.registry = registry or DEFAULT_PROVIDER_REGISTRY
 
     def build(
         self,
@@ -132,7 +138,7 @@ class GenerationPlanningService:
             risk = "medium"
             reasons.append("Estimated cost uses at least 80% of the queue budget limit.")
 
-        if provider_key in self.CLOUD_PROVIDERS and price_rate <= 0:
+        if self.registry.manifest_for(provider_key).remote and price_rate <= 0:
             if risk == "low":
                 risk = "medium"
             reasons.append("No pricing rate is configured, so cost is shown as unavailable.")

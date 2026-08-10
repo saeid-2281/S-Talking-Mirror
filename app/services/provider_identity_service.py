@@ -21,6 +21,8 @@ PROVIDER_IDENTITIES: dict[str, ProviderIdentity] = {
     "google": ProviderIdentity("google", "Google Cloud Text-to-Speech", "Google TTS", "settings", "Cloud", "https://cloud.google.com/text-to-speech/docs"),
     "aws_polly": ProviderIdentity("aws_polly", "Amazon Polly", "Polly", "settings", "Cloud", "https://docs.aws.amazon.com/polly/"),
     "kokoro": ProviderIdentity("kokoro", "Kokoro", "Kokoro", "settings", "Local", "https://github.com/hexgrad/kokoro"),
+    "cartesia": ProviderIdentity("cartesia", "Cartesia", "Cartesia", "settings", "Cloud", "https://docs.cartesia.ai/"),
+    "deepgram": ProviderIdentity("deepgram", "Deepgram Aura", "Deepgram", "settings", "Cloud", "https://developers.deepgram.com/docs/text-to-speech"),
 }
 
 

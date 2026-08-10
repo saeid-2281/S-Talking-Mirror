@@ -12,6 +12,7 @@ from app.models.generation_budget_guard import GenerationBudgetGuardDecision
 from app.models.generation_launch_receipt import GenerationLaunchReceipt
 from app.models.preflight_state import PreflightState
 from app.models.unified_preflight_decision import UnifiedPreflightDecision
+from app.provider_registry import DEFAULT_PROVIDER_REGISTRY, ProviderRegistry
 from app.services.generation_launch_receipt_service import GenerationLaunchReceiptService
 from app.services.generation_budget_guard_service import GenerationBudgetGuardService
 from app.services.unified_preflight_decision_service import UnifiedPreflightDecisionService
@@ -55,13 +56,13 @@ class GenerationConfirmation:
 class GenerationConfirmationCoordinator:
     """Build the safe-launch decision and a secret-free execution receipt."""
 
-    CLOUD_PROVIDERS = {"elevenlabs", "openai", "azure", "google", "aws_polly"}
-
     def __init__(
         self,
         decision_service: UnifiedPreflightDecisionService | None = None,
+        registry: ProviderRegistry | None = None,
     ) -> None:
         self.decision_service = decision_service or UnifiedPreflightDecisionService()
+        self.registry = registry or DEFAULT_PROVIDER_REGISTRY
 
     def evaluate(
         self,
@@ -194,7 +195,7 @@ class GenerationConfirmationCoordinator:
                     )
                 )
 
-            if plan.provider in self.CLOUD_PROVIDERS and not plan.cost_available:
+            if self.registry.manifest_for(plan.provider).remote and not plan.cost_available:
                 checks.append(
                     GenerationLaunchCheck(
                         "pricing_unavailable",

@@ -14,14 +14,15 @@ from typing import TYPE_CHECKING, Any
 
 from app.config.runtime import RuntimeConfig
 from app.models.domain import AppSettings, JobStatus, TTSJob
-from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
 from app.models.preflight_state import PreflightFix, PreflightIssue, PreflightState
+from app.provider_factory import create_provider
+from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
 from app.repositories.voice_repository import VoiceRepository
+from app.services.generation_planning_service import GenerationPlanningService
 from app.services.monitor_formatting import format_duration
-from app.services.voice_service import VoiceService
 from app.services.provider_catalog_service import ProviderCatalogService
 from app.services.provider_readiness_service import ProviderReadinessService
-from app.services.generation_planning_service import GenerationPlanningService
+from app.services.voice_service import VoiceService
 
 if TYPE_CHECKING:
     from app.services.generation_cost_capacity_service import GenerationCostCapacityService
@@ -485,6 +486,23 @@ class PreflightService:
         elif settings.provider == "piper":
             if not settings.piper_model_path or not Path(settings.piper_model_path).is_file():
                 self._issue(issues, "hard_error", None, settings.piper_model_path or "", "Piper model file is missing.", "Choose an existing .onnx model file.", "missing_piper_model")
+                ready = False
+        elif settings.provider in {"cartesia", "deepgram"}:
+            provider = None
+            try:
+                provider = create_provider(settings)
+                validate = getattr(provider, "validate_synthesis_configuration", provider.validate_configuration)
+                synthesis_validation = validate(settings)
+            except Exception as exc:
+                synthesis_validation = None
+                self._issue(issues, "hard_error", None, settings.provider, str(exc), "Review provider account, voice, model, language and output settings.", "provider_synthesis_configuration_invalid")
+                ready = False
+            finally:
+                close = getattr(provider, "close", None)
+                if callable(close):
+                    close()
+            if synthesis_validation is not None and not synthesis_validation.ok:
+                self._issue(issues, "hard_error", None, settings.provider, synthesis_validation.message, "Choose a compatible voice/model/language/output combination.", "provider_synthesis_configuration_invalid")
                 ready = False
         return ready
 
