@@ -487,7 +487,7 @@ class PreflightService:
             if not settings.piper_model_path or not Path(settings.piper_model_path).is_file():
                 self._issue(issues, "hard_error", None, settings.piper_model_path or "", "Piper model file is missing.", "Choose an existing .onnx model file.", "missing_piper_model")
                 ready = False
-        elif settings.provider in {"cartesia", "deepgram"}:
+        elif settings.provider in {"cartesia", "deepgram", "resemble", "murf"}:
             provider = None
             try:
                 provider = create_provider(settings)

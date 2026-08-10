@@ -75,8 +75,8 @@ def _deepgram_settings(**updates) -> AppSettings:
 
 def test_phase103_registry_and_factory_append_nextgen_providers() -> None:
     ids = DEFAULT_PROVIDER_REGISTRY.provider_ids()
-    assert ids[-2:] == ("cartesia", "deepgram")
-    assert available_provider_ids()[-2:] == ["cartesia", "deepgram"]
+    assert ids[8:10] == ("cartesia", "deepgram")
+    assert available_provider_ids()[8:10] == ["cartesia", "deepgram"]
 
     cartesia = DEFAULT_PROVIDER_REGISTRY.manifest_for("cartesia")
     deepgram = DEFAULT_PROVIDER_REGISTRY.manifest_for("deepgram")
@@ -485,7 +485,7 @@ def test_phase103_main_workspace_exposes_nextgen_providers(qt_app, tmp_path: Pat
     qt_app.processEvents()
 
     providers = tuple(window.provider.itemText(index) for index in range(window.provider.count()))
-    assert providers[-2:] == ("cartesia", "deepgram")
+    assert providers[8:10] == ("cartesia", "deepgram")
 
     window.provider.setCurrentText("cartesia")
     qt_app.processEvents()

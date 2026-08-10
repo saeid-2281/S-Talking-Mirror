@@ -23,6 +23,8 @@ PROVIDER_IDENTITIES: dict[str, ProviderIdentity] = {
     "kokoro": ProviderIdentity("kokoro", "Kokoro", "Kokoro", "settings", "Local", "https://github.com/hexgrad/kokoro"),
     "cartesia": ProviderIdentity("cartesia", "Cartesia", "Cartesia", "settings", "Cloud", "https://docs.cartesia.ai/"),
     "deepgram": ProviderIdentity("deepgram", "Deepgram Aura", "Deepgram", "settings", "Cloud", "https://developers.deepgram.com/docs/text-to-speech"),
+    "resemble": ProviderIdentity("resemble", "Resemble AI", "Resemble", "settings", "Cloud", "https://docs.resemble.ai/"),
+    "murf": ProviderIdentity("murf", "Murf", "Murf", "settings", "Cloud", "https://murf.ai/api/docs/introduction/overview"),
 }
 
 

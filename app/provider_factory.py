@@ -3,6 +3,8 @@ from __future__ import annotations
 from app.exceptions import ConfigurationError
 from app.providers.cartesia import CartesiaProvider
 from app.providers.deepgram import DeepgramProvider
+from app.providers.murf import MurfProvider
+from app.providers.resemble import ResembleProvider
 from app.providers.elevenlabs import ElevenLabsProvider
 from app.providers.mock import MockProvider
 from app.providers.openai_speech import OpenAISpeechProvider
@@ -20,6 +22,8 @@ PROVIDER_CLASSES = {
     "kokoro": KokoroLocalProvider,
     "cartesia": CartesiaProvider,
     "deepgram": DeepgramProvider,
+    "resemble": ResembleProvider,
+    "murf": MurfProvider,
 }
 
 

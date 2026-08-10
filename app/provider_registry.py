@@ -175,6 +175,40 @@ DEFAULT_PROVIDER_MANIFESTS: tuple[ProviderManifest, ...] = (
             model_listing_fallback=True,
         ),
     ),
+    ProviderManifest(
+        "resemble",
+        "Resemble AI",
+        locality="cloud",
+        credential_mode="profile_or_key",
+        setup_kind="credential",
+        retry_ready=True,
+        placeholder_api_key=True,
+        fallback_output_formats=("wav", "mp3"),
+        profile_management_ready=True,
+        controls=ProviderControlPolicy(
+            api_profile=True,
+            api_key=True,
+            voice_browser_fallback=True,
+            model_listing_fallback=True,
+        ),
+    ),
+    ProviderManifest(
+        "murf",
+        "Murf",
+        locality="cloud",
+        credential_mode="profile_or_key",
+        setup_kind="credential",
+        retry_ready=True,
+        placeholder_api_key=True,
+        fallback_output_formats=("mp3", "wav", "flac", "ogg", "pcm"),
+        profile_management_ready=True,
+        controls=ProviderControlPolicy(
+            api_profile=True,
+            api_key=True,
+            voice_browser_fallback=True,
+            model_listing_fallback=True,
+        ),
+    ),
 )
 
 

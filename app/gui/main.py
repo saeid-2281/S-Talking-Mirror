@@ -2179,6 +2179,12 @@ class MainWindow(QMainWindow):
             current=self.current_model_id(); self.model.blockSignals(True); self.model.clear()
             for model in CARTESIA_TTS_MODELS: self.model.addItem(model,model)
             self.model.blockSignals(False); self.set_model_value(current if current in CARTESIA_TTS_MODELS else CARTESIA_TTS_MODELS[0]); self.statusBar().showMessage('Cartesia Sonic models loaded from the production API contract.',5000); return
+        if provider_id=='resemble':
+            from app.providers.resemble import RESEMBLE_MODEL_ID
+            self.model.blockSignals(True); self.model.clear(); self.model.addItem('Resemble Ultra (voice-managed)',RESEMBLE_MODEL_ID); self.model.blockSignals(False); self.set_model_value(RESEMBLE_MODEL_ID); self.statusBar().showMessage('Resemble uses the model associated with the selected voice.',5000); return
+        if provider_id=='murf':
+            from app.providers.murf import MURF_MODEL_ID
+            self.model.blockSignals(True); self.model.clear(); self.model.addItem('Murf Gen2 (non-streaming)',MURF_MODEL_ID); self.model.blockSignals(False); self.set_model_value(MURF_MODEL_ID); self.statusBar().showMessage('Murf Gen2 non-streaming model loaded from the production API contract.',5000); return
         if provider_id in {'azure','google','aws_polly','kokoro'}:
             self.model.blockSignals(True); self.model.clear(); self.model.addItem('Configured by provider setup',''); self.model.blockSignals(False); self.statusBar().showMessage('Provider model list is available after setup/connection.',5000); return
         cached=self.context.voice_service.cached_catalog(self.settings())

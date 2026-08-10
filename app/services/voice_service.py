@@ -709,7 +709,7 @@ class VoiceService:
         forced = DEFAULT_PROVIDER_REGISTRY.manifest_for(settings.provider).forced_file_extension
         if forced:
             return forced
-        if settings.provider not in {"openai", "azure", "google", "aws_polly", "cartesia", "deepgram"}:
+        if settings.provider not in {"openai", "azure", "google", "aws_polly", "cartesia", "deepgram", "resemble", "murf"}:
             return settings.file_extension or ".bin"
         simple = (settings.output_format or "").split("_", 1)[0].casefold()
         return {
