@@ -1940,7 +1940,7 @@ class MainWindow(QMainWindow):
         self.set_provider_status('Offline Piper voice selected. Run preflight before generation.')
         return True
     def open_provider_accounts(self):
-        dialog=ProviderAccountsDialog(self.context.api_profile_service,self.context.voice_service,self.settings,generation_active=lambda:self.generation_controller.is_active,verification_service=self.context.provider_verification_service,provider_catalog_service=self.context.provider_catalog_service,parent=self)
+        dialog=ProviderAccountsDialog(self.context.api_profile_service,self.context.voice_service,self.settings,generation_active=lambda:self.generation_controller.is_active,verification_service=self.context.provider_verification_service,provider_catalog_service=self.context.provider_catalog_service,accounts_center_service=self.context.provider_accounts_center_service,parent=self)
         dialog.profiles_changed.connect(self.provider_accounts_changed)
         dialog.show()
         self.provider_accounts_dialog=dialog

@@ -60,6 +60,7 @@ from app.services.workspace_profile_service import WorkspaceProfileService
 from app.services.provider_verification_service import ProviderVerificationService
 from app.services.provider_catalog_service import ProviderCatalogService
 from app.services.provider_account_catalog_store import ProviderAccountCatalogStore
+from app.services.provider_accounts_center_service import ProviderAccountsCenterService
 from app.services.provider_identity_service import ProviderIdentityService
 from app.services.provider_readiness_service import ProviderReadinessService
 from app.services.provider_intelligence_service import ProviderIntelligenceService
@@ -206,6 +207,7 @@ class ServiceContainer:
     provider_verification_service: ProviderVerificationService
     provider_catalog_service: ProviderCatalogService
     provider_account_catalog_store: ProviderAccountCatalogStore
+    provider_accounts_center_service: ProviderAccountsCenterService
     provider_identity_service: ProviderIdentityService
     provider_readiness_service: ProviderReadinessService
     provider_intelligence_service: ProviderIntelligenceService
@@ -278,6 +280,10 @@ def create_service_container(
     provider_identity_service = ProviderIdentityService(config.resource_path("app", "resources", "brand"))
     provider_readiness_service = ProviderReadinessService(provider_identity_service)
     provider_catalog_service = ProviderCatalogService()
+    provider_accounts_center_service = ProviderAccountsCenterService(
+        api_profile_service,
+        provider_catalog_service,
+    )
     startup_recovery_service = StartupRecoveryService(config, database, job_repository, project_repository)
     session_restore_service = SessionRestoreService(config)
     project_session_workflow_service = ProjectSessionWorkflowService(
@@ -579,6 +585,7 @@ def create_service_container(
         provider_verification_service=provider_verification_service,
         provider_catalog_service=provider_catalog_service,
         provider_account_catalog_store=account_catalog_store,
+        provider_accounts_center_service=provider_accounts_center_service,
         provider_identity_service=provider_identity_service,
         provider_readiness_service=provider_readiness_service,
         provider_intelligence_service=provider_intelligence_service,

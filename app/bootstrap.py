@@ -44,6 +44,7 @@ from app.services.notification_center_service import NotificationCenterService
 from app.services.workspace_profile_service import WorkspaceProfileService
 from app.services.provider_verification_service import ProviderVerificationService
 from app.services.provider_catalog_service import ProviderCatalogService
+from app.services.provider_accounts_center_service import ProviderAccountsCenterService
 from app.services.provider_identity_service import ProviderIdentityService
 from app.services.provider_readiness_service import ProviderReadinessService
 from app.services.provider_intelligence_service import ProviderIntelligenceService
@@ -177,6 +178,7 @@ class ApplicationContext:
     pronunciation_dictionary_service: PronunciationDictionaryService
     provider_verification_service: ProviderVerificationService
     provider_catalog_service: ProviderCatalogService
+    provider_accounts_center_service: ProviderAccountsCenterService
     provider_identity_service: ProviderIdentityService
     provider_readiness_service: ProviderReadinessService
     provider_intelligence_service: ProviderIntelligenceService
@@ -277,6 +279,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         pronunciation_dictionary_service=services.pronunciation_dictionary_service,
         provider_verification_service=services.provider_verification_service,
         provider_catalog_service=services.provider_catalog_service,
+        provider_accounts_center_service=services.provider_accounts_center_service,
         provider_identity_service=services.provider_identity_service,
         provider_readiness_service=services.provider_readiness_service,
         provider_intelligence_service=services.provider_intelligence_service,

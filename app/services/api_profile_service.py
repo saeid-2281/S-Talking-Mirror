@@ -110,16 +110,26 @@ class ApiProfileService:
         return self.update_profile(profile)
 
     def move_profile(self, profile_id: str, direction: int) -> list[ApiProfile]:
-        profiles = self.list_profiles()
-        index = next((idx for idx, profile in enumerate(profiles) if profile.profile_id == profile_id), -1)
+        profile = self.get_profile(profile_id)
+        all_profiles = self.list_profiles()
+        provider_profiles = [item for item in all_profiles if item.provider == profile.provider]
+        index = next(
+            (idx for idx, item in enumerate(provider_profiles) if item.profile_id == profile_id),
+            -1,
+        )
         target = index + direction
-        if index < 0 or target < 0 or target >= len(profiles):
-            return profiles
-        profiles[index], profiles[target] = profiles[target], profiles[index]
-        for priority, profile in enumerate(profiles, 1):
-            profile.priority = priority
-        self._write_profiles(profiles)
-        return self.list_profiles()
+        if index < 0 or target < 0 or target >= len(provider_profiles):
+            return provider_profiles
+        provider_profiles[index], provider_profiles[target] = (
+            provider_profiles[target],
+            provider_profiles[index],
+        )
+        priorities = {item.profile_id: priority for priority, item in enumerate(provider_profiles, 1)}
+        for item in all_profiles:
+            if item.provider == profile.provider:
+                item.priority = priorities[item.profile_id]
+        self._write_profiles(all_profiles)
+        return self.list_profiles(profile.provider)
 
     def clear_exhausted_state(self, profile_id: str) -> ApiProfile:
         profile = self.get_profile(profile_id)
