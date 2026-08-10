@@ -28,6 +28,7 @@ from app.gui.icons import action_icon, icon
 from app.gui.widgets import ControlledDoubleSpinBox, ControlledSpinBox
 from app.gui.widgets.provider_controls import ProviderOverviewCard, ProviderSection
 from app.gui.widgets.provider_intelligence import ProviderIntelligenceCard
+from app.gui.widgets.smart_provider_routing import SmartProviderRoutingCard
 
 
 class IconActionButton(QPushButton):
@@ -147,6 +148,15 @@ class ProviderWorkspaceBuilder:
             owner.handle_provider_intelligence_action
         )
         root.addWidget(owner.provider_intelligence)
+
+        owner.smart_provider_routing = SmartProviderRoutingCard()
+        owner.smart_provider_routing.actionRequested.connect(
+            owner.handle_smart_provider_routing_action
+        )
+        owner.smart_provider_routing.preferenceChanged.connect(
+            owner.smart_provider_routing_preference_changed
+        )
+        root.addWidget(owner.smart_provider_routing)
 
         owner.provider = QComboBox()
         owner.provider.addItems(self.PROVIDERS)

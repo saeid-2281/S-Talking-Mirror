@@ -203,6 +203,7 @@ class MainWindow(QMainWindow):
         self.release_lifecycle_validation_service=context.release_lifecycle_validation_service
         self.final_production_certification_service=context.final_production_certification_service
         self.provider_intelligence_service=context.provider_intelligence_service
+        self.smart_provider_routing_service=context.smart_provider_routing_service
         self.offline_tts_engine_service=context.offline_tts_engine_service
         self.update_delivery_controller=UpdateDeliveryController(context.update_delivery_service,parent=self)
         self.update_delivery_controller.completed.connect(self._background_update_completed)
@@ -216,6 +217,7 @@ class MainWindow(QMainWindow):
             self.restore_previous_session(); QTimer.singleShot(0,self.offer_generation_recovery); QTimer.singleShot(5000,self.check_updates_on_startup)
         self.update_window_title(); self.update_status_bar()
         QTimer.singleShot(0,self.refresh_provider_intelligence)
+        QTimer.singleShot(0,self.refresh_smart_provider_routing)
         QTimer.singleShot(0,self.mark_performance_startup_ready)
         if self.crash_recovery_service.session_id: QTimer.singleShot(1200,self.announce_crash_recovery_state)
     def set_initial_geometry(self):
@@ -269,6 +271,7 @@ class MainWindow(QMainWindow):
         self.accessibility_announcer=LiveStatusAnnouncer(self); self.statusBar().addPermanentWidget(self.accessibility_announcer)
         palette_action=QAction('Command Palette',self); palette_action.setShortcut(QKeySequence('Ctrl+K')); palette_action.setShortcutContext(Qt.ApplicationShortcut); palette_action.triggered.connect(self.open_command_palette); self.addAction(palette_action); self.actions_by_name['Command Palette']=palette_action
         provider_intelligence_action=QAction('Provider Intelligence',self); provider_intelligence_action.setShortcut(QKeySequence('Ctrl+Alt+V')); provider_intelligence_action.setShortcutContext(Qt.ApplicationShortcut); provider_intelligence_action.triggered.connect(self.focus_provider_intelligence); self.addAction(provider_intelligence_action); self.actions_by_name['Provider Intelligence']=provider_intelligence_action
+        smart_routing_action=QAction('Smart Provider Routing',self); smart_routing_action.setShortcut(QKeySequence('Ctrl+Alt+S')); smart_routing_action.setShortcutContext(Qt.ApplicationShortcut); smart_routing_action.triggered.connect(self.focus_smart_provider_routing); self.addAction(smart_routing_action); self.actions_by_name['Smart Provider Routing']=smart_routing_action
         self.application_shell=ApplicationShell(); self.setCentralWidget(self.application_shell)
         self.project_context_widget=ProjectContextBar(
             self.project_controller.default_output_path,
@@ -428,7 +431,7 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Offline TTS Engines','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Smart Provider Routing','Offline TTS Engines','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
@@ -897,7 +900,7 @@ class MainWindow(QMainWindow):
         if dialog.exec()==QDialog.Accepted:
             settings=dialog.selected_settings(); self.provider.setCurrentText(settings.provider); self.set_model_value(settings.model_id); self.voice.setText(settings.voice_id); self.set_language_value(settings.language_code); self.save_global_preferences(settings); self.settings_changed()
     def show_shortcut_reference(self):
-        self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Shift+T Add text source\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Shift+L Offline TTS Engines\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nCtrl+Shift+F Focus queue\nCtrl+Alt+I Interface settings\nCtrl+1 Provider panel\nCtrl+2 Generation queue\nCtrl+3 Inspector panel\nCtrl+4 Activity panel\nCtrl+5 Generation controls\nCtrl+6 Output playback\nCtrl+7 Text Studio\nF6 Cycle major panels')
+        self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Shift+T Add text source\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Alt+S Smart Provider Routing\nCtrl+Shift+L Offline TTS Engines\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nCtrl+Shift+F Focus queue\nCtrl+Alt+I Interface settings\nCtrl+1 Provider panel\nCtrl+2 Generation queue\nCtrl+3 Inspector panel\nCtrl+4 Activity panel\nCtrl+5 Generation controls\nCtrl+6 Output playback\nCtrl+7 Text Studio\nF6 Cycle major panels')
     def open_about_dialog(self):
         dialog=AboutDialog(self.context.container.runtime,open_diagnostics=self.export_diagnostics,parent=self); dialog.exec()
     def build_project_sources_panel(self):
@@ -1163,6 +1166,107 @@ class MainWindow(QMainWindow):
         if hasattr(self,'provider_intelligence'):
             self.provider_intelligence.primary_action.setFocus(Qt.ShortcutFocusReason)
         self.statusBar().showMessage('Provider intelligence focused.',3000)
+
+    def smart_provider_routing_preference(self):
+        value=QSettings('S Talking','S Talking').value('provider_routing/preference','balanced')
+        return self.smart_provider_routing_service.normalize_preference(str(value or 'balanced'))
+
+    def smart_provider_routing_preference_changed(self,value):
+        preference=self.smart_provider_routing_service.normalize_preference(str(value or 'balanced'))
+        QSettings('S Talking','S Talking').setValue('provider_routing/preference',preference)
+        self.refresh_smart_provider_routing(force=True)
+
+    def _smart_provider_routing_profile(self,settings):
+        profile_id=getattr(settings,'active_api_profile_id',None)
+        if profile_id:
+            try:
+                profile=self.context.api_profile_service.get_profile(str(profile_id))
+                if profile.provider==settings.provider:
+                    return profile
+            except (ValueError,AttributeError):
+                pass
+        try:
+            return self.context.api_profile_service.active_profile(settings.provider)
+        except (ValueError,AttributeError):
+            return None
+
+    def refresh_smart_provider_routing(self,force=False):
+        card=getattr(self,'smart_provider_routing',None)
+        if card is None or not hasattr(self,'provider'):
+            return None
+        settings=self.settings()
+        jobs=list(self.generation_controller.generation_jobs()) if hasattr(self,'generation_controller') else []
+        characters=sum(len(job.text) for job in jobs)
+        profile=self._smart_provider_routing_profile(settings)
+        preference=self.smart_provider_routing_preference()
+        connection=(
+            self.connection_status.toolTip() or self.connection_status.text()
+            if hasattr(self,'connection_status')
+            else ''
+        )
+        generation_active=bool(self.generation_controller.is_active)
+        signature=(
+            settings.provider,settings.model_id,settings.voice_id,settings.language_code,
+            settings.piper_model_path,settings.active_api_profile_id,
+            getattr(profile,'remaining_characters',None),getattr(profile,'status',None),
+            preference,len(jobs),characters,connection,generation_active,
+        )
+        if not force and signature==getattr(self,'_smart_provider_routing_signature',None):
+            return getattr(self,'_smart_provider_routing_state',None)
+        project_id=(
+            self.project_controller.current_project.project_id
+            if self.project_controller.current_project
+            else None
+        )
+        try:
+            state=self.smart_provider_routing_service.analyze(
+                settings=settings,scoped_jobs=len(jobs),scoped_characters=characters,
+                project_id=project_id,current_profile=profile,connection_status=connection,
+                preference=preference,generation_active=generation_active,
+            )
+        except Exception as exc:
+            self.statusBar().showMessage(f'Smart provider routing unavailable: {exc}',5000)
+            return None
+        self._smart_provider_routing_signature=signature
+        self._smart_provider_routing_state=state
+        card.set_state(state)
+        return state
+
+    def handle_smart_provider_routing_action(self,code):
+        if code=='offline-engines':
+            self.open_offline_tts_engines(); return
+        if code=='apply':
+            self.apply_smart_provider_routing_recommendation(); return
+
+    def apply_smart_provider_routing_recommendation(self):
+        if self.generation_controller.is_active:
+            self.notifications.warning('Smart routing','Provider changes are blocked while generation is running.')
+            return False
+        state=self.refresh_smart_provider_routing(force=True)
+        if state is None or not state.recommends_piper or not state.action_enabled:
+            self.statusBar().showMessage('No explicit provider switch is recommended.',4000)
+            return False
+        model_path=state.piper_candidate.selected_model_path or self.settings().piper_model_path
+        if not model_path:
+            self.notifications.warning('Smart routing','Piper is recommended, but no verified offline voice is configured.')
+            self.open_offline_tts_engines()
+            return False
+        changed=self.apply_offline_piper_voice(model_path)
+        if changed:
+            self.statusBar().showMessage('Smart routing applied: Piper offline. Run preflight before generation.',7000)
+            self.refresh_smart_provider_routing(force=True)
+        return bool(changed)
+
+    def focus_smart_provider_routing(self):
+        self.left_dock.show(); self.left_dock.raise_(); self.left_tabs.setCurrentIndex(0)
+        if hasattr(self,'smart_provider_routing'):
+            target=(
+                self.smart_provider_routing.primary_action
+                if self.smart_provider_routing.primary_action.isEnabled()
+                else self.smart_provider_routing.preference
+            )
+            target.setFocus(Qt.ShortcutFocusReason)
+        self.statusBar().showMessage('Smart provider routing focused.',3000)
 
     def open_text_studio(self):
         if not hasattr(self,'text_studio_dock'):
@@ -1718,6 +1822,7 @@ class MainWindow(QMainWindow):
             voice=elide_middle(self.voice.text(),24) if hasattr(self,'voice') and self.voice.text() else '—'
             self.project_context_widget.update_context(project=project,source=source,output=out,provider=provider,model=model or '—',voice=voice,preflight=preflight,output_path=self.out.text() if hasattr(self,'out') else '')
         self.refresh_generation_journey()
+        self.refresh_smart_provider_routing()
         if hasattr(self,'health_button'):
             health=self.context.health_service.snapshot(project=self.project_controller.current_project,dashboard=self.current_dashboard_state())
             color={'healthy':'#22C55E','warning':'#F59E0B','error':'#EF4444'}[health.level]
@@ -1842,7 +1947,7 @@ class MainWindow(QMainWindow):
         self.refresh_api_profiles()
         failover=self.context.api_profile_service.failover_settings('elevenlabs')
         self.set_combo_data(self.failover,str(failover.mode))
-        self.context.voice_service.invalidate_provider_cache(); self.invalidate_preflight(); self.update_quota_scope_label(); self.set_provider_status('Provider account state changed.')
+        self.context.voice_service.invalidate_provider_cache(); self.invalidate_preflight(); self.update_quota_scope_label(); self.set_provider_status('Provider account state changed.'); self.refresh_smart_provider_routing(force=True)
     def open_pronunciation_dictionaries(self):
         dialog=PronunciationDictionaryDialog(self.context.pronunciation_dictionary_service,self.settings,parent=self)
         dialog.dictionaries_changed.connect(self.pronunciation_dictionaries_changed)
@@ -2138,6 +2243,7 @@ class MainWindow(QMainWindow):
         self.connection_status.setAccessibleName(f'Provider connection status: {text}')
         if hasattr(self,'provider_overview'): self.refresh_provider_workspace_summary()
         self.refresh_provider_intelligence(force=True)
+        self.refresh_smart_provider_routing(force=True)
     def open_account_details(self):
         profile_id=self.active_api_profile_id() if hasattr(self,'api_profile') else None
         profile=None
@@ -3641,6 +3747,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Generation: Open Output Folder',self.open_output_folder,lambda: Path(self.out.text() or self.project_controller.default_output_path).exists()),
             PaletteCommand('Generation: Show/Hide Generation Monitor',lambda:self.actions_by_name['Show/Hide Generation Monitor'].trigger()),
             PaletteCommand('Provider: Intelligence & Selection',self.focus_provider_intelligence),
+            PaletteCommand('Provider: Smart Routing',self.focus_smart_provider_routing),
             PaletteCommand('Provider: Offline TTS Engines',self.open_offline_tts_engines),
             PaletteCommand('Voice: Browse and Preview Voices',self.open_voice_browser,lambda: self.voice_browser_button.isEnabled()),
             PaletteCommand('Settings: Provider Accounts',act('Provider accounts')),

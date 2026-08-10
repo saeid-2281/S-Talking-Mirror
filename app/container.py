@@ -63,6 +63,7 @@ from app.services.provider_account_catalog_store import ProviderAccountCatalogSt
 from app.services.provider_identity_service import ProviderIdentityService
 from app.services.provider_readiness_service import ProviderReadinessService
 from app.services.provider_intelligence_service import ProviderIntelligenceService
+from app.services.smart_provider_routing_service import SmartProviderRoutingService
 from app.services.offline_tts_engine_service import OfflineTTSEngineService
 from app.providers.piper_runtime import PiperRuntimeService, shared_piper_runtime_service
 from app.services.report_service import ReportService
@@ -208,6 +209,7 @@ class ServiceContainer:
     provider_identity_service: ProviderIdentityService
     provider_readiness_service: ProviderReadinessService
     provider_intelligence_service: ProviderIntelligenceService
+    smart_provider_routing_service: SmartProviderRoutingService
     piper_runtime_service: PiperRuntimeService
     offline_tts_engine_service: OfflineTTSEngineService
     product_activity_service: ProductActivityService
@@ -306,6 +308,11 @@ def create_service_container(
     offline_tts_engine_service = OfflineTTSEngineService(
         config,
         piper_runtime=piper_runtime_service,
+    )
+    smart_provider_routing_service = SmartProviderRoutingService(
+        provider_readiness_service,
+        offline_tts_engine_service,
+        generation_cost_capacity_service,
     )
     generation_artifact_retention_service = GenerationArtifactRetentionService(config.reports_dir)
     generation_budget_guard_service = GenerationBudgetGuardService(
@@ -575,6 +582,7 @@ def create_service_container(
         provider_identity_service=provider_identity_service,
         provider_readiness_service=provider_readiness_service,
         provider_intelligence_service=provider_intelligence_service,
+        smart_provider_routing_service=smart_provider_routing_service,
         piper_runtime_service=piper_runtime_service,
         offline_tts_engine_service=offline_tts_engine_service,
         product_activity_service=ProductActivityService(
