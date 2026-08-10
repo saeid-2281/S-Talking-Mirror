@@ -334,6 +334,9 @@ def create_service_container(
         provider_readiness_service,
         offline_tts_engine_service,
         generation_cost_capacity_service,
+        provider_cost_quota_limits_service=provider_cost_quota_limits_service,
+        unified_catalog_service=unified_voice_model_catalog_service,
+        api_profile_service=api_profile_service,
     )
     generation_artifact_retention_service = GenerationArtifactRetentionService(config.reports_dir)
     generation_budget_guard_service = GenerationBudgetGuardService(

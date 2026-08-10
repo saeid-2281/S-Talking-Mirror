@@ -1201,6 +1201,8 @@ class MainWindow(QMainWindow):
         settings=self.settings()
         jobs=list(self.generation_controller.generation_jobs()) if hasattr(self,'generation_controller') else []
         characters=sum(len(job.text) for job in jobs)
+        largest_job_characters=max((len(job.text) for job in jobs),default=0)
+        largest_job_bytes=max((len(job.text.encode('utf-8')) for job in jobs),default=0)
         profile=self._smart_provider_routing_profile(settings)
         preference=self.smart_provider_routing_preference()
         connection=(
@@ -1213,7 +1215,7 @@ class MainWindow(QMainWindow):
             settings.provider,settings.model_id,settings.voice_id,settings.language_code,
             settings.piper_model_path,settings.active_api_profile_id,
             getattr(profile,'remaining_characters',None),getattr(profile,'status',None),
-            preference,len(jobs),characters,connection,generation_active,
+            preference,len(jobs),characters,largest_job_characters,largest_job_bytes,connection,generation_active,
         )
         if not force and signature==getattr(self,'_smart_provider_routing_signature',None):
             return getattr(self,'_smart_provider_routing_state',None)
@@ -1227,6 +1229,7 @@ class MainWindow(QMainWindow):
                 settings=settings,scoped_jobs=len(jobs),scoped_characters=characters,
                 project_id=project_id,current_profile=profile,connection_status=connection,
                 preference=preference,generation_active=generation_active,
+                largest_job_characters=largest_job_characters,largest_job_bytes=largest_job_bytes,
             )
         except Exception as exc:
             self.statusBar().showMessage(f'Smart provider routing unavailable: {exc}',5000)
@@ -1247,19 +1250,27 @@ class MainWindow(QMainWindow):
             self.notifications.warning('Smart routing','Provider changes are blocked while generation is running.')
             return False
         state=self.refresh_smart_provider_routing(force=True)
-        if state is None or not state.recommends_piper or not state.action_enabled:
+        if state is None or not state.switch_required or not state.action_enabled:
             self.statusBar().showMessage('No explicit provider switch is recommended.',4000)
             return False
-        model_path=state.piper_candidate.selected_model_path or self.settings().piper_model_path
-        if not model_path:
-            self.notifications.warning('Smart routing','Piper is recommended, but no verified offline voice is configured.')
-            self.open_offline_tts_engines()
-            return False
-        changed=self.apply_offline_piper_voice(model_path)
-        if changed:
-            self.statusBar().showMessage('Smart routing applied: Piper offline. Run preflight before generation.',7000)
-            self.refresh_smart_provider_routing(force=True)
-        return bool(changed)
+        if state.recommends_piper:
+            model_path=state.piper_candidate.selected_model_path or self.settings().piper_model_path
+            if not model_path:
+                self.notifications.warning('Smart routing','Piper is recommended, but no verified offline voice is configured.')
+                self.open_offline_tts_engines()
+                return False
+            changed=self.apply_offline_piper_voice(model_path)
+            if changed:
+                self.statusBar().showMessage('Smart routing applied: Piper offline. Run preflight before generation.',7000)
+                self.refresh_smart_provider_routing(force=True)
+            return bool(changed)
+        target=state.recommended_provider_id
+        self.open_unified_voice_model_catalog(target)
+        self.statusBar().showMessage(
+            f'Smart routing recommends {state.recommended_provider_name}. Review voice/model/account selection explicitly before applying.',
+            8000,
+        )
+        return False
 
     def focus_smart_provider_routing(self):
         self.left_dock.show(); self.left_dock.raise_(); self.left_tabs.setCurrentIndex(0)
@@ -1954,7 +1965,7 @@ class MainWindow(QMainWindow):
         failover=self.context.api_profile_service.failover_settings(provider_id)
         self.set_combo_data(self.failover,str(failover.mode))
         self.context.voice_service.invalidate_provider_cache(); self.invalidate_preflight(); self.update_quota_scope_label(); self.set_provider_status('Provider account state changed.'); self.refresh_smart_provider_routing(force=True)
-    def open_unified_voice_model_catalog(self):
+    def open_unified_voice_model_catalog(self,provider_id=None):
         dialog=UnifiedVoiceModelCatalogDialog(
             self.context.unified_voice_model_catalog_service,
             self.settings,
@@ -1963,6 +1974,10 @@ class MainWindow(QMainWindow):
             parent=self,
         )
         dialog.settings_selected.connect(self.apply_unified_catalog_settings)
+        if provider_id:
+            index=dialog.provider.findData(str(provider_id))
+            if index>=0:
+                dialog.provider.setCurrentIndex(index)
         dialog.show()
         self.unified_voice_model_catalog_dialog=dialog
         return dialog

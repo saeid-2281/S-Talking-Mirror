@@ -24,6 +24,7 @@ class SmartProviderRoutingCard(QFrame):
 
     PREFERENCES = (
         ("Balanced", "balanced"),
+        ("Reliability first", "reliability"),
         ("Privacy first", "privacy"),
         ("Lowest provider cost", "lowest_cost"),
         ("Cloud first", "cloud_first"),
@@ -86,6 +87,11 @@ class SmartProviderRoutingCard(QFrame):
         root.addWidget(self.current_label)
         root.addWidget(self.piper_label)
 
+        self.ranking_label = QLabel("Ranked routes will appear here.")
+        self.ranking_label.setObjectName("providerOverviewMode")
+        self.ranking_label.setWordWrap(True)
+        root.addWidget(self.ranking_label)
+
         self.reason_label = QLabel("Routing recommendation will appear here.")
         self.reason_label.setObjectName("providerNextStep")
         self.reason_label.setWordWrap(True)
@@ -131,11 +137,23 @@ class SmartProviderRoutingCard(QFrame):
         self._set_tone(self.current_label, "success" if current.ready else "error")
         self.piper_label.setText(f"Piper · {piper.status} · {piper.cost_text}")
         self._set_tone(self.piper_label, "success" if piper.ready else "warning")
+        ranked = state.candidates[:3]
+        if ranked:
+            self.ranking_label.setText(
+                "Top routes · "
+                + " | ".join(
+                    f"{candidate.rank}. {candidate.provider_name} {candidate.score}/100"
+                    + (" blocked" if candidate.blocked else "")
+                    for candidate in ranked
+                )
+            )
+        else:
+            self.ranking_label.setText("Top routes · current provider and Piper")
         self.reason_label.setText(state.recommendation)
         self.primary_action.setText(state.action_label)
         self.primary_action.setEnabled(state.action_enabled)
         self.setAccessibleDescription(
-            f"{state.route_summary}. {state.recommendation}. "
+            f"{state.route_summary}. {state.recommendation}. Confidence {state.confidence}. "
             "Provider changes are recommendation-only and never automatic during generation."
         )
 

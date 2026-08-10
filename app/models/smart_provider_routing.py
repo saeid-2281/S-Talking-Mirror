@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 ROUTING_PREFERENCES = (
     "balanced",
+    "reliability",
     "privacy",
     "lowest_cost",
     "cloud_first",
@@ -26,6 +27,20 @@ class ProviderRouteCandidate:
     cost_source: str | None = None
     selected_voice_id: str | None = None
     selected_model_path: str | None = None
+    score: int = 0
+    rank: int = 0
+    eligible: bool = True
+    blockers: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+    language_state: str = "unknown"
+    voice_state: str = "unknown"
+    model_state: str = "unknown"
+    account_state: str = "unknown"
+    request_limit_state: str = "unknown"
+    profile_id: str | None = None
+    profile_name: str | None = None
+    recommended_model_id: str | None = None
+    recommended_voice_id: str | None = None
 
     @property
     def cost_known(self) -> bool:
@@ -33,7 +48,7 @@ class ProviderRouteCandidate:
 
     @property
     def blocked(self) -> bool:
-        return not self.ready or self.quota_shortfall > 0
+        return not self.ready or not self.eligible or self.quota_shortfall > 0 or bool(self.blockers)
 
     @property
     def cost_text(self) -> str:
@@ -43,6 +58,17 @@ class ProviderRouteCandidate:
         if self.estimated_cost <= 0:
             return "No provider fee" if self.locality == "local" else f"{currency} 0.0000".strip()
         return f"{currency} {self.estimated_cost:.4f}".strip()
+
+    @property
+    def evidence_text(self) -> str:
+        values = (
+            f"language {self.language_state}",
+            f"voice {self.voice_state}",
+            f"model {self.model_state}",
+            f"account {self.account_state}",
+            f"limit {self.request_limit_state}",
+        )
+        return " · ".join(values)
 
 
 @dataclass(frozen=True)
@@ -63,7 +89,22 @@ class SmartProviderRoutingState:
     scoped_jobs: int
     scoped_characters: int
     no_automatic_failover: bool = True
+    candidates: tuple[ProviderRouteCandidate, ...] = ()
+    confidence: str = "medium"
+    decision_factors: tuple[str, ...] = ()
+    engine_version: int = 2
 
     @property
     def recommends_piper(self) -> bool:
         return self.recommended_provider_id == "piper" and self.switch_required
+
+    @property
+    def recommended_candidate(self) -> ProviderRouteCandidate:
+        return next(
+            (
+                candidate
+                for candidate in self.candidates
+                if candidate.provider_id == self.recommended_provider_id
+            ),
+            self.current_candidate,
+        )
