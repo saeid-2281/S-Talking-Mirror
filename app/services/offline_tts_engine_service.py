@@ -14,6 +14,11 @@ from app.models.offline_tts_engine import (
     OfflineEngineSnapshot,
     OfflineVoiceDescriptor,
 )
+from app.models.piper_runtime import PiperRuntimeHealth
+from app.providers.piper_runtime import (
+    PiperRuntimeService,
+    shared_piper_runtime_service,
+)
 
 
 @dataclass(frozen=True)
@@ -28,11 +33,11 @@ class OfflineEngineSpec:
 
 
 class OfflineTTSEngineService:
-    """Read-only inventory and health authority for local TTS runtimes.
+    """Inventory and explicit lifecycle authority for local TTS runtimes.
 
-    Phase 96 deliberately does not install packages, download voices, start local
-    servers, synthesize audio, or mutate provider settings. It only describes the
-    local engines that S-Talking already knows how to route to.
+    Inventory and voice discovery remain read-only. Phase 97 adds explicit Piper
+    warm/restart lifecycle controls, but this service still does not install
+    packages, download voices, synthesize audio, or mutate provider settings.
     """
 
     SPECS = (
@@ -61,10 +66,12 @@ class OfflineTTSEngineService:
         *,
         module_finder: Callable[[str], object | None] | None = None,
         executable_finder: Callable[[str], str | None] | None = None,
+        piper_runtime: PiperRuntimeService | None = None,
     ) -> None:
         self.runtime = runtime
         self._module_finder = module_finder or importlib.util.find_spec
         self._executable_finder = executable_finder or shutil.which
+        self.piper_runtime = piper_runtime or shared_piper_runtime_service()
 
     def inventory(self, settings: AppSettings | None = None) -> OfflineEngineInventory:
         active = settings or AppSettings()
@@ -168,6 +175,13 @@ class OfflineTTSEngineService:
             summary = "Install the optional Piper runtime before local synthesis can be enabled."
 
         runtime_mode = "python-api" if module_available else "legacy-cli" if executable_path else "unavailable"
+        runtime_health = self.piper_runtime.health(selected)
+        if ready and runtime_mode == "python-api" and runtime_health.loaded:
+            state = "Runtime warm"
+            summary = (
+                "Piper model is loaded and ready for in-process synthesis on "
+                f"{runtime_health.resolved_acceleration.upper()}."
+            )
         return OfflineEngineSnapshot(
             engine_id=spec.engine_id,
             display_name=spec.display_name,
@@ -185,7 +199,30 @@ class OfflineTTSEngineService:
             state=state,
             summary=summary,
             issues=tuple(issues),
+            runtime_loaded=runtime_health.loaded,
+            resolved_accelerator=runtime_health.resolved_acceleration,
+            runtime_cache_entries=runtime_health.cache_entries,
+            runtime_load_count=runtime_health.load_count,
+            runtime_synthesis_count=runtime_health.synthesis_count,
+            runtime_last_error=runtime_health.last_error,
+            runtime_fallback_reason=runtime_health.fallback_reason,
         )
+
+    def piper_runtime_health(self, settings: AppSettings | None = None) -> PiperRuntimeHealth:
+        active = settings or AppSettings(provider="piper")
+        selected = self._selected_model(active, "piper")
+        return self.piper_runtime.health(selected)
+
+    def warm_piper(self, settings: AppSettings) -> PiperRuntimeHealth:
+        selected = self._selected_model(settings, "piper")
+        if selected is None:
+            raise ValueError("No Piper ONNX voice is selected.")
+        return self.piper_runtime.warm(selected, requested_acceleration="auto")
+
+    def restart_piper(self, settings: AppSettings | None = None) -> int:
+        active = settings or AppSettings(provider="piper")
+        selected = self._selected_model(active, "piper")
+        return self.piper_runtime.restart(selected)
 
     def _runtime_managed_snapshot(
         self,

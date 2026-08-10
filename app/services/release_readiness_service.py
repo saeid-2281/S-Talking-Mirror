@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import zipfile
@@ -101,8 +102,16 @@ class ReleaseReadinessService:
             )
         if settings.provider == "piper":
             model = Path(settings.piper_model_path or "")
-            available = bool(shutil.which("piper"))
-            model_ok = bool(settings.piper_model_path and model.exists())
+            try:
+                python_api = importlib.util.find_spec("piper") is not None
+            except (ImportError, ModuleNotFoundError, ValueError):
+                python_api = False
+            available = python_api or bool(shutil.which("piper"))
+            model_ok = bool(
+                settings.piper_model_path
+                and model.is_file()
+                and Path(f"{model}.json").is_file()
+            )
             return ProviderStatusState(
                 provider="piper",
                 connection_state="ready" if available and model_ok else "setup needed",

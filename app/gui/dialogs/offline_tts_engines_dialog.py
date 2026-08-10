@@ -98,6 +98,15 @@ class OfflineTTSEnginesDialog(QDialog):
         self.engine_detail.setWordWrap(True)
         self.engine_detail.setObjectName("summaryMuted")
         engines_layout.addWidget(self.engine_detail)
+        runtime_actions = QHBoxLayout()
+        runtime_actions.addStretch()
+        self.warm_runtime_button = QPushButton("Warm Piper runtime")
+        self.warm_runtime_button.clicked.connect(self.warm_piper_runtime)
+        self.restart_runtime_button = QPushButton("Restart Piper runtime")
+        self.restart_runtime_button.clicked.connect(self.restart_piper_runtime)
+        runtime_actions.addWidget(self.warm_runtime_button)
+        runtime_actions.addWidget(self.restart_runtime_button)
+        engines_layout.addLayout(runtime_actions)
         splitter.addWidget(engines_page)
 
         voices_page = QWidget()
@@ -129,8 +138,8 @@ class OfflineTTSEnginesDialog(QDialog):
         splitter.setSizes([280, 300])
 
         note = QLabel(
-            "Phase 96 is read-only runtime inventory. Piper runtime reuse, host lifecycle, CUDA selection, "
-            "verified voice packs, and synthesis migration are reserved for Phase 97."
+            "Phase 97 uses an in-process Piper runtime with model reuse and Auto CPU/CUDA selection. "
+            "Warm/restart actions never start generation; verified downloadable voice packs remain a separate distribution concern."
         )
         note.setWordWrap(True)
         note.setObjectName("summaryMuted")
@@ -190,9 +199,34 @@ class OfflineTTSEnginesDialog(QDialog):
         else:
             issues = " · ".join(engine.issues) if engine.issues else "No blocking inventory issues."
             accelerators = ", ".join(engine.accelerators) or "—"
+            runtime_detail = ""
+            if engine.engine_id == "piper":
+                loaded = "loaded" if engine.runtime_loaded else "cold"
+                accelerator = (engine.resolved_accelerator or "cpu").upper()
+                runtime_detail = (
+                    f" In-process runtime: {loaded} · Auto→{accelerator} · "
+                    f"loads {engine.runtime_load_count} · syntheses {engine.runtime_synthesis_count}."
+                )
+                if engine.runtime_fallback_reason:
+                    runtime_detail += f" {engine.runtime_fallback_reason}."
+                if engine.runtime_last_error:
+                    runtime_detail += f" Last runtime error: {engine.runtime_last_error}."
             self.engine_detail.setText(
-                f"{engine.summary} Runtime: {engine.runtime_mode}. Accelerators: {accelerators}. {issues}"
+                f"{engine.summary} Runtime: {engine.runtime_mode}. Accelerators: {accelerators}."
+                f"{runtime_detail} {issues}"
             )
+
+        runtime_action_allowed = bool(
+            engine
+            and engine.engine_id == "piper"
+            and engine.module_available
+            and engine.configured
+            and not self.generation_active()
+        )
+        self.warm_runtime_button.setEnabled(runtime_action_allowed)
+        self.restart_runtime_button.setEnabled(
+            bool(engine and engine.engine_id == "piper" and not self.generation_active())
+        )
 
         self.voice_table.setRowCount(len(voices))
         for row, voice in enumerate(voices):
@@ -216,6 +250,28 @@ class OfflineTTSEnginesDialog(QDialog):
         elif voices:
             self.voice_table.selectRow(0)
         self._voice_selection_changed()
+
+    def warm_piper_runtime(self) -> None:
+        if self.generation_active():
+            QMessageBox.warning(self, "Piper runtime", "Stop the active generation run before changing runtime state.")
+            return
+        try:
+            health = self.service.warm_piper(self.settings_provider())
+        except Exception as exc:
+            QMessageBox.warning(self, "Piper runtime", str(exc))
+            return
+        self.refresh()
+        self.summary_label.setText(
+            f"Piper warm · {health.resolved_acceleration.upper()} · {health.load_count} model load(s)"
+        )
+
+    def restart_piper_runtime(self) -> None:
+        if self.generation_active():
+            QMessageBox.warning(self, "Piper runtime", "Stop the active generation run before changing runtime state.")
+            return
+        cleared = self.service.restart_piper(self.settings_provider())
+        self.refresh()
+        self.summary_label.setText(f"Piper runtime restarted · {cleared} cached model(s) cleared")
 
     def selected_voice(self) -> OfflineVoiceDescriptor | None:
         engine = self.inventory.engine(self.selected_engine_id() or "")

@@ -48,6 +48,7 @@ from app.services.provider_identity_service import ProviderIdentityService
 from app.services.provider_readiness_service import ProviderReadinessService
 from app.services.provider_intelligence_service import ProviderIntelligenceService
 from app.services.offline_tts_engine_service import OfflineTTSEngineService
+from app.providers.piper_runtime import PiperRuntimeService
 from app.services.report_service import ReportService
 from app.services.release_readiness_service import ReleaseReadinessService
 from app.services.release_candidate_service import ReleaseCandidateService
@@ -178,6 +179,7 @@ class ApplicationContext:
     provider_identity_service: ProviderIdentityService
     provider_readiness_service: ProviderReadinessService
     provider_intelligence_service: ProviderIntelligenceService
+    piper_runtime_service: PiperRuntimeService
     offline_tts_engine_service: OfflineTTSEngineService
     product_activity_service: ProductActivityService
     notification_center_service: NotificationCenterService
@@ -276,6 +278,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         provider_identity_service=services.provider_identity_service,
         provider_readiness_service=services.provider_readiness_service,
         provider_intelligence_service=services.provider_intelligence_service,
+        piper_runtime_service=services.piper_runtime_service,
         offline_tts_engine_service=services.offline_tts_engine_service,
         product_activity_service=services.product_activity_service,
         notification_center_service=services.notification_center_service,

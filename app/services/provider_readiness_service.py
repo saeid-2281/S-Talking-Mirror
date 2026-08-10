@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -138,9 +139,12 @@ class ProviderReadinessService:
         if not dependency:
             return True
         try:
-            return importlib.util.find_spec(dependency) is not None
-        except ModuleNotFoundError:
-            return False
+            installed = importlib.util.find_spec(dependency) is not None
+        except (ImportError, ModuleNotFoundError, ValueError):
+            installed = False
+        if dependency == "piper" and not installed:
+            return bool(shutil.which("piper"))
+        return installed
 
     @staticmethod
     def _probe_settings(provider_id: str, settings: AppSettings | None) -> AppSettings:

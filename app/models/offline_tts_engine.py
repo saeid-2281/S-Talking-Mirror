@@ -36,6 +36,13 @@ class OfflineEngineSnapshot:
     state: str
     summary: str
     issues: tuple[str, ...] = ()
+    runtime_loaded: bool = False
+    resolved_accelerator: str | None = None
+    runtime_cache_entries: int = 0
+    runtime_load_count: int = 0
+    runtime_synthesis_count: int = 0
+    runtime_last_error: str | None = None
+    runtime_fallback_reason: str | None = None
 
 
 @dataclass(frozen=True)

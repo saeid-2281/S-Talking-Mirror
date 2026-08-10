@@ -65,7 +65,8 @@ def test_phase96_registry_exposes_existing_local_providers_without_new_generatio
     assert [engine.engine_id for engine in inventory.engines] == ["piper", "kokoro"]
     assert [engine.provider_id for engine in inventory.engines] == ["piper", "kokoro"]
     source = PIPER_PROVIDER.read_text(encoding="utf-8")
-    assert "subprocess.run" in source
+    assert "shared_piper_runtime_service" in source
+    assert "subprocess.Popen" in source
     assert "PiperVoice.load" not in source
 
 
