@@ -84,6 +84,7 @@ from app.services.financial_audit_service import FinancialAuditService
 from app.services.operational_persistence_service import OperationalPersistenceService
 from app.services.final_production_certification_service import FinalProductionCertificationService
 from app.services.provider_ga_certification_service import ProviderGACertificationService
+from app.services.product_ux_audit_service import ProductUXAuditService
 from app.services.release_lifecycle_validation_service import ReleaseLifecycleValidationService
 from app.services.operational_readiness_service import OperationalReadinessCertificationService
 from app.services.evidence_refresh_service import EvidenceRefreshService
@@ -153,6 +154,7 @@ class ApplicationContext:
     release_lifecycle_validation_service: ReleaseLifecycleValidationService
     final_production_certification_service: FinalProductionCertificationService
     provider_ga_certification_service: ProviderGACertificationService
+    product_ux_audit_service: ProductUXAuditService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -258,6 +260,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         release_lifecycle_validation_service=services.release_lifecycle_validation_service,
         final_production_certification_service=services.final_production_certification_service,
         provider_ga_certification_service=services.provider_ga_certification_service,
+        product_ux_audit_service=services.product_ux_audit_service,
         git_service=services.git_service,
         diagnostics_service=services.diagnostics_service,
         task_prompt_service=services.task_prompt_service,

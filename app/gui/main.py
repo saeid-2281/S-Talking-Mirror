@@ -39,6 +39,7 @@ from app.gui.dialogs.danish_provider_benchmark_dialog import DanishProviderBench
 from app.gui.dialogs.user_controlled_provider_recovery_dialog import UserControlledProviderRecoveryDialog
 from app.gui.dialogs.provider_plugin_sdk_dialog import ProviderPluginSDKDialog
 from app.gui.dialogs.provider_ga_certification_dialog import ProviderGACertificationDialog
+from app.gui.dialogs.product_ux_audit_dialog import ProductUXAuditDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -827,6 +828,8 @@ class MainWindow(QMainWindow):
             return action
 
         add_action(self.reports_menu,'Operations Workspace',self.open_operations_workspace,'health')
+        product_menu=self.reports_menu.addMenu(action_icon('report'),'Product Experience')
+        add_action(product_menu,'Product UX Audit / Workflow Baseline',self.open_product_ux_audit,'report')
         self.reports_menu.addSeparator()
 
         operations_menu=self.reports_menu.addMenu(action_icon('health'),'Operations & Governance')
@@ -3817,6 +3820,7 @@ class MainWindow(QMainWindow):
             'stable-release':self.open_stable_release_promotion,
             'final-production-certification':self.open_final_production_certification,
             'provider-ga-certification':self.open_provider_ga_certification,
+            'product-ux-audit':self.open_product_ux_audit,
             'release-lifecycle':self.open_release_lifecycle_validation,
             'final-release':self.open_final_release,
             'update-delivery':self.open_update_delivery,
@@ -3840,6 +3844,13 @@ class MainWindow(QMainWindow):
             open_path=self.open_path,
         )
         return self._show_report_dialog(dialog,category='provider-ga-certification')
+    def open_product_ux_audit(self):
+        dialog=ProductUXAuditDialog(
+            self.context.product_ux_audit_service,
+            self,
+            open_path=self.open_path,
+        )
+        return self._show_report_dialog(dialog,category='product-ux-audit')
     def open_release_lifecycle_validation(self):
         dialog=ReleaseLifecycleValidationDialog(
             self.release_lifecycle_validation_service,
@@ -4018,6 +4029,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Reports: Operations Workspace',act('Operations Workspace')),
             PaletteCommand('Reports: Production Operations Command Center',act('Production Operations Command Center')),
             PaletteCommand('Reports: Provider Track Production Certification / GA',act('Provider Track Production Certification / GA')),
+            PaletteCommand('Reports: Product UX Audit / Workflow Baseline',act('Product UX Audit / Workflow Baseline')),
             PaletteCommand('Reports: Queue Orchestration',act('Queue Orchestration')),
             PaletteCommand('Reports: Hardening & Maintenance',act('Hardening & Maintenance')),
             PaletteCommand('Reports: Cost & Capacity',act('Cost & Capacity')),
