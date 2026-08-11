@@ -63,6 +63,7 @@ from app.services.provider_account_catalog_store import ProviderAccountCatalogSt
 from app.services.provider_accounts_center_service import ProviderAccountsCenterService
 from app.services.unified_voice_model_catalog_service import UnifiedVoiceModelCatalogService
 from app.services.provider_cost_quota_limits_service import ProviderCostQuotaLimitsService
+from app.services.danish_provider_benchmark_service import DanishProviderBenchmarkService
 from app.services.provider_identity_service import ProviderIdentityService
 from app.services.provider_readiness_service import ProviderReadinessService
 from app.services.provider_intelligence_service import ProviderIntelligenceService
@@ -212,6 +213,7 @@ class ServiceContainer:
     provider_accounts_center_service: ProviderAccountsCenterService
     unified_voice_model_catalog_service: UnifiedVoiceModelCatalogService
     provider_cost_quota_limits_service: ProviderCostQuotaLimitsService
+    danish_provider_benchmark_service: DanishProviderBenchmarkService
     provider_identity_service: ProviderIdentityService
     provider_readiness_service: ProviderReadinessService
     provider_intelligence_service: ProviderIntelligenceService
@@ -319,6 +321,7 @@ def create_service_container(
         unified_voice_model_catalog_service,
         generation_cost_capacity_service,
     )
+    danish_provider_benchmark_service = DanishProviderBenchmarkService(config)
     provider_intelligence_service = ProviderIntelligenceService(
         provider_readiness_service,
         provider_catalog_service,
@@ -337,6 +340,7 @@ def create_service_container(
         provider_cost_quota_limits_service=provider_cost_quota_limits_service,
         unified_catalog_service=unified_voice_model_catalog_service,
         api_profile_service=api_profile_service,
+        danish_provider_benchmark_service=danish_provider_benchmark_service,
     )
     generation_artifact_retention_service = GenerationArtifactRetentionService(config.reports_dir)
     generation_budget_guard_service = GenerationBudgetGuardService(
@@ -606,6 +610,7 @@ def create_service_container(
         provider_accounts_center_service=provider_accounts_center_service,
         unified_voice_model_catalog_service=unified_voice_model_catalog_service,
         provider_cost_quota_limits_service=provider_cost_quota_limits_service,
+        danish_provider_benchmark_service=danish_provider_benchmark_service,
         provider_identity_service=provider_identity_service,
         provider_readiness_service=provider_readiness_service,
         provider_intelligence_service=provider_intelligence_service,

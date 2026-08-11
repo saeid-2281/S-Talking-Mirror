@@ -37,6 +37,7 @@ class SmartProviderRoutingService:
         provider_cost_quota_limits_service=None,
         unified_catalog_service=None,
         api_profile_service=None,
+        danish_provider_benchmark_service=None,
     ) -> None:
         self.readiness_service = readiness_service
         self.offline_tts_engine_service = offline_tts_engine_service
@@ -45,6 +46,7 @@ class SmartProviderRoutingService:
         self.provider_cost_quota_limits_service = provider_cost_quota_limits_service
         self.unified_catalog_service = unified_catalog_service
         self.api_profile_service = api_profile_service
+        self.danish_provider_benchmark_service = danish_provider_benchmark_service
 
     def analyze(
         self,
@@ -356,6 +358,20 @@ class SmartProviderRoutingService:
         if desired and any(token in lowered_detail for token in ("not certified", "not supported", "unsupported language")):
             language_state = "blocked"
 
+        danish_certification_authoritative = (
+            desired == "da" and self.danish_provider_benchmark_service is not None
+        )
+        if danish_certification_authoritative:
+            try:
+                certified_state = self.danish_provider_benchmark_service.routing_language_state(
+                    provider_id,
+                    settings.language_code,
+                )
+            except Exception:
+                certified_state = "unknown"
+            if certified_state in {"confirmed", "blocked"}:
+                language_state = certified_state
+
         try:
             snapshot = self.unified_catalog_service.snapshot(
                 settings,
@@ -379,7 +395,7 @@ class SmartProviderRoutingService:
             if not desired or not item.languages or any(self._base_language(value) == desired for value in item.languages)
         )
 
-        if language_state != "blocked":
+        if language_state == "unknown" and not danish_certification_authoritative:
             if desired and any(
                 any(self._base_language(value) == desired for value in item.languages)
                 for item in (*voices, *models)
