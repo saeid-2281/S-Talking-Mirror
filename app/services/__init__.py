@@ -90,6 +90,7 @@ from app.services.voice_library_store import VoiceLibraryStore
 
 from app.services.generation_reliability_service import GenerationReliabilityService
 from app.services.generation_recovery_service import GenerationRecoveryService
+from app.services.user_controlled_provider_recovery_service import UserControlledProviderRecoveryService
 __all__ = [
     "FinalProductionCertificationService",
     "ReleaseLifecycleValidationService",
@@ -157,6 +158,7 @@ __all__ = [
     "GenerationPerformanceService",
     "GenerationReliabilityService",
     "GenerationRecoveryService",
+    "UserControlledProviderRecoveryService",
     "PreflightService",
     "ProviderAccountCatalogStore",
     "ProviderAccountsCenterService",

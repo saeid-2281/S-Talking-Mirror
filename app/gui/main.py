@@ -36,6 +36,7 @@ from app.gui.dialogs.offline_tts_engines_dialog import OfflineTTSEnginesDialog
 from app.gui.dialogs.unified_voice_model_catalog_dialog import UnifiedVoiceModelCatalogDialog
 from app.gui.dialogs.provider_cost_quota_limits_dialog import ProviderCostQuotaLimitsDialog
 from app.gui.dialogs.danish_provider_benchmark_dialog import DanishProviderBenchmarkDialog
+from app.gui.dialogs.user_controlled_provider_recovery_dialog import UserControlledProviderRecoveryDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -207,6 +208,8 @@ class MainWindow(QMainWindow):
         self.final_production_certification_service=context.final_production_certification_service
         self.provider_intelligence_service=context.provider_intelligence_service
         self.smart_provider_routing_service=context.smart_provider_routing_service
+        self.user_controlled_provider_recovery_service=context.user_controlled_provider_recovery_service
+        self._provider_recovery_assessment=None
         self.offline_tts_engine_service=context.offline_tts_engine_service
         self.update_delivery_controller=UpdateDeliveryController(context.update_delivery_service,parent=self)
         self.update_delivery_controller.completed.connect(self._background_update_completed)
@@ -810,6 +813,7 @@ class MainWindow(QMainWindow):
         self.dry_run_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Dry run'); self.dry_run_action.triggered.connect(self.dry_run); self.actions_by_name['Dry run']=self.dry_run_action; self.actions_by_name['Run Preflight']=self.dry_run_action
         for text,handler,shortcut,ic in [('Start Generation',self.start,'Ctrl+Return','generation.start'),('Pause/Resume',self.pause,'Ctrl+Space','generation.pause'),('Stop Generation',self.stop,'Shift+Esc','generation.stop'),('Voice Browser',self.open_voice_browser,'Ctrl+Shift+V','provider.browse_voices')]:
             action=self.generation_menu.addAction(action_icon(ic),text); action.triggered.connect(handler); action.setShortcut(QKeySequence(shortcut)); self.actions_by_name[text]=action
+        recovery_action=self.generation_menu.addAction(action_icon('history'),'Multi-provider Recovery'); recovery_action.triggered.connect(self.open_user_controlled_provider_recovery); self.actions_by_name['Multi-provider Recovery']=recovery_action
     def build_reports_menu(self):
         self.reports_menu=QMenu('Reports',self); self.menuBar().addMenu(self.reports_menu)
 
@@ -2028,6 +2032,92 @@ class MainWindow(QMainWindow):
         self.settings_changed(); self.invalidate_preflight(); self.refresh_compatible_voice_state(); self.refresh_provider_intelligence(force=True)
         self.statusBar().showMessage(f'Catalog selection applied to {settings.provider}. Run preflight before generation.',7000)
         return True
+    def open_user_controlled_provider_recovery(self,failure_message=''):
+        if self.generation_controller.is_active:
+            self.notifications.warning('Provider recovery','Stop the active generation run before reviewing alternate providers.')
+            return None
+        settings=self.settings()
+        jobs=list(self.generation_controller.jobs)
+        project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None
+        profile=self._smart_provider_routing_profile(settings)
+        connection=self.connection_status.toolTip() if hasattr(self,'connection_status') else ''
+        try:
+            assessment=self.user_controlled_provider_recovery_service.assess(
+                settings=settings,jobs=jobs,project_id=project_id,
+                failure_message=str(failure_message or ''),current_profile=profile,
+                connection_status=connection,
+            )
+        except Exception as exc:
+            self.notifications.error('Provider recovery',str(exc)); return None
+        self._provider_recovery_assessment=assessment
+        dialog=UserControlledProviderRecoveryDialog(assessment,parent=self)
+        dialog.reviewProviderRequested.connect(self.review_user_controlled_provider_recovery)
+        dialog.prepareProviderRequested.connect(self.prepare_user_controlled_provider_recovery)
+        dialog.retryCurrentRequested.connect(self.retry_current_provider_recovery)
+        dialog.show(); self.user_controlled_provider_recovery_dialog=dialog
+        return dialog
+
+    def review_user_controlled_provider_recovery(self,provider_id,assessment_id):
+        assessment=self._provider_recovery_assessment
+        if assessment is None or assessment.assessment_id!=str(assessment_id):
+            self.notifications.warning('Provider recovery','Recovery assessment is stale. Re-open Multi-provider Recovery.')
+            return False
+        candidate=assessment.candidate_for(str(provider_id))
+        if candidate is None or not candidate.actionable:
+            self.notifications.warning('Provider recovery','The selected alternate route is blocked or no longer reviewable.')
+            return False
+        if candidate.provider_id=='piper':
+            self.open_offline_tts_engines()
+            self.statusBar().showMessage('Review and explicitly select a verified Piper voice, then return to Multi-provider Recovery and prepare the route.',9000)
+            return False
+        self.open_unified_voice_model_catalog(candidate.provider_id)
+        self.statusBar().showMessage(f'Review {candidate.provider_name} account/voice/model explicitly. Return to Multi-provider Recovery to prepare the route.',9000)
+        return False
+
+    def prepare_user_controlled_provider_recovery(self,provider_id,assessment_id):
+        if self.generation_controller.is_active:
+            self.notifications.warning('Provider recovery','Stop the active generation run before preparing recovery.')
+            return False
+        assessment=self._provider_recovery_assessment
+        if assessment is None or assessment.assessment_id!=str(assessment_id):
+            self.notifications.warning('Provider recovery','Recovery assessment is stale. Re-open Multi-provider Recovery.')
+            return False
+        target=str(provider_id or '').strip().casefold()
+        settings=self.settings()
+        if settings.provider!=target:
+            self.notifications.warning('Provider recovery',f'Review and explicitly apply {target} account/voice/model settings before preparing recovery.')
+            return False
+        if not self.notifications.confirmation(
+            'Prepare provider recovery',
+            f'Prepare {len(assessment.failed_rows):,} failed job(s) for recovery with {target}?\n\nThis will reset failed jobs to pending and run Preflight. Generation will NOT start automatically.'
+        ):
+            return False
+        try:
+            receipt=self.user_controlled_provider_recovery_service.prepare_receipt(
+                assessment,selected_settings=settings,approved=True
+            )
+        except Exception as exc:
+            self.notifications.error('Provider recovery',str(exc)); return False
+        reset=self.generation_controller.retry_failed()
+        self.invalidate_preflight(); self.render_queue(); self.refresh_monitor_queue(); self.dashboard()
+        state=self.run_preflight(write_report=True)
+        self.log.appendPlainText(f'Provider recovery prepared: {receipt.receipt_id} · {assessment.current_provider_id} → {target} · {reset} failed job(s) reset · Preflight {state.status}.')
+        self.statusBar().showMessage(f'Provider recovery prepared for {target}. Review Preflight, then press Start Generation manually.',9000)
+        return True
+
+    def retry_current_provider_recovery(self):
+        if self.generation_controller.is_active:
+            self.notifications.warning('Provider recovery','Stop the active generation run before retrying failed jobs.')
+            return False
+        failed=sum(1 for job in self.generation_controller.jobs if job.status.value=='failed')
+        if failed<=0:
+            self.statusBar().showMessage('No failed jobs are available for current-provider retry.',5000); return False
+        if not self.notifications.confirmation('Retry current provider',f'Reset {failed:,} failed job(s) to pending on the current provider and run Preflight? Generation will not start automatically.'):
+            return False
+        reset=self.generation_controller.retry_failed(); self.invalidate_preflight(); self.render_queue(); self.refresh_monitor_queue(); self.dashboard(); state=self.run_preflight(write_report=True)
+        self.statusBar().showMessage(f'{reset:,} failed job(s) prepared on the current provider · Preflight {state.status}.',7000)
+        return True
+
     def open_pronunciation_dictionaries(self):
         dialog=PronunciationDictionaryDialog(self.context.pronunciation_dictionary_service,self.settings,parent=self)
         dialog.dictionaries_changed.connect(self.pronunciation_dictionaries_changed)
@@ -3214,11 +3304,13 @@ class MainWindow(QMainWindow):
         if self.provider.currentText()=='elevenlabs': self.context.voice_service.invalidate_provider_cache(self.settings()); self.test_elevenlabs_connection()
         report=self.create_report(s)
         completed=int(s.get('completed',0)); failed=int(s.get('failed',0)); stopped=bool(s.get('stopped'))
+        if failed>0:
+            self.log.appendPlainText('Cross-provider recovery is user-controlled. Open Generation → Multi-provider Recovery to review alternate routes; no provider switch or restart will occur automatically.')
         result='cancelled' if stopped else 'partial' if failed and completed else 'failed' if failed else 'completed'
         self.finish_execution_session(result,report.report_html)
         self.context.health_service.invalidate(); self.notify_report_created(report,s); self.update_status_bar()
     def failed(self,e):
-        self.monitor_service.finish({'stopped':True}); self.set_generation_controls(active=False); self.generation_status_strip.set_generation_state('Failed',f'{e} · {self.current_run_id or "run"}'); self.dashboard(); self.run_logs.append(f'FAILED: {e}'); report=self.create_report({'total':len(self.generation_controller.generation_jobs()),'completed':0,'skipped':0,'failed':1,'stopped':True,'error':e}); self.finish_execution_session('failed',report.report_html); self.context.product_activity_service.notify('error','Generation failed',str(e)); self.context.product_activity_service.activity('generation','Generation failed',str(e),metadata={'run_id':self.current_run_id or ''}); self.notify_report_created(report,{'completed':0,'skipped':0,'failed':1}); self.notifications.error('Error',e); self.update_status_bar()
+        self.monitor_service.finish({'stopped':True}); self.set_generation_controls(active=False); self.generation_status_strip.set_generation_state('Failed',f'{e} · {self.current_run_id or "run"}'); self.dashboard(); self.run_logs.append(f'FAILED: {e}'); self.log.appendPlainText('Cross-provider recovery is user-controlled. Open Generation → Multi-provider Recovery; no alternate provider or generation restart will be applied automatically.'); report=self.create_report({'total':len(self.generation_controller.generation_jobs()),'completed':0,'skipped':0,'failed':1,'stopped':True,'error':e}); self.finish_execution_session('failed',report.report_html); self.context.product_activity_service.notify('error','Generation failed',str(e)); self.context.product_activity_service.activity('generation','Generation failed',str(e),metadata={'run_id':self.current_run_id or ''}); self.notify_report_created(report,{'completed':0,'skipped':0,'failed':1}); self.notifications.error('Error',e); self.update_status_bar()
     def closeEvent(self,event):
         if hasattr(self,'performance_sample_timer'): self.performance_sample_timer.stop()
         if self.performance_stability_service.active_run_id: self.performance_stability_service.finish_observation(status='interrupted')
@@ -3873,6 +3965,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Generation: Show/Hide Generation Monitor',lambda:self.actions_by_name['Show/Hide Generation Monitor'].trigger()),
             PaletteCommand('Provider: Intelligence & Selection',self.focus_provider_intelligence),
             PaletteCommand('Provider: Smart Routing',self.focus_smart_provider_routing),
+            PaletteCommand('Generation: Multi-provider Recovery',self.open_user_controlled_provider_recovery),
             PaletteCommand('Provider: Danish Benchmark',self.open_danish_provider_benchmark),
             PaletteCommand('Provider: Offline TTS Engines',self.open_offline_tts_engines),
             PaletteCommand('Voice: Browse and Preview Voices',self.open_voice_browser,lambda: self.voice_browser_button.isEnabled()),

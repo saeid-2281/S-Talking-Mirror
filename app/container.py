@@ -68,6 +68,7 @@ from app.services.provider_identity_service import ProviderIdentityService
 from app.services.provider_readiness_service import ProviderReadinessService
 from app.services.provider_intelligence_service import ProviderIntelligenceService
 from app.services.smart_provider_routing_service import SmartProviderRoutingService
+from app.services.user_controlled_provider_recovery_service import UserControlledProviderRecoveryService
 from app.services.offline_tts_engine_service import OfflineTTSEngineService
 from app.providers.piper_runtime import PiperRuntimeService, shared_piper_runtime_service
 from app.services.report_service import ReportService
@@ -218,6 +219,7 @@ class ServiceContainer:
     provider_readiness_service: ProviderReadinessService
     provider_intelligence_service: ProviderIntelligenceService
     smart_provider_routing_service: SmartProviderRoutingService
+    user_controlled_provider_recovery_service: UserControlledProviderRecoveryService
     piper_runtime_service: PiperRuntimeService
     offline_tts_engine_service: OfflineTTSEngineService
     product_activity_service: ProductActivityService
@@ -341,6 +343,11 @@ def create_service_container(
         unified_catalog_service=unified_voice_model_catalog_service,
         api_profile_service=api_profile_service,
         danish_provider_benchmark_service=danish_provider_benchmark_service,
+    )
+    user_controlled_provider_recovery_service = UserControlledProviderRecoveryService(
+        config.reports_dir,
+        smart_provider_routing_service,
+        provider_catalog_service,
     )
     generation_artifact_retention_service = GenerationArtifactRetentionService(config.reports_dir)
     generation_budget_guard_service = GenerationBudgetGuardService(
@@ -615,6 +622,7 @@ def create_service_container(
         provider_readiness_service=provider_readiness_service,
         provider_intelligence_service=provider_intelligence_service,
         smart_provider_routing_service=smart_provider_routing_service,
+        user_controlled_provider_recovery_service=user_controlled_provider_recovery_service,
         piper_runtime_service=piper_runtime_service,
         offline_tts_engine_service=offline_tts_engine_service,
         product_activity_service=ProductActivityService(
