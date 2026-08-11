@@ -72,11 +72,12 @@ def test_a1_baseline_produces_evidence_driven_product_opportunities(tmp_path: Pa
     assert all(item.priority in {1, 2} for item in snapshot.backlog)
 
 
-def test_a1_first_run_identifies_resumable_onboarding_opportunity(tmp_path: Path) -> None:
+def test_a1_first_run_opportunity_is_resolved_by_a2(tmp_path: Path) -> None:
     snapshot = _service(tmp_path).assess(source_commit="baseline")
     first_run = next(item for item in snapshot.journeys if item.journey_id == "first_run")
-    gap_codes = {item.code for item in first_run.evidence if item.status == "missing"}
-    assert "first_run_state" in gap_codes
+    evidence = next(item for item in first_run.evidence if item.code == "first_run_state")
+    assert evidence.status == "present"
+    assert "persistent first-run completion state exists" in evidence.detail.lower()
 
 
 def test_a1_assessment_does_not_create_report_directory(tmp_path: Path) -> None:

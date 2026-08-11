@@ -101,6 +101,7 @@ from app.services.operational_persistence_service import OperationalPersistenceS
 from app.services.final_production_certification_service import FinalProductionCertificationService
 from app.services.provider_ga_certification_service import ProviderGACertificationService
 from app.services.product_ux_audit_service import ProductUXAuditService
+from app.services.first_run_onboarding_service import FirstRunOnboardingService
 from app.services.release_lifecycle_validation_service import ReleaseLifecycleValidationService
 from app.services.operational_readiness_service import OperationalReadinessCertificationService
 from app.services.evidence_refresh_service import EvidenceRefreshService
@@ -182,6 +183,7 @@ class ServiceContainer:
     final_production_certification_service: FinalProductionCertificationService
     provider_ga_certification_service: ProviderGACertificationService
     product_ux_audit_service: ProductUXAuditService
+    first_run_onboarding_service: FirstRunOnboardingService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -522,6 +524,7 @@ def create_service_container(
         provider_plugin_sdk_service,
     )
     product_ux_audit_service = ProductUXAuditService(config)
+    first_run_onboarding_service = FirstRunOnboardingService(config)
     generation_incident_service = GenerationIncidentService(product_event_repository)
     generation_problem_service = GenerationProblemService(product_event_repository)
     generation_orchestration_service = GenerationOrchestrationService(
@@ -597,6 +600,7 @@ def create_service_container(
         final_production_certification_service=final_production_certification_service,
         provider_ga_certification_service=provider_ga_certification_service,
         product_ux_audit_service=product_ux_audit_service,
+        first_run_onboarding_service=first_run_onboarding_service,
         git_service=git_service,
         diagnostics_service=diagnostics_service,
         task_prompt_service=TaskPromptService(config.app_root),

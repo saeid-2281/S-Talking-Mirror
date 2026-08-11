@@ -40,6 +40,7 @@ from app.gui.dialogs.user_controlled_provider_recovery_dialog import UserControl
 from app.gui.dialogs.provider_plugin_sdk_dialog import ProviderPluginSDKDialog
 from app.gui.dialogs.provider_ga_certification_dialog import ProviderGACertificationDialog
 from app.gui.dialogs.product_ux_audit_dialog import ProductUXAuditDialog
+from app.gui.dialogs.first_run_onboarding_dialog import FirstRunOnboardingDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -212,6 +213,9 @@ class MainWindow(QMainWindow):
         self.provider_intelligence_service=context.provider_intelligence_service
         self.smart_provider_routing_service=context.smart_provider_routing_service
         self.user_controlled_provider_recovery_service=context.user_controlled_provider_recovery_service
+        self.first_run_onboarding_service=context.first_run_onboarding_service
+        self.first_run_completed=self.first_run_onboarding_service.load_state().first_run_completed
+        self._first_run_onboarding_dialog=None
         self._provider_recovery_assessment=None
         self.offline_tts_engine_service=context.offline_tts_engine_service
         self.update_delivery_controller=UpdateDeliveryController(context.update_delivery_service,parent=self)
@@ -276,6 +280,7 @@ class MainWindow(QMainWindow):
     def build(self):
         self.build_project_menu(); self.build_settings_menu(); self.build_view_menu(); self.build_generation_menu(); self.build_reports_menu(); self.build_developer_tools_menu(); self.build_help_menu(); self.build_main_toolbar(); self.statusBar()
         self.report_button=QPushButton('Report: none'); self.report_button.setFlat(True); self.report_button.setVisible(False); self.report_button.clicked.connect(self.view_latest_report_dialog); self.statusBar().addPermanentWidget(self.report_button)
+        self.onboarding_button=QPushButton('Getting Started'); self.onboarding_button.setObjectName('firstRunOnboardingStatusButton'); self.onboarding_button.setFlat(True); self.onboarding_button.clicked.connect(self.open_first_run_onboarding); self.statusBar().addPermanentWidget(self.onboarding_button); self.refresh_first_run_onboarding_status()
         self.health_button=QPushButton('Health: checking…'); self.health_button.setFlat(True); self.health_button.clicked.connect(self.developer_tools.show_health_center); self.statusBar().addPermanentWidget(self.health_button)
         self.accessibility_announcer=LiveStatusAnnouncer(self); self.statusBar().addPermanentWidget(self.accessibility_announcer)
         palette_action=QAction('Command Palette',self); palette_action.setShortcut(QKeySequence('Ctrl+K')); palette_action.setShortcutContext(Qt.ApplicationShortcut); palette_action.triggered.connect(self.open_command_palette); self.addAction(palette_action); self.actions_by_name['Command Palette']=palette_action
@@ -911,7 +916,42 @@ class MainWindow(QMainWindow):
     def build_developer_tools_menu(self):
         self.developer_menu=QMenu('Developer Tools',self); self.menuBar().addMenu(self.developer_menu); self.actions_by_name.update(self.developer_tools.populate_menu(self.developer_menu))
     def build_help_menu(self):
-        self.help_menu=QMenu('Help',self); self.menuBar().addMenu(self.help_menu); quick=self.help_menu.addAction('Quick Setup'); quick.triggered.connect(self.open_quick_setup); self.actions_by_name['Quick Setup']=quick; shortcuts=self.help_menu.addAction('Shortcut Reference'); shortcuts.triggered.connect(self.show_shortcut_reference); self.actions_by_name['Shortcut Reference']=shortcuts; about=self.help_menu.addAction('About S Talking'); about.triggered.connect(self.open_about_dialog); self.actions_by_name['About S Talking']=about
+        self.help_menu=QMenu('Help',self); self.menuBar().addMenu(self.help_menu)
+        onboarding=self.help_menu.addAction('Getting Started / First-run Onboarding'); onboarding.triggered.connect(self.open_first_run_onboarding); self.actions_by_name['Getting Started / First-run Onboarding']=onboarding
+        quick=self.help_menu.addAction('Quick Setup'); quick.triggered.connect(self.open_quick_setup); self.actions_by_name['Quick Setup']=quick
+        shortcuts=self.help_menu.addAction('Shortcut Reference'); shortcuts.triggered.connect(self.show_shortcut_reference); self.actions_by_name['Shortcut Reference']=shortcuts
+        about=self.help_menu.addAction('About S Talking'); about.triggered.connect(self.open_about_dialog); self.actions_by_name['About S Talking']=about
+    def refresh_first_run_onboarding_status(self, state=None):
+        state=state or self.first_run_onboarding_service.load_state()
+        self.first_run_completed=state.first_run_completed
+        completed,total,percent=self.first_run_onboarding_service.progress(state)
+        if hasattr(self,'onboarding_button'):
+            self.onboarding_button.setVisible(not state.first_run_completed)
+            self.onboarding_button.setText(f'Getting Started · {completed}/{total}')
+            self.onboarding_button.setToolTip(
+                f'First-run onboarding: {percent}% reviewed. This guide never changes provider or starts generation automatically.'
+            )
+
+    def open_first_run_onboarding(self):
+        dialog=FirstRunOnboardingDialog(
+            self.first_run_onboarding_service,
+            self,
+            actions={
+                'focus_workflow':self.focus_generation_workflow,
+                'provider_accounts':self.open_provider_accounts,
+                'voice_model_catalog':self.open_unified_voice_model_catalog,
+                'project_continuity':self.open_project_continuity,
+                'live_operations':self.focus_generation_live_operations,
+            },
+        )
+        dialog.stateChanged.connect(self.refresh_first_run_onboarding_status)
+        dialog.finished.connect(lambda _result:self.refresh_first_run_onboarding_status())
+        self._first_run_onboarding_dialog=dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        return dialog
+
     def open_quick_setup(self):
         dialog=QuickSetupDialog(self.context.provider_catalog_service,self.settings(),self)
         if dialog.exec()==QDialog.Accepted:
@@ -4024,6 +4064,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Voice: Unified Voice & Model Catalog',self.open_unified_voice_model_catalog),
             PaletteCommand('Settings: Provider Accounts',act('Provider accounts')),
             PaletteCommand('Settings: Pronunciation Dictionaries',act('Pronunciation dictionaries')),
+            PaletteCommand('Help: Getting Started / First-run Onboarding',act('Getting Started / First-run Onboarding')),
             PaletteCommand('Help: Quick Setup',act('Quick Setup')),
             PaletteCommand('Help: Shortcut Reference',act('Shortcut Reference')),
             PaletteCommand('Reports: Operations Workspace',act('Operations Workspace')),
