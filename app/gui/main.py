@@ -37,6 +37,7 @@ from app.gui.dialogs.unified_voice_model_catalog_dialog import UnifiedVoiceModel
 from app.gui.dialogs.provider_cost_quota_limits_dialog import ProviderCostQuotaLimitsDialog
 from app.gui.dialogs.danish_provider_benchmark_dialog import DanishProviderBenchmarkDialog
 from app.gui.dialogs.user_controlled_provider_recovery_dialog import UserControlledProviderRecoveryDialog
+from app.gui.dialogs.provider_plugin_sdk_dialog import ProviderPluginSDKDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -437,19 +438,20 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Voice & Model Catalog','Provider Cost / Quota / Limits','Danish Provider Benchmark','Smart Provider Routing','Offline TTS Engines','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Voice & Model Catalog','Provider Cost / Quota / Limits','Danish Provider Benchmark','Smart Provider Routing','Provider Plugins / SDK','Offline TTS Engines','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
     def build_settings_menu(self):
         self.settings_menu=QMenu('Settings',self); self.menuBar().addMenu(self.settings_menu)
-        for tx,fn,ic in [('Provider accounts',self.open_provider_accounts,'provider.accounts'),('Voice & Model Catalog',self.open_unified_voice_model_catalog,'provider.browse_voices'),('Provider Cost / Quota / Limits',self.open_provider_cost_quota_limits,'report'),('Danish Provider Benchmark',self.open_danish_provider_benchmark,'report'),('Offline TTS Engines',self.open_offline_tts_engines,'settings'),('Pronunciation dictionaries',self.open_pronunciation_dictionaries,'pronunciation.dictionary')]:
+        for tx,fn,ic in [('Provider accounts',self.open_provider_accounts,'provider.accounts'),('Voice & Model Catalog',self.open_unified_voice_model_catalog,'provider.browse_voices'),('Provider Cost / Quota / Limits',self.open_provider_cost_quota_limits,'report'),('Danish Provider Benchmark',self.open_danish_provider_benchmark,'report'),('Provider Plugins / SDK',self.open_provider_plugin_sdk,'settings'),('Offline TTS Engines',self.open_offline_tts_engines,'settings'),('Pronunciation dictionaries',self.open_pronunciation_dictionaries,'pronunciation.dictionary')]:
             a=self.settings_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
         self.settings_menu.addSeparator(); save_defaults=self.settings_menu.addAction(icon('save'),'Save current as defaults'); save_defaults.triggered.connect(self.save_settings); self.actions_by_name['Save current as defaults']=save_defaults
         self.actions_by_name['Provider accounts'].setShortcut(QKeySequence('Ctrl+Shift+P'))
         self.actions_by_name['Voice & Model Catalog'].setShortcut(QKeySequence('Ctrl+Alt+V'))
         self.actions_by_name['Provider Cost / Quota / Limits'].setShortcut(QKeySequence('Ctrl+Alt+C'))
         self.actions_by_name['Danish Provider Benchmark'].setShortcut(QKeySequence('Ctrl+Alt+D'))
+        self.actions_by_name['Provider Plugins / SDK'].setShortcut(QKeySequence('Ctrl+Alt+P'))
         self.actions_by_name['Offline TTS Engines'].setShortcut(QKeySequence('Ctrl+Shift+L'))
         self.actions_by_name['Pronunciation dictionaries'].setShortcut(QKeySequence('Ctrl+Shift+D'))
     def build_view_menu(self):
@@ -2032,6 +2034,34 @@ class MainWindow(QMainWindow):
         self.settings_changed(); self.invalidate_preflight(); self.refresh_compatible_voice_state(); self.refresh_provider_intelligence(force=True)
         self.statusBar().showMessage(f'Catalog selection applied to {settings.provider}. Run preflight before generation.',7000)
         return True
+    def open_provider_plugin_sdk(self):
+        dialog=ProviderPluginSDKDialog(
+            self.context.provider_plugin_sdk_service,
+            generation_active=lambda:self.generation_controller.is_active,
+            active_provider_id=lambda:self.provider.currentText() if hasattr(self,'provider') else '',
+            parent=self,
+        )
+        dialog.registryChanged.connect(self.provider_plugin_registry_changed)
+        dialog.exec()
+
+    def provider_plugin_registry_changed(self,action,provider_id):
+        if not hasattr(self,'provider'):
+            return
+        current=self.provider.currentText()
+        provider_ids=list(self.context.provider_catalog_service.provider_ids())
+        self.provider.blockSignals(True)
+        self.provider.clear()
+        self.provider.addItems(provider_ids)
+        target=current if current in provider_ids else ('mock' if 'mock' in provider_ids else (provider_ids[0] if provider_ids else ''))
+        if target:
+            self.provider.setCurrentText(target)
+        self.provider.blockSignals(False)
+        self.refresh_api_profiles()
+        self.invalidate_preflight()
+        self.refresh_smart_provider_routing(force=True)
+        state='activated' if action=='activated' else 'deactivated'
+        self.statusBar().showMessage(f'Provider plugin {provider_id} {state} for this session.',7000)
+
     def open_user_controlled_provider_recovery(self,failure_message=''):
         if self.generation_controller.is_active:
             self.notifications.warning('Provider recovery','Stop the active generation run before reviewing alternate providers.')
@@ -3968,6 +3998,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Generation: Multi-provider Recovery',self.open_user_controlled_provider_recovery),
             PaletteCommand('Provider: Danish Benchmark',self.open_danish_provider_benchmark),
             PaletteCommand('Provider: Offline TTS Engines',self.open_offline_tts_engines),
+            PaletteCommand('Provider: Plugins / SDK',self.open_provider_plugin_sdk),
             PaletteCommand('Voice: Browse and Preview Voices',self.open_voice_browser,lambda: self.voice_browser_button.isEnabled()),
             PaletteCommand('Voice: Unified Voice & Model Catalog',self.open_unified_voice_model_catalog),
             PaletteCommand('Settings: Provider Accounts',act('Provider accounts')),

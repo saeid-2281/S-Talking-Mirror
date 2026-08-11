@@ -53,6 +53,7 @@ from app.services.provider_readiness_service import ProviderReadinessService
 from app.services.provider_intelligence_service import ProviderIntelligenceService
 from app.services.smart_provider_routing_service import SmartProviderRoutingService
 from app.services.user_controlled_provider_recovery_service import UserControlledProviderRecoveryService
+from app.services.provider_plugin_sdk_service import ProviderPluginSDKService
 from app.services.offline_tts_engine_service import OfflineTTSEngineService
 from app.providers.piper_runtime import PiperRuntimeService
 from app.services.report_service import ReportService
@@ -191,6 +192,7 @@ class ApplicationContext:
     provider_intelligence_service: ProviderIntelligenceService
     smart_provider_routing_service: SmartProviderRoutingService
     user_controlled_provider_recovery_service: UserControlledProviderRecoveryService
+    provider_plugin_sdk_service: ProviderPluginSDKService
     piper_runtime_service: PiperRuntimeService
     offline_tts_engine_service: OfflineTTSEngineService
     product_activity_service: ProductActivityService
@@ -296,6 +298,7 @@ def create_application_context(container: ServiceContainer | None = None) -> App
         provider_intelligence_service=services.provider_intelligence_service,
         smart_provider_routing_service=services.smart_provider_routing_service,
         user_controlled_provider_recovery_service=services.user_controlled_provider_recovery_service,
+        provider_plugin_sdk_service=services.provider_plugin_sdk_service,
         piper_runtime_service=services.piper_runtime_service,
         offline_tts_engine_service=services.offline_tts_engine_service,
         product_activity_service=services.product_activity_service,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.models.provider_identity import ProviderIdentity
+from app.provider_registry import DEFAULT_PROVIDER_REGISTRY, ProviderRegistry
 
 
 PROVIDER_IDENTITIES: dict[str, ProviderIdentity] = {
@@ -31,13 +32,27 @@ PROVIDER_IDENTITIES: dict[str, ProviderIdentity] = {
 class ProviderIdentityService:
     """Central user-facing provider names and asset provenance."""
 
-    def __init__(self, brand_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        brand_dir: Path | None = None,
+        registry: ProviderRegistry | None = None,
+    ) -> None:
         self.brand_dir = brand_dir
+        self.registry = registry or DEFAULT_PROVIDER_REGISTRY
 
     def identity_for(self, provider_id: str) -> ProviderIdentity:
-        return PROVIDER_IDENTITIES.get(
-            provider_id,
-            ProviderIdentity(provider_id, provider_id.replace("_", " ").title(), provider_id, "settings", "Unknown", ""),
+        identity = PROVIDER_IDENTITIES.get(provider_id)
+        if identity is not None:
+            return identity
+        manifest = self.registry.manifest_for(provider_id)
+        locality = "Local" if manifest.locality == "local" else "Cloud"
+        return ProviderIdentity(
+            manifest.provider_id,
+            manifest.display_name,
+            manifest.display_name,
+            "settings",
+            locality,
+            "",
         )
 
     def display_name(self, provider_id: str) -> str:

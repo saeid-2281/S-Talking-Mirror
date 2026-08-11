@@ -69,6 +69,7 @@ from app.services.provider_readiness_service import ProviderReadinessService
 from app.services.provider_intelligence_service import ProviderIntelligenceService
 from app.services.smart_provider_routing_service import SmartProviderRoutingService
 from app.services.user_controlled_provider_recovery_service import UserControlledProviderRecoveryService
+from app.services.provider_plugin_sdk_service import ProviderPluginSDKService
 from app.services.offline_tts_engine_service import OfflineTTSEngineService
 from app.providers.piper_runtime import PiperRuntimeService, shared_piper_runtime_service
 from app.services.report_service import ReportService
@@ -220,6 +221,7 @@ class ServiceContainer:
     provider_intelligence_service: ProviderIntelligenceService
     smart_provider_routing_service: SmartProviderRoutingService
     user_controlled_provider_recovery_service: UserControlledProviderRecoveryService
+    provider_plugin_sdk_service: ProviderPluginSDKService
     piper_runtime_service: PiperRuntimeService
     offline_tts_engine_service: OfflineTTSEngineService
     product_activity_service: ProductActivityService
@@ -288,6 +290,10 @@ def create_service_container(
     provider_identity_service = ProviderIdentityService(config.resource_path("app", "resources", "brand"))
     provider_readiness_service = ProviderReadinessService(provider_identity_service)
     provider_catalog_service = ProviderCatalogService()
+    provider_plugin_sdk_service = ProviderPluginSDKService(
+        settings_dir / "provider-plugins",
+        config.reports_dir / "provider-plugins",
+    )
     provider_accounts_center_service = ProviderAccountsCenterService(
         api_profile_service,
         provider_catalog_service,
@@ -623,6 +629,7 @@ def create_service_container(
         provider_intelligence_service=provider_intelligence_service,
         smart_provider_routing_service=smart_provider_routing_service,
         user_controlled_provider_recovery_service=user_controlled_provider_recovery_service,
+        provider_plugin_sdk_service=provider_plugin_sdk_service,
         piper_runtime_service=piper_runtime_service,
         offline_tts_engine_service=offline_tts_engine_service,
         product_activity_service=ProductActivityService(

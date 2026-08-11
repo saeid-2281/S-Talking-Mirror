@@ -236,9 +236,40 @@ class ProviderRegistry:
             by_id[manifest.provider_id] = manifest
         self._ordered = ordered
         self._by_id = by_id
+        self._base_provider_ids = frozenset(by_id)
+        self._plugin_provider_ids: set[str] = set()
 
     def provider_ids(self) -> tuple[str, ...]:
         return tuple(manifest.provider_id for manifest in self._ordered)
+
+    def register_plugin_manifest(self, manifest: ProviderManifest) -> None:
+        """Append a validated session plugin manifest without replacing built-ins."""
+
+        provider_id = manifest.provider_id
+        if provider_id in self._by_id:
+            raise ValueError(f"Provider manifest is already registered: {provider_id}")
+        self._ordered = (*self._ordered, manifest)
+        self._by_id[provider_id] = manifest
+        self._plugin_provider_ids.add(provider_id)
+
+    def unregister_plugin_manifest(self, provider_id: str) -> None:
+        """Remove a session plugin manifest while built-in manifests remain immutable."""
+
+        normalized = str(provider_id or "").strip().casefold()
+        if normalized in self._base_provider_ids:
+            raise ValueError(f"Built-in provider manifest cannot be unregistered: {normalized}")
+        if normalized not in self._plugin_provider_ids:
+            raise ValueError(f"Plugin provider manifest is not registered: {normalized}")
+        self._plugin_provider_ids.discard(normalized)
+        self._by_id.pop(normalized, None)
+        self._ordered = tuple(item for item in self._ordered if item.provider_id != normalized)
+
+    def plugin_provider_ids(self) -> tuple[str, ...]:
+        return tuple(
+            item.provider_id
+            for item in self._ordered
+            if item.provider_id in self._plugin_provider_ids
+        )
 
     def ordered_provider_ids(self, registered_ids: Iterable[str]) -> tuple[str, ...]:
         registered = tuple(dict.fromkeys(str(item) for item in registered_ids))
