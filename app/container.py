@@ -99,6 +99,7 @@ from app.services.recovery_replay_service import RecoveryReplayService
 from app.services.financial_audit_service import FinancialAuditService
 from app.services.operational_persistence_service import OperationalPersistenceService
 from app.services.final_production_certification_service import FinalProductionCertificationService
+from app.services.provider_ga_certification_service import ProviderGACertificationService
 from app.services.release_lifecycle_validation_service import ReleaseLifecycleValidationService
 from app.services.operational_readiness_service import OperationalReadinessCertificationService
 from app.services.evidence_refresh_service import EvidenceRefreshService
@@ -178,6 +179,7 @@ class ServiceContainer:
     operational_persistence_service: OperationalPersistenceService
     release_lifecycle_validation_service: ReleaseLifecycleValidationService
     final_production_certification_service: FinalProductionCertificationService
+    provider_ga_certification_service: ProviderGACertificationService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -511,6 +513,12 @@ def create_service_container(
         operational_readiness_service,
         operational_persistence_service,
     )
+    provider_ga_certification_service = ProviderGACertificationService(
+        config,
+        final_production_certification_service,
+        danish_provider_benchmark_service,
+        provider_plugin_sdk_service,
+    )
     generation_incident_service = GenerationIncidentService(product_event_repository)
     generation_problem_service = GenerationProblemService(product_event_repository)
     generation_orchestration_service = GenerationOrchestrationService(
@@ -584,6 +592,7 @@ def create_service_container(
         operational_persistence_service=operational_persistence_service,
         release_lifecycle_validation_service=release_lifecycle_validation_service,
         final_production_certification_service=final_production_certification_service,
+        provider_ga_certification_service=provider_ga_certification_service,
         git_service=git_service,
         diagnostics_service=diagnostics_service,
         task_prompt_service=TaskPromptService(config.app_root),

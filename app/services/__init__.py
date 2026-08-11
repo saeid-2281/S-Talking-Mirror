@@ -1,4 +1,5 @@
 from app.services.final_production_certification_service import FinalProductionCertificationService
+from app.services.provider_ga_certification_service import ProviderGACertificationService
 from app.services.release_lifecycle_validation_service import ReleaseLifecycleValidationService
 from app.services.operational_persistence_service import OperationalPersistenceService
 from app.services.operational_readiness_service import OperationalReadinessCertificationService
@@ -94,6 +95,7 @@ from app.services.user_controlled_provider_recovery_service import UserControlle
 from app.services.provider_plugin_sdk_service import ProviderPluginSDKService
 __all__ = [
     "FinalProductionCertificationService",
+    "ProviderGACertificationService",
     "ReleaseLifecycleValidationService",
     "EvidenceIntegrityMixin",
     "OperationalPersistenceService",

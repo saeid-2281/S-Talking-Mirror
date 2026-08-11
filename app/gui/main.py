@@ -38,6 +38,7 @@ from app.gui.dialogs.provider_cost_quota_limits_dialog import ProviderCostQuotaL
 from app.gui.dialogs.danish_provider_benchmark_dialog import DanishProviderBenchmarkDialog
 from app.gui.dialogs.user_controlled_provider_recovery_dialog import UserControlledProviderRecoveryDialog
 from app.gui.dialogs.provider_plugin_sdk_dialog import ProviderPluginSDKDialog
+from app.gui.dialogs.provider_ga_certification_dialog import ProviderGACertificationDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -438,7 +439,7 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Voice & Model Catalog','Provider Cost / Quota / Limits','Danish Provider Benchmark','Smart Provider Routing','Provider Plugins / SDK','Offline TTS Engines','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Provider Track Production Certification / GA','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Voice & Model Catalog','Provider Cost / Quota / Limits','Danish Provider Benchmark','Smart Provider Routing','Provider Plugins / SDK','Offline TTS Engines','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
@@ -862,6 +863,7 @@ class MainWindow(QMainWindow):
             ('Distribution Readiness',self.open_distribution_readiness,'health'),
             ('Final Release & Updates',self.open_final_release,'health'),
             ('Final S-Talking 1.x Production Certification',self.open_final_production_certification,'success'),
+            ('Provider Track Production Certification / GA',self.open_provider_ga_certification,'success'),
             ('Release Lifecycle E2E Validation',self.open_release_lifecycle_validation,'history'),
             ('Update Delivery',self.open_update_delivery,'health'),
             ('Upgrade & Recovery',self.open_upgrade_recovery,'history'),
@@ -3814,6 +3816,7 @@ class MainWindow(QMainWindow):
             'production-release':self.open_production_release_certification,
             'stable-release':self.open_stable_release_promotion,
             'final-production-certification':self.open_final_production_certification,
+            'provider-ga-certification':self.open_provider_ga_certification,
             'release-lifecycle':self.open_release_lifecycle_validation,
             'final-release':self.open_final_release,
             'update-delivery':self.open_update_delivery,
@@ -3830,6 +3833,13 @@ class MainWindow(QMainWindow):
         )
         dialog.openRequested.connect(self._open_operations_tool)
         return self._show_report_dialog(dialog,category='final-production-certification')
+    def open_provider_ga_certification(self):
+        dialog=ProviderGACertificationDialog(
+            self.context.provider_ga_certification_service,
+            self,
+            open_path=self.open_path,
+        )
+        return self._show_report_dialog(dialog,category='provider-ga-certification')
     def open_release_lifecycle_validation(self):
         dialog=ReleaseLifecycleValidationDialog(
             self.release_lifecycle_validation_service,
@@ -4007,6 +4017,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Help: Shortcut Reference',act('Shortcut Reference')),
             PaletteCommand('Reports: Operations Workspace',act('Operations Workspace')),
             PaletteCommand('Reports: Production Operations Command Center',act('Production Operations Command Center')),
+            PaletteCommand('Reports: Provider Track Production Certification / GA',act('Provider Track Production Certification / GA')),
             PaletteCommand('Reports: Queue Orchestration',act('Queue Orchestration')),
             PaletteCommand('Reports: Hardening & Maintenance',act('Hardening & Maintenance')),
             PaletteCommand('Reports: Cost & Capacity',act('Cost & Capacity')),
