@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from app.models import AppSettings
 from app.models.unified_voice_model_catalog import (
     UnifiedCatalogItem,
+    UnifiedCatalogSelectionReview,
     UnifiedCatalogSource,
     UnifiedVoiceModelCatalog,
 )
@@ -256,6 +257,154 @@ class UnifiedVoiceModelCatalogService:
             )
         )
 
+    def discovery_items(
+        self,
+        catalog: UnifiedVoiceModelCatalog,
+        base_settings: AppSettings,
+        *,
+        query: str = "",
+        provider_id: str | None = None,
+        kind: str | None = None,
+        language: str | None = None,
+        current_provider_only: bool = False,
+        current_language_only: bool = False,
+        favorites_only: bool = False,
+        compatible_only: bool = False,
+    ) -> tuple[UnifiedCatalogItem, ...]:
+        """Filter/sort cached metadata only; never refresh or apply settings."""
+        effective_provider = base_settings.provider if current_provider_only else provider_id
+        effective_language = base_settings.language_code if current_language_only else language
+        items = self.filtered_items(
+            catalog,
+            query=query,
+            provider_id=effective_provider,
+            kind=kind,
+            language=effective_language,
+        )
+        result: list[UnifiedCatalogItem] = []
+        for item in items:
+            if favorites_only and not item.is_favorite:
+                continue
+            if compatible_only and self.compatibility_state(catalog, base_settings, item) != "compatible":
+                continue
+            result.append(item)
+
+        base_language = self._base_language(base_settings.language_code)
+
+        def sort_key(item: UnifiedCatalogItem) -> tuple[object, ...]:
+            language_match = bool(
+                base_language
+                and any(self._base_language(value) == base_language for value in item.languages)
+            )
+            return (
+                item.provider_id != base_settings.provider,
+                bool(item.profile_id) and item.profile_id != base_settings.active_api_profile_id,
+                not item.is_favorite,
+                not language_match,
+                item.kind,
+                item.provider_name.casefold(),
+                item.name.casefold(),
+            )
+
+        return tuple(sorted(result, key=sort_key))
+
+    def compatibility_state(
+        self,
+        catalog: UnifiedVoiceModelCatalog,
+        base_settings: AppSettings,
+        item: UnifiedCatalogItem,
+    ) -> str:
+        if item.provider_id != base_settings.provider:
+            return "unknown"
+        if (
+            item.profile_id
+            and base_settings.active_api_profile_id
+            and item.profile_id != base_settings.active_api_profile_id
+        ):
+            return "unknown"
+
+        if item.kind == "voice":
+            current_model = str(base_settings.model_id or "").strip()
+            if not current_model or not item.compatible_model_ids:
+                return "unknown"
+            return "compatible" if current_model in item.compatible_model_ids else "incompatible"
+
+        current_voice = str(base_settings.voice_id or "").strip()
+        if not current_voice:
+            return "unknown"
+        voice_item = next(
+            (
+                candidate
+                for candidate in catalog.items
+                if candidate.kind == "voice"
+                and candidate.provider_id == item.provider_id
+                and candidate.item_id == current_voice
+                and (
+                    not item.profile_id
+                    or not candidate.profile_id
+                    or candidate.profile_id == item.profile_id
+                )
+            ),
+            None,
+        )
+        if voice_item is None or not voice_item.compatible_model_ids:
+            return "unknown"
+        return "compatible" if item.item_id in voice_item.compatible_model_ids else "incompatible"
+
+    def selection_review(
+        self,
+        base_settings: AppSettings,
+        item: UnifiedCatalogItem,
+        *,
+        catalog: UnifiedVoiceModelCatalog | None = None,
+    ) -> UnifiedCatalogSelectionReview:
+        provider_change = item.provider_id != base_settings.provider
+        account_change = bool(item.profile_id and item.profile_id != base_settings.active_api_profile_id)
+        changes: list[str] = []
+        warnings: list[str] = []
+
+        if provider_change:
+            changes.append(f"Provider → {item.provider_name}")
+            warnings.append("Provider change requires explicit approval.")
+        if account_change:
+            changes.append(f"Account → {item.profile_name or item.profile_id}")
+            warnings.append("Account change requires explicit approval.")
+
+        if item.kind == "voice":
+            selection_change = item.item_id != base_settings.voice_id
+            if selection_change:
+                changes.append(f"Voice → {item.name}")
+        else:
+            selection_change = item.item_id != base_settings.model_id
+            if selection_change:
+                changes.append(f"Model → {item.name}")
+
+        compatibility = (
+            self.compatibility_state(catalog, base_settings, item)
+            if catalog is not None
+            else "unknown"
+        )
+        if compatibility == "incompatible":
+            warnings.append(
+                "Known incompatibility with the current counterpart; choose a compatible counterpart explicitly before Preflight."
+            )
+        elif compatibility == "unknown":
+            warnings.append("Compatibility with the current counterpart is not proven by cached metadata.")
+
+        if item.source_state == "built_in":
+            warnings.append("Built-in metadata only; live provider metadata has not been refreshed.")
+
+        return UnifiedCatalogSelectionReview(
+            item_key=item.key,
+            provider_change=provider_change,
+            account_change=account_change,
+            selection_change=selection_change,
+            compatibility=compatibility,
+            changes=tuple(changes),
+            warnings=tuple(warnings),
+            can_apply=bool(changes) and item.can_do_text_to_speech,
+        )
+
     def models_for_provider(
         self,
         provider_id: str,
@@ -288,6 +437,23 @@ class UnifiedVoiceModelCatalogService:
                 "Catalog selection from another account requires explicit account-change approval."
             )
         settings, _profile_name = self.settings_for_provider(item.provider_id, base_settings)
+        if item.profile_id and item.profile_id != settings.active_api_profile_id:
+            if not allow_profile_change:
+                raise ValueError(
+                    "Catalog selection from another account requires explicit account-change approval."
+                )
+            try:
+                settings = self.profiles.apply_profile(settings, item.profile_id)
+            except ValueError:
+                # Some historical/provider catalogs carry an opaque or stale
+                # account identifier rather than the locally stored ApiProfile ID.
+                # The account change has already been explicitly approved here, so
+                # retain the provider's already-resolved active profile. If no local
+                # account resolved, stop and require explicit account setup.
+                if not settings.active_api_profile_id:
+                    raise ValueError(
+                        "Catalog account is unavailable locally; choose or add the account explicitly."
+                    ) from None
         update: dict[str, object] = {"provider": item.provider_id}
         if item.kind == "voice":
             update["voice_id"] = item.item_id

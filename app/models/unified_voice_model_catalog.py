@@ -88,3 +88,25 @@ class UnifiedVoiceModelCatalog:
     @property
     def provider_count(self) -> int:
         return len(self.sources)
+
+SelectionCompatibility = Literal["compatible", "incompatible", "unknown"]
+
+
+@dataclass(frozen=True)
+class UnifiedCatalogSelectionReview:
+    item_key: str
+    provider_change: bool
+    account_change: bool
+    selection_change: bool
+    compatibility: SelectionCompatibility
+    changes: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+    can_apply: bool = True
+
+    @property
+    def change_text(self) -> str:
+        return " · ".join(self.changes) if self.changes else "No settings change."
+
+    @property
+    def warning_text(self) -> str:
+        return " · ".join(self.warnings)

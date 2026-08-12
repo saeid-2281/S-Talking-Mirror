@@ -45,9 +45,9 @@ class FirstRunOnboardingService:
             "voice_model_choice",
             "Review voice and model choices",
             "Choose",
-            "Use the unified catalog to inspect available voices/models and quality context. Selection remains an explicit user decision.",
+            "Use Voice & Model Discovery to inspect cached account-scoped metadata, compatibility and selection changes before explicitly applying anything.",
             "voice_model_catalog",
-            "Open Voice & Model Catalog",
+            "Open Voice & Model Discovery",
         ),
         FirstRunOnboardingStep(
             "project_sources",

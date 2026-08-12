@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -23,7 +24,7 @@ from app.services.unified_voice_model_catalog_service import UnifiedVoiceModelCa
 
 
 class UnifiedVoiceModelCatalogDialog(QDialog):
-    """Cross-provider cached voice/model browser with explicit provider switching."""
+    """Cached-first discovery with explicit final selection authority."""
 
     settings_selected = Signal(object)
 
@@ -43,22 +44,28 @@ class UnifiedVoiceModelCatalogDialog(QDialog):
         self.generation_active = generation_active or (lambda: False)
         self.catalog: UnifiedVoiceModelCatalog | None = None
         self.visible_items: tuple[UnifiedCatalogItem, ...] = ()
-        self.setWindowTitle("Unified Voice & Model Catalog")
-        self.resize(1040, 700)
+        self.setWindowTitle("Voice & Model Discovery")
+        self.resize(1180, 760)
         self._build_ui()
         self.reload_cached()
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        title = QLabel("Unified Voice & Model Catalog")
+        title = QLabel("Voice & Model Discovery")
         title.setObjectName("dialogTitle")
         root.addWidget(title)
-        root.addWidget(
-            QLabel(
-                "Browse account-scoped voice/model metadata across providers. "
-                "Refreshing or searching never changes the generation provider."
-            )
+        subtitle = QLabel(
+            "Explore cached account-scoped metadata and explicitly review one selection. "
+            "Opening or filtering never contacts a provider, runs Preflight, starts generation, "
+            "or applies Smart Routing."
         )
+        subtitle.setWordWrap(True)
+        root.addWidget(subtitle)
+
+        self.current_setup = QLabel()
+        self.current_setup.setObjectName("voiceModelDiscoveryCurrentSetup")
+        self.current_setup.setWordWrap(True)
+        root.addWidget(self.current_setup)
 
         filters = QHBoxLayout()
         self.provider = QComboBox()
@@ -73,12 +80,29 @@ class UnifiedVoiceModelCatalogDialog(QDialog):
         self.language = QComboBox()
         self.language.addItem("All languages", None)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search provider, profile, voice, model, language…")
+        self.search.setPlaceholderText("Search provider, account, voice, model, language, label…")
         filters.addWidget(self.provider)
         filters.addWidget(self.kind)
         filters.addWidget(self.language)
         filters.addWidget(self.search, 1)
         root.addLayout(filters)
+
+        quick = QHBoxLayout()
+        self.current_provider_only = QCheckBox("Current provider")
+        self.current_language_only = QCheckBox("Current language")
+        self.favorites_only = QCheckBox("Favorite voices")
+        self.compatible_only = QCheckBox("Known compatible only")
+        self.reset_filters_button = QPushButton("Reset filters")
+        for widget in (
+            self.current_provider_only,
+            self.current_language_only,
+            self.favorites_only,
+            self.compatible_only,
+        ):
+            quick.addWidget(widget)
+        quick.addStretch(1)
+        quick.addWidget(self.reset_filters_button)
+        root.addLayout(quick)
 
         actions = QHBoxLayout()
         self.refresh_button = QPushButton("Refresh selected provider")
@@ -97,9 +121,9 @@ class UnifiedVoiceModelCatalogDialog(QDialog):
         self.summary.setWordWrap(True)
         root.addWidget(self.summary)
 
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 9)
         self.table.setHorizontalHeaderLabels(
-            ["Type", "Provider", "Name", "ID", "Language", "Profile", "Source"]
+            ["Type", "Provider", "Name", "ID", "Language", "Profile", "Source", "Max text", "Cost"]
         )
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
@@ -108,12 +132,13 @@ class UnifiedVoiceModelCatalogDialog(QDialog):
         self.table.horizontalHeader().setStretchLastSection(True)
         root.addWidget(self.table, 1)
 
-        self.selection_detail = QLabel("Select a voice or model to inspect it.")
+        self.selection_detail = QLabel("Select a voice or model to review what would change.")
+        self.selection_detail.setObjectName("voiceModelDiscoverySelectionReview")
         self.selection_detail.setWordWrap(True)
         root.addWidget(self.selection_detail)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        self.use_button = QPushButton("Use selection")
+        self.use_button = QPushButton("Review & use selection")
         self.use_button.setEnabled(False)
         buttons.addButton(self.use_button, QDialogButtonBox.AcceptRole)
         buttons.rejected.connect(self.reject)
@@ -123,12 +148,17 @@ class UnifiedVoiceModelCatalogDialog(QDialog):
         self.kind.currentIndexChanged.connect(self._filters_changed)
         self.language.currentIndexChanged.connect(self._filters_changed)
         self.search.textChanged.connect(self._filters_changed)
+        self.current_provider_only.toggled.connect(self._filters_changed)
+        self.current_language_only.toggled.connect(self._filters_changed)
+        self.favorites_only.toggled.connect(self._filters_changed)
+        self.compatible_only.toggled.connect(self._filters_changed)
         self.table.itemSelectionChanged.connect(self._selection_changed)
         self.table.itemDoubleClicked.connect(lambda _item: self.use_selection())
         self.reload_button.clicked.connect(self.reload_cached)
         self.refresh_button.clicked.connect(self.refresh_selected_provider)
         self.use_button.clicked.connect(self.use_selection)
         self.accounts_button.clicked.connect(self._open_accounts)
+        self.reset_filters_button.clicked.connect(self.reset_filters)
 
     def reload_cached(self) -> None:
         self.catalog = self.service.snapshot(self.settings_provider(), allow_stale=True)
@@ -143,6 +173,7 @@ class UnifiedVoiceModelCatalogDialog(QDialog):
             if index >= 0:
                 self.language.setCurrentIndex(index)
         self.language.blockSignals(False)
+        self._update_current_setup()
         self._render()
 
     def refresh_selected_provider(self) -> None:
@@ -150,7 +181,7 @@ class UnifiedVoiceModelCatalogDialog(QDialog):
         if not provider_id:
             QMessageBox.information(
                 self,
-                "Unified catalog",
+                "Voice & Model Discovery",
                 "Choose one provider before refreshing. All-provider refresh is intentionally disabled.",
             )
             return
@@ -165,20 +196,47 @@ class UnifiedVoiceModelCatalogDialog(QDialog):
             QMessageBox.information(self, "Catalog refresh", source.message)
         self.reload_cached()
 
-    def _filters_changed(self) -> None:
+    def reset_filters(self) -> None:
+        self.provider.setCurrentIndex(0)
+        self.kind.setCurrentIndex(0)
+        self.language.setCurrentIndex(0)
+        self.search.clear()
+        self.current_provider_only.setChecked(False)
+        self.current_language_only.setChecked(False)
+        self.favorites_only.setChecked(False)
+        self.compatible_only.setChecked(False)
         self._render()
+
+    def _filters_changed(self, *_args) -> None:
+        self._render()
+
+    def _update_current_setup(self) -> None:
+        settings = self.settings_provider()
+        self.current_setup.setText(
+            f"Current setup · Provider: {settings.provider} · "
+            f"Account: {settings.active_api_profile_id or 'no named account'} · "
+            f"Voice: {settings.voice_id or '—'} · Model: {settings.model_id or '—'} · "
+            f"Language: {settings.language_code or '—'}\n"
+            "Discovery remains read-only until Review & use selection is explicitly confirmed."
+        )
 
     def _render(self) -> None:
         if self.catalog is None:
             self.visible_items = ()
             self.table.setRowCount(0)
             return
-        self.visible_items = self.service.filtered_items(
+        settings = self.settings_provider()
+        self.visible_items = self.service.discovery_items(
             self.catalog,
+            settings,
             query=self.search.text(),
             provider_id=self.provider.currentData(),
             kind=self.kind.currentData(),
             language=self.language.currentData(),
+            current_provider_only=self.current_provider_only.isChecked(),
+            current_language_only=self.current_language_only.isChecked(),
+            favorites_only=self.favorites_only.isChecked(),
+            compatible_only=self.compatible_only.isChecked(),
         )
         self.table.setRowCount(len(self.visible_items))
         for row, item in enumerate(self.visible_items):
@@ -190,6 +248,8 @@ class UnifiedVoiceModelCatalogDialog(QDialog):
                 item.language_text or "—",
                 item.profile_name or "—",
                 item.source_state.replace("_", " ").title(),
+                f"{item.maximum_text_length:,}" if item.maximum_text_length else "—",
+                f"×{item.cost_factor:g}" if item.cost_factor is not None else "—",
             )
             for column, value in enumerate(values):
                 cell = QTableWidgetItem(str(value))
@@ -203,7 +263,8 @@ class UnifiedVoiceModelCatalogDialog(QDialog):
         )
         self.summary.setText(
             f"{len(self.visible_items):,} visible · {self.catalog.voice_count:,} voices · "
-            f"{self.catalog.model_count:,} models · {self.catalog.provider_count:,} providers\n{states}"
+            f"{self.catalog.model_count:,} models · {self.catalog.provider_count:,} providers\n"
+            f"Cached-first sources: {states}"
         )
         self._selection_changed()
 
@@ -215,14 +276,20 @@ class UnifiedVoiceModelCatalogDialog(QDialog):
 
     def _selection_changed(self) -> None:
         item = self.selected_item()
-        self.use_button.setEnabled(item is not None and not self.generation_active())
         if item is None:
-            self.selection_detail.setText("Select a voice or model to inspect it.")
+            self.use_button.setEnabled(False)
+            self.selection_detail.setText("Select a voice or model to review what would change.")
             return
-        compatible = ", ".join(item.compatible_model_ids) or "provider catalog"
+        review = self.service.selection_review(self.settings_provider(), item, catalog=self.catalog)
+        self.use_button.setEnabled(review.can_apply and not self.generation_active())
+        compatible = ", ".join(item.compatible_model_ids) or "not declared"
         self.selection_detail.setText(
             f"{item.provider_name} · {item.kind} · {item.name} · "
-            f"language {item.language_text or 'not specified'} · compatible models: {compatible}"
+            f"language {item.language_text or 'not specified'} · source {item.source_state.replace('_', ' ')}\n"
+            f"Compatibility with current counterpart: {review.compatibility} · "
+            f"declared compatible models: {compatible}\n"
+            f"Would change: {review.change_text}\n"
+            f"Review notes: {review.warning_text or 'No metadata warning.'}"
         )
 
     def use_selection(self) -> None:
@@ -237,30 +304,31 @@ class UnifiedVoiceModelCatalogDialog(QDialog):
             )
             return
         current = self.settings_provider()
-        provider_change = item.provider_id != current.provider
-        profile_change = bool(
-            item.profile_id and item.profile_id != current.active_api_profile_id
+        review = self.service.selection_review(current, item, catalog=self.catalog)
+        if not review.can_apply:
+            QMessageBox.information(self, "Voice & Model Discovery", "This item does not change the current setup.")
+            return
+        notes = "\n".join(f"• {warning}" for warning in review.warnings)
+        if notes:
+            notes = f"\n\nReview notes:\n{notes}"
+        answer = QMessageBox.question(
+            self,
+            "Apply discovered selection?",
+            (
+                f"{review.change_text}{notes}\n\n"
+                "This explicit action applies only the reviewed selection. It will NOT refresh another "
+                "provider, run Preflight, start/restart generation, or apply Smart Routing. Continue?"
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
-        if provider_change or profile_change:
-            changes: list[str] = []
-            if provider_change:
-                changes.append(f"provider {current.provider} → {item.provider_id}")
-            if profile_change:
-                changes.append(f"account → {item.profile_name or item.profile_id}")
-            answer = QMessageBox.question(
-                self,
-                "Apply catalog selection?",
-                f"Use this {item.kind} and explicitly apply: {', '.join(changes)}?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if answer != QMessageBox.Yes:
-                return
+        if answer != QMessageBox.Yes:
+            return
         settings = self.service.selection_settings(
             current,
             item,
-            allow_provider_change=provider_change,
-            allow_profile_change=profile_change,
+            allow_provider_change=review.provider_change,
+            allow_profile_change=review.account_change,
         )
         self.settings_selected.emit(settings)
 
