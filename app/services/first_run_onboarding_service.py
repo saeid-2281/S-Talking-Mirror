@@ -35,11 +35,11 @@ class FirstRunOnboardingService:
         ),
         FirstRunOnboardingStep(
             "provider_readiness",
-            "Review provider account readiness",
+            "Review provider setup and account readiness",
             "Connect",
-            "Open Provider Accounts to review credentials and readiness. Onboarding itself never creates, switches or verifies an account automatically.",
-            "provider_accounts",
-            "Open Provider Accounts",
+            "Open the Provider Setup Wizard for a guided provider/account/voice/model review. Onboarding itself never creates, switches or verifies an account automatically.",
+            "provider_setup_wizard",
+            "Open Provider Setup Wizard",
         ),
         FirstRunOnboardingStep(
             "voice_model_choice",

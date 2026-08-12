@@ -206,7 +206,11 @@ exit 0
     runner.output.connect(output.append)
 
     assert runner.start(script) is True
-    wait_for(lambda: bool(results), qt_app)
+    # PowerShell/QProcess startup can exceed five seconds late in the full
+    # Windows Qt suite even though the same contract passes in isolation.
+    # Keep the generic helper strict while giving process-backed checks a
+    # bounded full-suite-safe completion window.
+    wait_for(lambda: bool(results), qt_app, timeout=15.0)
 
     assert results[0].success is True
     assert results[0].exit_code == 0
@@ -250,7 +254,11 @@ exit 3
     runner.output.connect(output.append)
 
     assert runner.start(script) is True
-    wait_for(lambda: bool(results), qt_app)
+    # PowerShell/QProcess startup can exceed five seconds late in the full
+    # Windows Qt suite even though the same contract passes in isolation.
+    # Keep the generic helper strict while giving process-backed checks a
+    # bounded full-suite-safe completion window.
+    wait_for(lambda: bool(results), qt_app, timeout=15.0)
 
     assert results[0].success is False
     assert results[0].exit_code == 3
@@ -266,7 +274,11 @@ def test_qprocess_runner_reports_unknown_when_result_missing(qt_app, tmp_path: P
     runner.finished.connect(results.append)
 
     assert runner.start(script) is True
-    wait_for(lambda: bool(results), qt_app)
+    # PowerShell/QProcess startup can exceed five seconds late in the full
+    # Windows Qt suite even though the same contract passes in isolation.
+    # Keep the generic helper strict while giving process-backed checks a
+    # bounded full-suite-safe completion window.
+    wait_for(lambda: bool(results), qt_app, timeout=15.0)
 
     assert results[0].success is False
     assert results[0].stage == "unknown"

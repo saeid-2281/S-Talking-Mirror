@@ -104,6 +104,7 @@ from app.services.final_production_certification_service import FinalProductionC
 from app.services.provider_ga_certification_service import ProviderGACertificationService
 from app.services.product_ux_audit_service import ProductUXAuditService
 from app.services.first_run_onboarding_service import FirstRunOnboardingService
+from app.services.provider_setup_wizard_service import ProviderSetupWizardService
 from app.services.release_lifecycle_validation_service import ReleaseLifecycleValidationService
 from app.services.operational_readiness_service import OperationalReadinessCertificationService
 from app.services.evidence_refresh_service import EvidenceRefreshService
@@ -186,6 +187,7 @@ class ServiceContainer:
     provider_ga_certification_service: ProviderGACertificationService
     product_ux_audit_service: ProductUXAuditService
     first_run_onboarding_service: FirstRunOnboardingService
+    provider_setup_wizard_service: ProviderSetupWizardService
     git_service: GitService
     diagnostics_service: DiagnosticsService
     task_prompt_service: TaskPromptService
@@ -342,6 +344,12 @@ def create_service_container(
         provider_catalog_service,
         unified_voice_model_catalog_service,
         generation_cost_capacity_service,
+    )
+    provider_setup_wizard_service = ProviderSetupWizardService(
+        api_profile_service,
+        provider_catalog_service,
+        unified_voice_model_catalog_service,
+        provider_cost_quota_limits_service,
     )
     danish_provider_benchmark_service = DanishProviderBenchmarkService(config)
     provider_intelligence_service = ProviderIntelligenceService(
@@ -609,6 +617,7 @@ def create_service_container(
         provider_ga_certification_service=provider_ga_certification_service,
         product_ux_audit_service=product_ux_audit_service,
         first_run_onboarding_service=first_run_onboarding_service,
+        provider_setup_wizard_service=provider_setup_wizard_service,
         git_service=git_service,
         diagnostics_service=diagnostics_service,
         task_prompt_service=TaskPromptService(config.app_root),

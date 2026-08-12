@@ -55,6 +55,130 @@ class UnifiedVoiceModelCatalogService:
             generated_at=datetime.now(timezone.utc).isoformat(),
         )
 
+    def snapshot_explicit_settings(
+        self,
+        provider_id: str,
+        settings: AppSettings,
+        *,
+        allow_stale: bool = True,
+    ) -> UnifiedVoiceModelCatalog:
+        """Read one provider using exactly the account context in ``settings``.
+
+        Unlike :meth:`snapshot`, this method never falls back to the provider's
+        active profile when ``active_api_profile_id`` is empty. It exists for
+        guided setup flows where account selection must stay an explicit user
+        decision.
+        """
+        provider_id = str(provider_id or "").strip().casefold()
+        if provider_id != str(settings.provider or "").strip().casefold():
+            raise ValueError("Explicit catalog settings must match the requested provider.")
+        manifest = self.providers.manifest_for(provider_id)
+        profile_name = self._explicit_profile_name(provider_id, settings.active_api_profile_id)
+        catalog = self.voices.available_catalog(settings, allow_stale=allow_stale)
+        if catalog is not None:
+            source = UnifiedCatalogSource(
+                provider_id=provider_id,
+                provider_name=manifest.display_name,
+                profile_id=settings.active_api_profile_id,
+                profile_name=profile_name,
+                state="cached",
+                voice_count=len(catalog.voices),
+                model_count=sum(1 for model in catalog.models if model.can_do_text_to_speech),
+                refreshed_at=catalog.refreshed_at,
+                message="Explicit account-scoped cached catalog.",
+            )
+            items = self._items_from_catalog(source, catalog)
+        else:
+            fallback_models = self._built_in_models(provider_id)
+            if fallback_models:
+                source = UnifiedCatalogSource(
+                    provider_id=provider_id,
+                    provider_name=manifest.display_name,
+                    profile_id=settings.active_api_profile_id,
+                    profile_name=profile_name,
+                    state="built_in",
+                    voice_count=0,
+                    model_count=len(fallback_models),
+                    message="Built-in model contract; explicit refresh is required for live voices/metadata.",
+                )
+                items = tuple(self._model_item(source, model) for model in fallback_models)
+            elif self._account_required(manifest, settings):
+                source = UnifiedCatalogSource(
+                    provider_id=provider_id,
+                    provider_name=manifest.display_name,
+                    profile_id=settings.active_api_profile_id,
+                    profile_name=profile_name,
+                    state="account_required",
+                    voice_count=0,
+                    model_count=0,
+                    message="Choose a provider account before explicitly refreshing this catalog.",
+                )
+                items = ()
+            else:
+                source = UnifiedCatalogSource(
+                    provider_id=provider_id,
+                    provider_name=manifest.display_name,
+                    profile_id=settings.active_api_profile_id,
+                    profile_name=profile_name,
+                    state="not_refreshed",
+                    voice_count=0,
+                    model_count=0,
+                    message="No explicit-account catalog snapshot is available yet.",
+                )
+                items = ()
+        return UnifiedVoiceModelCatalog(
+            sources=(source,),
+            items=tuple(items),
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def refresh_provider_explicit_settings(
+        self,
+        provider_id: str,
+        settings: AppSettings,
+    ) -> UnifiedCatalogSource:
+        """Refresh one provider using exactly the explicitly selected account."""
+        provider_id = str(provider_id or "").strip().casefold()
+        if provider_id != str(settings.provider or "").strip().casefold():
+            raise ValueError("Explicit catalog settings must match the requested provider.")
+        manifest = self.providers.manifest_for(provider_id)
+        profile_name = self._explicit_profile_name(provider_id, settings.active_api_profile_id)
+        if self._account_required(manifest, settings):
+            return UnifiedCatalogSource(
+                provider_id=provider_id,
+                provider_name=manifest.display_name,
+                profile_id=settings.active_api_profile_id,
+                profile_name=profile_name,
+                state="account_required",
+                voice_count=0,
+                model_count=0,
+                message="Choose a credential-ready provider account before refreshing this catalog.",
+            )
+        try:
+            catalog = self.voices.refresh_catalog(settings, force=True)
+        except Exception as exc:
+            return UnifiedCatalogSource(
+                provider_id=provider_id,
+                provider_name=manifest.display_name,
+                profile_id=settings.active_api_profile_id,
+                profile_name=profile_name,
+                state="error",
+                voice_count=0,
+                model_count=0,
+                message=str(exc),
+            )
+        return UnifiedCatalogSource(
+            provider_id=provider_id,
+            provider_name=manifest.display_name,
+            profile_id=settings.active_api_profile_id,
+            profile_name=profile_name,
+            state="refreshed",
+            voice_count=len(catalog.voices),
+            model_count=sum(1 for model in catalog.models if model.can_do_text_to_speech),
+            refreshed_at=catalog.refreshed_at,
+            message="Catalog refreshed for the explicitly selected account.",
+        )
+
     def refresh_provider(
         self,
         provider_id: str,
@@ -205,6 +329,20 @@ class UnifiedVoiceModelCatalogService:
         if profile is None:
             return settings, None
         return self.profiles.apply_profile(settings, profile.profile_id), profile.display_name
+
+    def _explicit_profile_name(self, provider_id: str, profile_id: str | None) -> str | None:
+        profile_id = str(profile_id or "").strip()
+        if not profile_id:
+            return None
+        try:
+            profile = self.profiles.get_profile(profile_id)
+        except ValueError:
+            return None
+        if profile.provider != provider_id:
+            raise ValueError(
+                f"Provider account {profile.display_name!r} belongs to {profile.provider}, not {provider_id}."
+            )
+        return profile.display_name
 
     def _provider_snapshot(
         self,

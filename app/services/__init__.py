@@ -2,6 +2,7 @@ from app.services.final_production_certification_service import FinalProductionC
 from app.services.provider_ga_certification_service import ProviderGACertificationService
 from app.services.product_ux_audit_service import ProductUXAuditService
 from app.services.first_run_onboarding_service import FirstRunOnboardingService
+from app.services.provider_setup_wizard_service import ProviderSetupWizardService
 from app.services.release_lifecycle_validation_service import ReleaseLifecycleValidationService
 from app.services.operational_persistence_service import OperationalPersistenceService
 from app.services.operational_readiness_service import OperationalReadinessCertificationService
@@ -100,6 +101,7 @@ __all__ = [
     "ProviderGACertificationService",
     "ProductUXAuditService",
     "FirstRunOnboardingService",
+    "ProviderSetupWizardService",
     "ReleaseLifecycleValidationService",
     "EvidenceIntegrityMixin",
     "OperationalPersistenceService",

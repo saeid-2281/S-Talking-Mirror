@@ -41,6 +41,7 @@ from app.gui.dialogs.provider_plugin_sdk_dialog import ProviderPluginSDKDialog
 from app.gui.dialogs.provider_ga_certification_dialog import ProviderGACertificationDialog
 from app.gui.dialogs.product_ux_audit_dialog import ProductUXAuditDialog
 from app.gui.dialogs.first_run_onboarding_dialog import FirstRunOnboardingDialog
+from app.gui.dialogs.provider_setup_wizard_dialog import ProviderSetupWizardDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -452,13 +453,13 @@ class MainWindow(QMainWindow):
             self.main_toolbar.addAction(action)
             if name in {'Save','Add source files','Stop Generation'}: self.main_toolbar.addSeparator()
         self.toolbar_overflow_button=QToolButton(); self.toolbar_overflow_button.setObjectName('toolbarOverflowButton'); self.toolbar_overflow_button.setIcon(action_icon('general.more')); self.toolbar_overflow_button.setToolTip('More actions'); self.toolbar_overflow_button.setAccessibleName('More toolbar actions'); self.toolbar_overflow_button.setPopupMode(QToolButton.InstantPopup); self.toolbar_overflow_menu=QMenu(self.toolbar_overflow_button)
-        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Provider Track Production Certification / GA','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider accounts','Voice & Model Catalog','Provider Cost / Quota / Limits','Danish Provider Benchmark','Smart Provider Routing','Provider Plugins / SDK','Offline TTS Engines','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
+        for name in ['Project Continuity','Generation Workflow','Generation Live Operations','Audio review & export','Operations Workspace','Final S-Talking 1.x Production Certification','Provider Track Production Certification / GA','Release Lifecycle E2E Validation','Production Operations Command Center','Generation History','Artifact Retention','Execution Sessions','Execution Receipts','Estimate vs Actual','Launch Receipts','Approval Operations','Guard Policy Profiles','UX & Accessibility Certification','Production Release Certification','Stable Release Promotion','Post-GA Maintenance','Production Incident Support','Incident Triage & Remediation','Incident Resolution & Closure','Incident Prevention & Recurrence','Prevention Effectiveness & Risk','Open Latest Report','Provider Setup Wizard','Provider accounts','Voice & Model Catalog','Provider Cost / Quota / Limits','Danish Provider Benchmark','Smart Provider Routing','Provider Plugins / SDK','Offline TTS Engines','Pronunciation dictionaries','Command Palette','Export Diagnostics','Restore Default Layout']:
             action=self.actions_by_name.get(name)
             if action: self.toolbar_overflow_menu.addAction(action)
         self.toolbar_overflow_button.setMenu(self.toolbar_overflow_menu); self.main_toolbar.addSeparator(); overflow_action=self.main_toolbar.addWidget(self.toolbar_overflow_button); overflow_action.setIcon(action_icon('general.more')); overflow_action.setToolTip('More actions')
     def build_settings_menu(self):
         self.settings_menu=QMenu('Settings',self); self.menuBar().addMenu(self.settings_menu)
-        for tx,fn,ic in [('Provider accounts',self.open_provider_accounts,'provider.accounts'),('Voice & Model Catalog',self.open_unified_voice_model_catalog,'provider.browse_voices'),('Provider Cost / Quota / Limits',self.open_provider_cost_quota_limits,'report'),('Danish Provider Benchmark',self.open_danish_provider_benchmark,'report'),('Provider Plugins / SDK',self.open_provider_plugin_sdk,'settings'),('Offline TTS Engines',self.open_offline_tts_engines,'settings'),('Pronunciation dictionaries',self.open_pronunciation_dictionaries,'pronunciation.dictionary')]:
+        for tx,fn,ic in [('Provider Setup Wizard',self.open_provider_setup_wizard,'settings'),('Provider accounts',self.open_provider_accounts,'provider.accounts'),('Voice & Model Catalog',self.open_unified_voice_model_catalog,'provider.browse_voices'),('Provider Cost / Quota / Limits',self.open_provider_cost_quota_limits,'report'),('Danish Provider Benchmark',self.open_danish_provider_benchmark,'report'),('Provider Plugins / SDK',self.open_provider_plugin_sdk,'settings'),('Offline TTS Engines',self.open_offline_tts_engines,'settings'),('Pronunciation dictionaries',self.open_pronunciation_dictionaries,'pronunciation.dictionary')]:
             a=self.settings_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
         self.settings_menu.addSeparator(); save_defaults=self.settings_menu.addAction(icon('save'),'Save current as defaults'); save_defaults.triggered.connect(self.save_settings); self.actions_by_name['Save current as defaults']=save_defaults
         self.actions_by_name['Provider accounts'].setShortcut(QKeySequence('Ctrl+Shift+P'))
@@ -937,6 +938,7 @@ class MainWindow(QMainWindow):
     def build_help_menu(self):
         self.help_menu=QMenu('Help',self); self.menuBar().addMenu(self.help_menu)
         onboarding=self.help_menu.addAction('Getting Started / First-run Onboarding'); onboarding.triggered.connect(self.open_first_run_onboarding); self.actions_by_name['Getting Started / First-run Onboarding']=onboarding
+        provider_setup=self.help_menu.addAction('Provider Setup Wizard'); provider_setup.triggered.connect(self.open_provider_setup_wizard); self.actions_by_name['Provider Setup Wizard']=provider_setup
         quick=self.help_menu.addAction('Quick Setup'); quick.triggered.connect(self.open_quick_setup); self.actions_by_name['Quick Setup']=quick
         shortcuts=self.help_menu.addAction('Shortcut Reference'); shortcuts.triggered.connect(self.show_shortcut_reference); self.actions_by_name['Shortcut Reference']=shortcuts
         about=self.help_menu.addAction('About S Talking'); about.triggered.connect(self.open_about_dialog); self.actions_by_name['About S Talking']=about
@@ -957,6 +959,7 @@ class MainWindow(QMainWindow):
             self,
             actions={
                 'focus_workflow':self.focus_generation_workflow,
+                'provider_setup_wizard':self.open_provider_setup_wizard,
                 'provider_accounts':self.open_provider_accounts,
                 'voice_model_catalog':self.open_unified_voice_model_catalog,
                 'project_continuity':self.open_project_continuity,
@@ -975,6 +978,59 @@ class MainWindow(QMainWindow):
         dialog=QuickSetupDialog(self.context.provider_catalog_service,self.settings(),self)
         if dialog.exec()==QDialog.Accepted:
             settings=dialog.selected_settings(); self.provider.setCurrentText(settings.provider); self.set_model_value(settings.model_id); self.voice.setText(settings.voice_id); self.set_language_value(settings.language_code); self.save_global_preferences(settings); self.settings_changed()
+    def open_provider_setup_wizard(self):
+        project=self.project_controller.current_project
+        jobs=list(self.generation_controller.generation_jobs()) if hasattr(self,'generation_controller') else []
+        dialog=ProviderSetupWizardDialog(
+            self.context.provider_setup_wizard_service,
+            self.settings,
+            generation_active=lambda:self.generation_controller.is_active,
+            open_account_manager=lambda provider_id:self.open_provider_accounts(provider_id),
+            open_offline_engines=self.open_offline_tts_engines,
+            open_cost_quota=self.open_provider_cost_quota_limits,
+            project_id=project.project_id if project else None,
+            scoped_characters=sum(len(job.text) for job in jobs),
+            parent=self,
+        )
+        dialog.settings_selected.connect(self.apply_provider_setup_settings)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        self.provider_setup_wizard_dialog=dialog
+        return dialog
+
+    def apply_provider_setup_settings(self,settings):
+        if self.generation_controller.is_active:
+            self.notifications.warning('Provider Setup Wizard','Stop the active generation run before applying provider setup choices.')
+            return False
+        previous_provider=self.provider.currentText()
+        profile_id=getattr(settings,'active_api_profile_id',None)
+        if profile_id:
+            try:
+                profile=self.context.api_profile_service.get_profile(str(profile_id))
+            except ValueError as exc:
+                self.notifications.warning('Provider Setup Wizard',str(exc)); return False
+            if profile.provider!=settings.provider:
+                self.notifications.warning('Provider Setup Wizard','The selected account does not belong to the selected provider.'); return False
+            self.context.api_profile_service.set_active(str(profile_id))
+        with self.settings_controller.loading():
+            if settings.provider!=previous_provider:
+                self.provider.setCurrentText(settings.provider)
+            self.refresh_api_profiles()
+            if profile_id:
+                self.set_combo_data(self.api_profile,profile_id)
+                secret=self.context.api_profile_service.api_key_for(str(profile_id))
+                if secret is not None: self.key.setText(secret)
+            elif settings.provider!=previous_provider:
+                self.set_combo_data(self.api_profile,None); self.key.setText(settings.api_key or '')
+            if settings.model_id: self.set_model_value(settings.model_id)
+            self.voice.setText(settings.voice_id or '')
+            if settings.language_code: self.set_language_value(settings.language_code)
+        self.settings_changed(); self.invalidate_preflight(); self.refresh_compatible_voice_state(); self.refresh_provider_intelligence(force=True); self.refresh_smart_provider_routing(force=True)
+        self.set_provider_status('Provider setup applied explicitly. Run connection test and Preflight before generation.')
+        self.statusBar().showMessage('Provider setup choices applied. Preflight has NOT run and generation has NOT started.',8000)
+        return True
+
     def show_shortcut_reference(self):
         self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Shift+T Add text source\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Alt+V Voice & Model Catalog\nCtrl+Alt+C Provider Cost / Quota / Limits\nCtrl+Alt+S Smart Provider Routing\nCtrl+Shift+L Offline TTS Engines\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nCtrl+Shift+F Focus queue\nCtrl+Alt+I Interface settings\nCtrl+1 Provider panel\nCtrl+2 Generation queue\nCtrl+3 Inspector panel\nCtrl+4 Activity panel\nCtrl+5 Generation controls\nCtrl+6 Output playback\nCtrl+7 Text Studio\nF6 Cycle major panels')
     def open_about_dialog(self):
@@ -2026,11 +2082,15 @@ class MainWindow(QMainWindow):
         self.refresh_provider_intelligence()
         self.set_provider_status('Offline Piper voice selected. Run preflight before generation.')
         return True
-    def open_provider_accounts(self):
+    def open_provider_accounts(self,provider_id=None):
         dialog=ProviderAccountsDialog(self.context.api_profile_service,self.context.voice_service,self.settings,generation_active=lambda:self.generation_controller.is_active,verification_service=self.context.provider_verification_service,provider_catalog_service=self.context.provider_catalog_service,accounts_center_service=self.context.provider_accounts_center_service,parent=self)
         dialog.profiles_changed.connect(self.provider_accounts_changed)
+        if provider_id:
+            index=dialog.provider.findData(str(provider_id))
+            if index>=0: dialog.provider.setCurrentIndex(index)
         dialog.show()
         self.provider_accounts_dialog=dialog
+        return dialog
     def provider_accounts_changed(self):
         self.refresh_api_profiles()
         provider_id=self.provider.currentText() if hasattr(self,'provider') else 'elevenlabs'
@@ -4081,6 +4141,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Provider: Plugins / SDK',self.open_provider_plugin_sdk),
             PaletteCommand('Voice: Browse and Preview Voices',self.open_voice_browser,lambda: self.voice_browser_button.isEnabled()),
             PaletteCommand('Voice: Unified Voice & Model Catalog',self.open_unified_voice_model_catalog),
+            PaletteCommand('Settings: Provider Setup Wizard',act('Provider Setup Wizard')),
             PaletteCommand('Settings: Provider Accounts',act('Provider accounts')),
             PaletteCommand('Settings: Pronunciation Dictionaries',act('Pronunciation dictionaries')),
             PaletteCommand('Help: Getting Started / First-run Onboarding',act('Getting Started / First-run Onboarding')),
