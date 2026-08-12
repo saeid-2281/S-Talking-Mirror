@@ -183,5 +183,5 @@ def test_theme_semantic_tokens_and_live_switch(tmp_path: Path) -> None:
     assert ThemeManager().current() == "Light"
     assert DARK_TOKENS["app"] == "#0B1220"
     assert LIGHT_TOKENS["primary"] == "#2563EB"
-    assert "#F4F7FB" in window.styleSheet()
+    assert "#F4F7FB" in QApplication.instance().styleSheet()
     window.close()

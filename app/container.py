@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from dataclasses import dataclass
 
 from app.config.runtime import RuntimeConfig
@@ -324,7 +326,13 @@ def create_service_container(
         generation_maintenance_repository,
         config.artifacts_dir / "database-backups",
     )
-    generation_maintenance_service.run_startup_check()
+    if os.getenv("S_TALKING_TEST_FAST_PATH", "").strip().casefold() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        generation_maintenance_service.run_startup_check()
     generation_cost_capacity_service = GenerationCostCapacityService(
         product_event_repository,
         job_repository,

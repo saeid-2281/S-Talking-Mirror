@@ -174,6 +174,7 @@ class MainWindow(QMainWindow):
         self.context=context; self.project_controller=context.project_controller; self.generation_controller=context.generation_controller; self.settings_controller=context.settings_controller; self.notifications=context.notification_service
         self.workspace_profiles=context.workspace_profile_service; self.notification_center_service=context.notification_center_service; self.activity_timeline_service=context.activity_timeline_service
         self.setAcceptDrops(True)
+        self._test_fast_path=os.getenv("S_TALKING_TEST_FAST_PATH","").strip().casefold() in {"1","true","yes","on"}
         self.theme_manager=ThemeManager()
         self.interface_preferences=InterfacePreferences.from_settings(QSettings('S Talking','S Talking'))
         self.monitor_service=context.generation_monitor_service; self.preflight_service=context.preflight_service
@@ -222,17 +223,23 @@ class MainWindow(QMainWindow):
         self.update_delivery_controller.completed.connect(self._background_update_completed)
         self.update_delivery_controller.failed.connect(self._background_update_failed)
         self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]; self.qt_runtime_health_service=QtRuntimeHealthService(self); self.last_launch_receipt=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.palette=None; self.actions_by_name={}; self.job_pronunciation_overrides={}; self.project_sources=[]
-        self.autosave_timer=QTimer(self); self.autosave_timer.setInterval(30000); self.autosave_timer.timeout.connect(self.autosave); self.autosave_timer.start()
+        self.autosave_timer=QTimer(self); self.autosave_timer.setInterval(30000); self.autosave_timer.timeout.connect(self.autosave)
+        if not self._test_fast_path: self.autosave_timer.start()
         performance_policy=self.performance_stability_service.load_policy(); self.performance_sample_timer=QTimer(self); self.performance_sample_timer.setInterval(performance_policy.sample_interval_seconds*1000); self.performance_sample_timer.timeout.connect(self.capture_performance_sample)
-        if performance_policy.background_sampling_enabled: self.performance_sample_timer.start()
-        self.build(); self.apply_accessibility_metadata(); self.setup_responsive_workspace(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.apply_interface_preferences(self.interface_preferences,persist=False,announce=False); self.restore_layout_state(); self.run_startup_recovery()
-        if not self.safe_mode:
-            self.restore_previous_session(); QTimer.singleShot(0,self.offer_generation_recovery); QTimer.singleShot(5000,self.check_updates_on_startup)
+        if performance_policy.background_sampling_enabled and not self._test_fast_path: self.performance_sample_timer.start()
+        self.build(); self.apply_accessibility_metadata(); self.setup_responsive_workspace(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.apply_interface_preferences(self.interface_preferences,persist=False,announce=False); self.restore_layout_state()
+        if self._test_fast_path:
+            self.startup_recovery_state=None; self.session_restore_state=None
+        else:
+            self.run_startup_recovery()
+            if not self.safe_mode:
+                self.restore_previous_session(); QTimer.singleShot(0,self.offer_generation_recovery); QTimer.singleShot(5000,self.check_updates_on_startup)
         self.update_window_title(); self.update_status_bar()
-        QTimer.singleShot(0,self.refresh_provider_intelligence)
-        QTimer.singleShot(0,self.refresh_smart_provider_routing)
-        QTimer.singleShot(0,self.mark_performance_startup_ready)
-        if self.crash_recovery_service.session_id: QTimer.singleShot(1200,self.announce_crash_recovery_state)
+        if not self._test_fast_path:
+            QTimer.singleShot(0,self.refresh_provider_intelligence)
+            QTimer.singleShot(0,self.refresh_smart_provider_routing)
+            QTimer.singleShot(0,self.mark_performance_startup_ready)
+            if self.crash_recovery_service.session_id: QTimer.singleShot(1200,self.announce_crash_recovery_state)
     def set_initial_geometry(self):
         screen=QApplication.primaryScreen(); available=screen.availableGeometry() if screen else None
         if not available:
@@ -536,17 +543,24 @@ class MainWindow(QMainWindow):
         application=QApplication.instance()
         palette=self.theme_manager.palette(name)
         stylesheet=self.theme_manager.stylesheet(name)
+        theme_changed=application is None or application.styleSheet()!=stylesheet
         if application is not None:
-            application.setPalette(palette)
-            # Reapplying the full application stylesheet repolishes every live
-            # widget. During long-lived sessions (and the shared Qt test app)
-            # that becomes quadratic, so only mutate it when the theme differs.
-            if application.styleSheet()!=stylesheet:
+            # QApplication is the single theme authority. A second copy of the
+            # same 2k+ line stylesheet on every MainWindow forces a full Qt
+            # repolish for each test/window without changing the visual result.
+            if theme_changed:
+                application.setPalette(palette)
                 application.setStyleSheet(stylesheet)
-        self.setPalette(palette)
-        if self.styleSheet()!=stylesheet:
-            self.setStyleSheet(stylesheet)
-        refresh_icons(self)
+            if self.styleSheet():
+                self.setStyleSheet('')
+        else:
+            self.setPalette(palette)
+            if self.styleSheet()!=stylesheet:
+                self.setStyleSheet(stylesheet)
+        # Newly-built icons already use the active QApplication palette. They
+        # only need recoloring when the application theme actually changed.
+        if theme_changed:
+            refresh_icons(self)
         if hasattr(self,'theme_actions'):
             for key,action in self.theme_actions.items(): action.setChecked(key==name)
     def setup_responsive_workspace(self):
@@ -643,7 +657,9 @@ class MainWindow(QMainWindow):
         if dialog.exec()==QDialog.Accepted:
             self.apply_interface_preferences(dialog.preferences(),persist=True)
     def apply_interface_preferences(self,preferences,persist=False,announce=True):
+        previous=getattr(self,'interface_preferences',InterfacePreferences.defaults()).normalized()
         value=preferences.normalized() if isinstance(preferences,InterfacePreferences) else InterfacePreferences.defaults()
+        properties_changed=previous.stylesheet_properties()!=value.stylesheet_properties()
         self.interface_preferences=value
         for key,property_value in value.stylesheet_properties().items(): self.setProperty(key,property_value)
         if hasattr(self,'application_shell'):
@@ -666,9 +682,12 @@ class MainWindow(QMainWindow):
             except RuntimeError:
                 continue
         if persist: value.save(QSettings('S Talking','S Talking'))
-        # Reapplying the active theme reliably refreshes descendant selectors
-        # after changing dynamic properties on the main window.
-        self.setStyleSheet(self.theme_manager.stylesheet(self.theme_manager.current()))
+        # Constructor-time preferences are already reflected by apply_theme().
+        # Force a window repolish only when the user actually changes a dynamic
+        # interface property; this removes a second full stylesheet pass from
+        # every MainWindow construction while preserving live preference changes.
+        if properties_changed:
+            self.setStyleSheet(self.theme_manager.stylesheet(self.theme_manager.current()))
         if announce: self.announce_interface_status('Interface updated',value.summary())
     def toggle_high_contrast(self,checked):
         self.apply_interface_preferences(replace(self.interface_preferences,contrast=ContrastMode.HIGH if checked else ContrastMode.STANDARD),persist=True)

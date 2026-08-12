@@ -156,10 +156,13 @@ def run_serial_profiled_pytest(
     ):
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
 
+    test_env = os.environ.copy()
+    test_env.setdefault("S_TALKING_TEST_FAST_PATH", "1")
+
     process = subprocess.Popen(
         command,
         cwd=root,
-        env=os.environ.copy(),
+        env=test_env,
         creationflags=creationflags,
     )
 
@@ -221,6 +224,7 @@ def run_serial_profiled_pytest(
         "run_directory": str(run_dir),
         "junit_path": str(junit_path),
         "parallelism": "disabled_by_default",
+        "test_fast_path": test_env.get("S_TALKING_TEST_FAST_PATH") == "1",
         "experimental_parallel_runner": "scripts/parallel_pytest.py",
     }
 

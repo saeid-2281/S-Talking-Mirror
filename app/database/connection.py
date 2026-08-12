@@ -35,6 +35,17 @@ class Database:
         connection = sqlite3.connect(self.path, factory=_ClosingConnection)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        if os.getenv("S_TALKING_TEST_FAST_PATH", "").strip().casefold() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            # Test databases are disposable and do not need power-loss durability.
+            # Avoiding fsync-heavy commits removes a large Windows-only cost while
+            # preserving SQLite transactions, foreign keys, schema and file I/O.
+            connection.execute("PRAGMA synchronous = OFF")
+            connection.execute("PRAGMA temp_store = MEMORY")
         return connection
 
     @contextmanager

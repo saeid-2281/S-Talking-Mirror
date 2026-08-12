@@ -4,6 +4,12 @@ import gc
 import os
 import sys
 
+# The full suite validates logical persistence and UI behavior against disposable
+# test roots. Test-only fast-paths avoid Windows fsync and background startup work;
+# production processes never receive this flag.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("S_TALKING_TEST_FAST_PATH", "1")
+
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QSettings
 from PySide6.QtWidgets import QApplication
