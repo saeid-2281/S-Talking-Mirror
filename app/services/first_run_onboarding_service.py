@@ -51,11 +51,11 @@ class FirstRunOnboardingService:
         ),
         FirstRunOnboardingStep(
             "project_sources",
-            "Create or continue a project",
+            "Prepare text and sources for the queue",
             "Prepare",
-            "Review project continuity and source preparation before anything enters the generation queue.",
-            "project_continuity",
-            "Open Project Continuity",
+            "Open Text & Source Preparation to build, clean and review enabled jobs before Source Import Review. Queue changes remain explicit; Preflight and generation do not run automatically.",
+            "text_source_preparation",
+            "Open Text & Source Preparation",
         ),
         FirstRunOnboardingStep(
             "preflight_approval",

@@ -963,6 +963,7 @@ class MainWindow(QMainWindow):
                 'provider_accounts':self.open_provider_accounts,
                 'voice_model_catalog':self.open_unified_voice_model_catalog,
                 'project_continuity':self.open_project_continuity,
+                'text_source_preparation':self.open_text_studio,
                 'live_operations':self.focus_generation_live_operations,
             },
         )
@@ -1445,10 +1446,17 @@ class MainWindow(QMainWindow):
         sources=self.context.source_import_service.create_sources(paths,project_id=project_id,starting_order=len(self.project_sources))
         if display_name and len(sources)==1: sources[0].display_name=display_name
         result=self.context.source_import_service.import_sources([*self.project_sources,*sources])
-        dialog=SourceImportReviewDialog(result,self)
+        dialog=SourceImportReviewDialog(
+            result,
+            self,
+            current_queue_jobs=len(list(self.generation_controller.generation_jobs())),
+            current_source_count=len(self.project_sources),
+        )
         if dialog.exec()!=QDialog.Accepted:
             self.statusBar().showMessage('Source import cancelled. No source was added.',5000); return
         importable=dialog.importable_results()
+        if not importable:
+            self.statusBar().showMessage('Source import review closed without a valid selection. Queue unchanged.',5000); return
         if result.collisions:
             QMessageBox.warning(self,'Source import','Filename collisions were found across sources. Resolve them before importing.'); self.project_sources=[item.source for item in result.sources]; self.render_project_sources(); return
         accepted_ids={item.source.source_id for item in importable}
@@ -1457,7 +1465,7 @@ class MainWindow(QMainWindow):
         self.generation_controller.set_jobs(jobs,project_id=project_id,output_dir=Path(self.out.text() or self.project_controller.default_output_path),settings=self.settings())
         if project_id: self.context.source_repository.upsert_sources(project_id,self.project_sources)
         self.project_controller.autosave_if_needed(generation_active=self.generation_controller.is_active)
-        self.render_project_sources(); self.render_queue(); self.refresh_monitor_queue(); self.dashboard(); self.invalidate_preflight(); self.statusBar().showMessage(f'Imported {len(jobs):,} job(s) from {len(self.project_sources):,} source(s).',7000)
+        self.render_project_sources(); self.render_queue(); self.refresh_monitor_queue(); self.dashboard(); self.invalidate_preflight(); self.statusBar().showMessage(f'Queue rebuilt with {len(jobs):,} job(s) from {len(importable):,} accepted source(s). Preflight has NOT run; generation has NOT started.',8000)
     def selected_source_rows(self):
         return sorted({index.row() for index in self.sources_table.selectionModel().selectedRows()}) if hasattr(self,'sources_table') and self.sources_table.selectionModel() else []
     def remove_selected_source(self):

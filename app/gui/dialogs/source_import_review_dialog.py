@@ -23,9 +23,18 @@ from app.models.project_source import SourceCollectionImportResult, SourceImport
 
 
 class SourceImportReviewDialog(QDialog):
-    def __init__(self, result: SourceCollectionImportResult, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        result: SourceCollectionImportResult,
+        parent: QWidget | None = None,
+        *,
+        current_queue_jobs: int = 0,
+        current_source_count: int = 0,
+    ) -> None:
         super().__init__(parent)
         self.import_result = result
+        self.current_queue_jobs = max(0, int(current_queue_jobs))
+        self.current_source_count = max(0, int(current_source_count))
         self.selected_mode = "selected"
         self.setObjectName("sourceImportReviewDialog")
         self.setWindowTitle("Source Import Review")
@@ -47,6 +56,14 @@ class SourceImportReviewDialog(QDialog):
         self.summary_card.setObjectName("sourceImportSummaryCard")
         self.summary = self.summary_card.detail_label
         self.workspace.add_body_widget(self.summary_card)
+
+        self.handoff_card = DialogStatusCard(
+            "Queue handoff",
+            self._handoff_text(),
+            tone="info",
+        )
+        self.handoff_card.setObjectName("sourceImportQueueHandoffCard")
+        self.workspace.add_body_widget(self.handoff_card)
 
         table_section = DialogSection(
             "Sources and mappings",
@@ -77,6 +94,7 @@ class SourceImportReviewDialog(QDialog):
         self.table.setShowGrid(False)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.table.setMinimumHeight(280)
+        self.table.itemSelectionChanged.connect(self._update_import_actions)
         table_section.add_widget(self.table, 1)
         self.workspace.add_body_widget(table_section, 1)
 
@@ -130,12 +148,60 @@ class SourceImportReviewDialog(QDialog):
         return [item for row, item in enumerate(self.import_result.sources) if row in selected and item.can_import]
 
     def import_selected(self) -> None:
+        if not self._selected_importable_results():
+            return
         self.selected_mode = "selected"
         self.accept()
 
     def import_all_valid(self) -> None:
+        if not any(item.can_import for item in self.import_result.sources):
+            return
         self.selected_mode = "all"
         self.accept()
+
+    def _selected_importable_results(self) -> list[SourceImportResult]:
+        selected = {index.row() for index in self.table.selectionModel().selectedRows()}
+        return [
+            item
+            for row, item in enumerate(self.import_result.sources)
+            if row in selected and item.can_import
+        ]
+
+    def _selected_importable_job_count(self) -> int:
+        return sum(len(item.jobs) for item in self._selected_importable_results())
+
+    def _update_import_actions(self) -> None:
+        all_valid = [item for item in self.import_result.sources if item.can_import]
+        selected = self._selected_importable_results()
+        selected_jobs = sum(len(item.jobs) for item in selected)
+        all_jobs = sum(len(item.jobs) for item in all_valid)
+
+        self.import_all_button.setEnabled(bool(all_valid))
+        self.import_selected_button.setEnabled(bool(selected))
+        self.import_selected_button.setToolTip(
+            (
+                f"Import {selected_jobs:,} job(s) from {len(selected):,} selected valid source(s)"
+                if selected
+                else "Select at least one valid source before importing selected rows"
+            )
+        )
+        self.import_all_button.setToolTip(
+            (
+                f"Import {all_jobs:,} job(s) from all {len(all_valid):,} valid source(s)"
+                if all_valid
+                else "No valid sources are available to import"
+            )
+        )
+        self.handoff_card.update_status(
+            "Queue handoff",
+            self._handoff_text(
+                selected_sources=len(selected),
+                selected_jobs=selected_jobs,
+                all_sources=len(all_valid),
+                all_jobs=all_jobs,
+            ),
+            tone="warning" if self.current_queue_jobs else "info",
+        )
 
     def toggle_selected(self) -> None:
         for index in self.table.selectionModel().selectedRows():
@@ -179,7 +245,6 @@ class SourceImportReviewDialog(QDialog):
         Path(path).write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def render(self) -> None:
-        valid = sum(len(item.jobs) for item in self.import_result.sources if item.can_import)
         rejected = sum(item.source.rejected_rows for item in self.import_result.sources)
         collisions = len(self.import_result.collisions)
         tone = "error" if collisions else ("warning" if rejected else "success")
@@ -208,8 +273,41 @@ class SourceImportReviewDialog(QDialog):
                 table_item.setToolTip(str(source.source_path) if column in {1, 3} else str(value))
                 self.table.setItem(row, column, table_item)
         self.table.resizeColumnsToContents()
-        self.import_all_button.setEnabled(bool(valid))
-        self.import_selected_button.setEnabled(bool(valid))
+        self._update_import_actions()
+
+    def _handoff_text(
+        self,
+        *,
+        selected_sources: int = 0,
+        selected_jobs: int = 0,
+        all_sources: int | None = None,
+        all_jobs: int | None = None,
+    ) -> str:
+        valid_sources = (
+            sum(1 for item in self.import_result.sources if item.can_import)
+            if all_sources is None
+            else all_sources
+        )
+        valid_jobs = (
+            sum(len(item.jobs) for item in self.import_result.sources if item.can_import)
+            if all_jobs is None
+            else all_jobs
+        )
+        queue_text = (
+            f"Current queue has {self.current_queue_jobs:,} job(s) and will be rebuilt after confirmation."
+            if self.current_queue_jobs
+            else "Current queue is empty; confirmed source rows will create the prepared queue."
+        )
+        selected_text = (
+            f" Selected now: {selected_sources:,} valid source(s) / {selected_jobs:,} job(s)."
+            if selected_sources
+            else " Select at least one valid source for Import selected, or use Import all valid."
+        )
+        return (
+            f"{queue_text} Review contains {valid_sources:,} valid source(s) / {valid_jobs:,} importable job(s)."
+            f"{selected_text} A confirmed import invalidates the existing Preflight result; "
+            "Preflight is NOT run automatically and generation is NOT started."
+        )
 
     def _summary_text(self) -> str:
         valid = sum(len(item.jobs) for item in self.import_result.sources if item.can_import)

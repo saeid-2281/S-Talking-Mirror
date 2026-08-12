@@ -159,8 +159,14 @@ class TextStudioWorkspace(QWidget):
 
         self.metrics = QLabel("0 enabled jobs · 0 characters")
         self.metrics.setObjectName("textStudioWorkspaceMetrics")
+        self.handoff_status = QLabel(
+            "Queue handoff · Prepare enabled jobs, then review the source import before the queue changes."
+        )
+        self.handoff_status.setObjectName("textStudioHandoffStatus")
+        self.handoff_status.setWordWrap(True)
         self.feedback = InlineFeedbackBar()
         root.addWidget(self.metrics)
+        root.addWidget(self.handoff_status)
         root.addWidget(self.feedback)
 
         self._autosave = QTimer(self)
@@ -966,10 +972,30 @@ class TextStudioWorkspace(QWidget):
         )
         self.import_button.setEnabled(self._quality_summary.ready_for_import)
         self.import_button.setToolTip(
-            "Add all enabled jobs to the generation queue"
+            "Open Source Import Review for all enabled jobs"
             if self._quality_summary.ready_for_import
             else self._quality_summary.status_text
         )
+        if self._quality_summary.ready_for_import:
+            duplicate_note = (
+                f" · {self._quality_summary.duplicate_texts:,} duplicate-text warning(s) remain an explicit review decision"
+                if self._quality_summary.duplicate_texts
+                else ""
+            )
+            self.handoff_status.setText(
+                f"Queue handoff ready · {metrics.jobs:,} enabled job(s){duplicate_note}. "
+                "Next: Source Import Review. A confirmed import rebuilds the queue and invalidates Preflight; "
+                "it does not run Preflight or start generation."
+            )
+        elif self._quality_summary.enabled_jobs:
+            self.handoff_status.setText(
+                f"Queue handoff blocked · {self._quality_summary.blocking_issues:,} blocker(s) · "
+                f"{self._quality_summary.warnings:,} warning(s). Resolve preparation issues before Source Import Review."
+            )
+        else:
+            self.handoff_status.setText(
+                "Queue handoff waiting · Add or enable text/source rows before Source Import Review."
+            )
 
     def _active_source_input_count(self) -> int:
         count = 1 if self.manual_text.toPlainText().strip() else 0
@@ -1029,7 +1055,10 @@ class TextStudioWorkspace(QWidget):
             self.feedback.show_message(self._quality_summary.status_text, tone=self._quality_summary.tone)
             return
         self.import_requested.emit(entries, self.source_label.text().strip() or "Text Studio")
-        self.feedback.show_message(f"Prepared {len(entries):,} job(s) for queue import.", tone="success")
+        self.feedback.show_message(
+            f"Prepared {len(entries):,} job(s) for Source Import Review. Queue, Preflight and generation have not changed yet.",
+            tone="success",
+        )
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.mimeData().hasUrls() and any(
