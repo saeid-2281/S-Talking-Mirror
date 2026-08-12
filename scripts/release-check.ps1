@@ -1,7 +1,8 @@
-﻿param(
+param(
     [string]$Python = ".\.venv\Scripts\python.exe",
     [string]$Workers = "auto",
-    [switch]$LegacyPytest
+    [switch]$LegacyPytest,
+    [switch]$ExperimentalParallel
 )
 
 $ErrorActionPreference = "Continue"
@@ -66,12 +67,24 @@ if ($script:LastStepExitCode -ne 0) { $exitCode = 1 }
 $result.stage = "pytest"
 if ($LegacyPytest -or $env:S_TALKING_LEGACY_FULL_GATE -eq "1") {
     Invoke-Step "pytest" @("-m","pytest")
-} else {
+}
+elseif (
+    $ExperimentalParallel -or
+    $env:S_TALKING_EXPERIMENTAL_PARALLEL_GATE -eq "1"
+) {
     $pytestPerf = Join-Path $artifactDir "pytest-performance.json"
     Invoke-Step "pytest" @(
         "scripts/parallel_pytest.py",
         "--workers",
         $Workers,
+        "--report",
+        $pytestPerf
+    )
+}
+else {
+    $pytestPerf = Join-Path $artifactDir "pytest-performance.json"
+    Invoke-Step "pytest" @(
+        "scripts/serial_pytest_profile.py",
         "--report",
         $pytestPerf
     )

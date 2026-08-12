@@ -1,7 +1,8 @@
-﻿param(
+param(
     [switch]$Full,
     [string]$Workers = "auto",
-    [switch]$LegacyFull
+    [switch]$LegacyFull,
+    [switch]$ExperimentalParallel
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,13 +24,22 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 if ($Full) {
     if ($LegacyFull -or $env:S_TALKING_LEGACY_FULL_GATE -eq "1") {
-        Write-Host "==> pytest (full / legacy serial)"
+        Write-Host "==> pytest (full / legacy raw serial)"
         & $Python -m pytest
-    } else {
-        Write-Host "==> pytest (full / safe multi-process)"
+    }
+    elseif (
+        $ExperimentalParallel -or
+        $env:S_TALKING_EXPERIMENTAL_PARALLEL_GATE -eq "1"
+    ) {
+        Write-Host "==> pytest (full / experimental isolated hybrid)"
         & $Python scripts/parallel_pytest.py `
             --workers $Workers `
             --report artifacts/quality-gate-performance/latest.json
+    }
+    else {
+        Write-Host "==> pytest (full / stable serial profiled)"
+        & $Python scripts/serial_pytest_profile.py `
+            --report artifacts/quality-gate-performance/serial-latest.json
     }
 } else {
     Write-Host "==> pytest (fast)"
