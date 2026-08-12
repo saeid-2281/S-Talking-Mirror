@@ -1,5 +1,7 @@
-param(
-    [switch]$Full
+﻿param(
+    [switch]$Full,
+    [string]$Workers = "auto",
+    [switch]$LegacyFull
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,12 +18,19 @@ Write-Host "==> compileall"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "==> ruff"
-& $Python -m ruff check app tests
+& $Python -m ruff check app tests scripts
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 if ($Full) {
-    Write-Host "==> pytest (full)"
-    & $Python -m pytest
+    if ($LegacyFull -or $env:S_TALKING_LEGACY_FULL_GATE -eq "1") {
+        Write-Host "==> pytest (full / legacy serial)"
+        & $Python -m pytest
+    } else {
+        Write-Host "==> pytest (full / safe multi-process)"
+        & $Python scripts/parallel_pytest.py `
+            --workers $Workers `
+            --report artifacts/quality-gate-performance/latest.json
+    }
 } else {
     Write-Host "==> pytest (fast)"
     & $Python -m pytest -q `

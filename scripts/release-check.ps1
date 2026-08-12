@@ -1,5 +1,7 @@
-param(
-    [string]$Python = ".\.venv\Scripts\python.exe"
+﻿param(
+    [string]$Python = ".\.venv\Scripts\python.exe",
+    [string]$Workers = "auto",
+    [switch]$LegacyPytest
 )
 
 $ErrorActionPreference = "Continue"
@@ -62,7 +64,18 @@ $result.stage = "compileall"
 Invoke-Step "compileall" @("-m","compileall","app")
 if ($script:LastStepExitCode -ne 0) { $exitCode = 1 }
 $result.stage = "pytest"
-Invoke-Step "pytest" @("-m","pytest")
+if ($LegacyPytest -or $env:S_TALKING_LEGACY_FULL_GATE -eq "1") {
+    Invoke-Step "pytest" @("-m","pytest")
+} else {
+    $pytestPerf = Join-Path $artifactDir "pytest-performance.json"
+    Invoke-Step "pytest" @(
+        "scripts/parallel_pytest.py",
+        "--workers",
+        $Workers,
+        "--report",
+        $pytestPerf
+    )
+}
 if ($script:LastStepExitCode -ne 0) { $exitCode = 1 }
 $result.stage = "ruff"
 Invoke-Step "ruff" @("-m","ruff","check","app","tests")
