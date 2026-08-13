@@ -49,6 +49,16 @@ class PronunciationService:
                 strategy="dictionary_disabled",
             )
 
+        if override == "original":
+            return PronunciationResult(
+                original_text=job.text,
+                provider_text=job.text,
+                aid_applied=False,
+                strategy="explicit_original",
+                dictionary_locators=tuple(settings.pronunciation_dictionary_locators),
+                dictionary_fingerprint=settings.active_pronunciation_dictionary_id,
+            )
+
         if override == "normalized":
             assessment = self.assurance.assess(job.text, settings)
             if assessment.normalization_safe and assessment.normalized_text != job.text:

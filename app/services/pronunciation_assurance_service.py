@@ -184,13 +184,23 @@ class PronunciationAssuranceService:
         assessments = tuple(self.assess_job(job, settings) for job in jobs)
         counts = Counter(flag for item in assessments for flag in item.flags)
         languages = tuple(sorted({item.language for item in assessments if item.language}))
+        pairs = tuple(zip(jobs, assessments, strict=True))
+        explicit_original = tuple(
+            job.row_number
+            for job, _item in pairs
+            if str(getattr(job, "pronunciation_override", None) or "").strip() == "original"
+        )
+        normalized = tuple(
+            job.row_number
+            for job, item in pairs
+            if str(getattr(job, "pronunciation_override", None) or "").strip() == "normalized"
+            and item.normalization_safe
+        )
+        reviewed_set = set(explicit_original) | set(normalized)
         unresolved = tuple(
             (job, item)
-            for job, item in zip(jobs, assessments, strict=True)
-            if not (
-                str(getattr(job, "pronunciation_override", None) or "").strip() == "normalized"
-                and item.normalization_safe
-            )
+            for job, item in pairs
+            if job.row_number not in reviewed_set
         )
         high = tuple(
             item.row
@@ -205,13 +215,15 @@ class PronunciationAssuranceService:
         normalizable = tuple(item.row for item in assessments if item.row is not None and item.normalization_safe)
         unsafe = tuple(
             job.row_number
-            for job, item in zip(jobs, assessments, strict=True)
+            for job, item in pairs
             if str(getattr(job, "pronunciation_override", None) or "").strip() == "normalized"
             and not item.normalization_safe
         )
+        reviewed = tuple(sorted(reviewed_set))
         risk_count = len(high) + len(medium)
         summary = (
             f"Pronunciation review: {risk_count}/{len(assessments)} job(s) need review; "
+            f"{len(reviewed)} explicit decision(s) recorded; "
             f"{len(normalizable)} have a safe language-locked normalized form; "
             f"languages: {', '.join(languages) if languages else 'not set'}."
         )
@@ -221,6 +233,9 @@ class PronunciationAssuranceService:
             high_risk_rows=high,
             medium_risk_rows=medium,
             normalizable_rows=normalizable,
+            reviewed_rows=reviewed,
+            explicit_original_rows=explicit_original,
+            normalized_rows=normalized,
             unsafe_normalization_rows=unsafe,
             counts=dict(sorted(counts.items())),
             summary=summary,

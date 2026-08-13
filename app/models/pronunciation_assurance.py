@@ -27,6 +27,9 @@ class PronunciationBatchAssessment:
     high_risk_rows: tuple[int, ...] = ()
     medium_risk_rows: tuple[int, ...] = ()
     normalizable_rows: tuple[int, ...] = ()
+    reviewed_rows: tuple[int, ...] = ()
+    explicit_original_rows: tuple[int, ...] = ()
+    normalized_rows: tuple[int, ...] = ()
     unsafe_normalization_rows: tuple[int, ...] = ()
     counts: dict[str, int] = field(default_factory=dict)
     summary: str = ""

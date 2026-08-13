@@ -213,6 +213,10 @@ class PreflightService:
             delay_seconds=settings.delay_seconds,
         )
         estimated_cost = generation_plan.estimated_cost if generation_plan.cost_available else None
+        pronunciation_decisions = {
+            job.row_number: str(getattr(job, "pronunciation_override", None) or "").strip()
+            for job in jobs
+        }
         state = PreflightState(
             total_jobs=len(jobs),
             valid_jobs=max(0, len(jobs) - len({issue.row for issue in issues if issue.severity in {"hard_error", "error"} and issue.row})),
@@ -246,6 +250,9 @@ class PreflightService:
             pronunciation_high_risk_rows=pronunciation_assurance.high_risk_rows,
             pronunciation_medium_risk_rows=pronunciation_assurance.medium_risk_rows,
             pronunciation_normalizable_rows=pronunciation_assurance.normalizable_rows,
+            pronunciation_reviewed_rows=pronunciation_assurance.reviewed_rows,
+            pronunciation_explicit_original_rows=pronunciation_assurance.explicit_original_rows,
+            pronunciation_normalized_rows=pronunciation_assurance.normalized_rows,
             pronunciation_previews=tuple(
                 {
                     "row": item.row,
@@ -256,6 +263,7 @@ class PreflightService:
                     "normalized_text": item.normalized_text,
                     "normalization_kind": item.normalization_kind,
                     "normalization_safe": item.normalization_safe,
+                    "decision": pronunciation_decisions.get(int(item.row or 0), ""),
                 }
                 for item in pronunciation_assurance.assessments
                 if item.risk_level in {"medium", "high"} or item.normalization_safe
@@ -640,6 +648,8 @@ class PreflightService:
                 continue
             job = jobs_by_row.get(assessment.row)
             override = str(getattr(job, "pronunciation_override", None) or "").strip() if job else ""
+            if override == "original":
+                continue
             if override == "normalized":
                 if not assessment.normalization_safe:
                     self._issue(
@@ -671,7 +681,7 @@ class PreflightService:
                 "pronunciation",
                 f"Pronunciation review is recommended for {len(unresolved_high) + len(unresolved_medium)} job(s) "
                 f"({len(unresolved_high)} high risk, {len(unresolved_medium)} medium risk).{level_detail}",
-                "Select 1-3 rows and open Language Probe. Apply a normalized form only when explicitly reviewed.",
+                "Open Pronunciation Review Workspace or select 1-3 rows for Language Probe. Record an explicit original/normalized decision only after review.",
                 "pronunciation_review_required",
             )
         if len(assurance.languages) > 1:

@@ -62,6 +62,9 @@ class PreflightState:
     pronunciation_high_risk_rows: tuple[int, ...] = ()
     pronunciation_medium_risk_rows: tuple[int, ...] = ()
     pronunciation_normalizable_rows: tuple[int, ...] = ()
+    pronunciation_reviewed_rows: tuple[int, ...] = ()
+    pronunciation_explicit_original_rows: tuple[int, ...] = ()
+    pronunciation_normalized_rows: tuple[int, ...] = ()
     pronunciation_previews: tuple[dict[str, object], ...] = ()
 
     @property

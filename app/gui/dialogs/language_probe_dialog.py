@@ -127,7 +127,7 @@ class LanguageProbeDialog(QDialog):
         keep_original = QPushButton("Keep original")
         keep_original.clicked.connect(
             lambda _checked=False, item=assessment: self.overrideRequested.emit(
-                int(item.row or 0), ""
+                int(item.row or 0), "original"
             )
         )
         actions.addWidget(keep_original)
