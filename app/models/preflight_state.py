@@ -55,6 +55,9 @@ class PreflightState:
     account_fingerprint: str = ""
     catalog_revision: str = ""
     settings_revision: str = ""
+    language_lock_languages: tuple[str, ...] = ()
+    language_assurance_level: str = "unknown"
+    language_assurance_summary: str = ""
 
     @property
     def status(self) -> str:

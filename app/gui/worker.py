@@ -21,6 +21,7 @@ from app.models.retry_policy import FailureCategory, RetryHistoryEntry
 from app.provider_factory import create_provider
 from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
 from app.services.failure_analysis_service import FailureAnalysisService
+from app.services.language_assurance_service import LanguageAssuranceService
 from app.services.output_validation_service import OutputValidationService
 from app.services.pronunciation_service import PronunciationService
 
@@ -58,6 +59,7 @@ class GenerationWorker(QObject):
         self._active_providers: set[object] = set()
         self._state_lock = threading.RLock()
         self.failure_analysis = FailureAnalysisService()
+        self.language_assurance = LanguageAssuranceService()
         self._candidate_index = 0
         self._switches = 0
         self._runtime_failures: dict[str, int] = {
@@ -195,7 +197,8 @@ class GenerationWorker(QObject):
                     started = time.perf_counter()
                     attempt = job.retry_count + attempt_offset + 1
                     try:
-                        provider = self._ensure_provider(active_settings)
+                        job_settings = self.language_assurance.settings_for_job(job, active_settings)
+                        provider = self._ensure_provider(job_settings)
                         self._append_provider_sequence(summary, candidate, active_settings)
                         job.next_retry_at = None
                         job.retry_history.append(
@@ -212,11 +215,14 @@ class GenerationWorker(QObject):
                         )
                         db.mark_running(self.project_key, job)
                         self.progress.emit(index, len(self.jobs), job.filename, "running", 0, attempt, "")
-                        prepared = PronunciationService().prepare_job(job, active_settings)
+                        prepared = PronunciationService().prepare_job(job, job_settings)
                         if prepared.aid_applied:
                             summary["provider_diagnostics"].setdefault("pronunciation_aid", 0)
                             summary["provider_diagnostics"]["pronunciation_aid"] += 1
-                        audio = provider.synthesize(prepared.provider_text, active_settings)
+                        audio = provider.synthesize(prepared.provider_text, job_settings)
+                        summary["provider_diagnostics"]["language_lock"] = (
+                            job_settings.language_code or ""
+                        )
                         if self._stop_event.is_set():
                             raise ProviderError("Generation cancelled by user.", provider_code="cancelled")
                         self._write_atomic(output_path, audio)
@@ -755,7 +761,8 @@ class GenerationWorker(QObject):
                         message=f"provider_profile={candidate.profile_name}",
                     )
                 )
-                provider = create_provider(candidate.settings)
+                job_settings = self.language_assurance.settings_for_job(job, candidate.settings)
+                provider = create_provider(job_settings)
                 with self._state_lock:
                     self._active_providers.add(provider)
                 self._append_orchestration_event(
@@ -770,14 +777,14 @@ class GenerationWorker(QObject):
                     characters=len(job.text),
                     reason="concurrent scheduler assignment",
                 )
-                prepared = PronunciationService().prepare_job(job, candidate.settings)
-                audio = provider.synthesize(prepared.provider_text, candidate.settings)
+                prepared = PronunciationService().prepare_job(job, job_settings)
+                audio = provider.synthesize(prepared.provider_text, job_settings)
                 if self._stop_event.is_set():
                     raise ProviderError(
                         "Generation cancelled by user.", provider_code="cancelled"
                     )
                 extension = DEFAULT_PROVIDER_REGISTRY.output_extension(
-                    candidate.settings.provider, candidate.settings.file_extension
+                    job_settings.provider, job_settings.file_extension
                 )
                 output_path = job.output_path(self.output_dir, extension)
                 self._write_atomic(output_path, audio)

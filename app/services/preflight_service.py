@@ -19,6 +19,7 @@ from app.provider_factory import create_provider
 from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
 from app.repositories.voice_repository import VoiceRepository
 from app.services.generation_planning_service import GenerationPlanningService
+from app.services.language_assurance_service import LanguageAssuranceService
 from app.services.monitor_formatting import format_duration
 from app.services.provider_catalog_service import ProviderCatalogService
 from app.services.provider_readiness_service import ProviderReadinessService
@@ -56,6 +57,7 @@ class PreflightService:
         self.provider_readiness_service = provider_readiness_service or ProviderReadinessService()
         self.cost_capacity_service = cost_capacity_service
         self.planning_service = GenerationPlanningService(cost_capacity_service)
+        self.language_assurance_service = LanguageAssuranceService()
         self.fallback_seconds_per_job = fallback_seconds_per_job
         self.latest: PreflightState | None = None
         self._cache_key: tuple[Any, ...] | None = None
@@ -123,6 +125,8 @@ class PreflightService:
         output_ready = self._validate_output_dir(output_dir, issues)
         provider_ready = self._validate_provider(settings, issues)
         provider_ready = self._validate_job_provider_overrides(jobs, settings, issues) and provider_ready
+        language_assurance = self.language_assurance_service.assess_batch(jobs, settings)
+        provider_ready = self._validate_language_assurance(language_assurance, issues) and provider_ready
         self._validate_pronunciation_dictionary(settings, issues)
         extension_ready = self._validate_extension(settings, issues)
         if csv_path and not csv_path.exists():
@@ -226,6 +230,9 @@ class PreflightService:
             account_fingerprint=hashlib.sha256((settings.api_key or "").encode("utf-8")).hexdigest()[:16],
             catalog_revision=str(quota_snapshot.get("catalog_revision", "")) if quota_snapshot else "",
             settings_revision=hashlib.sha256(settings.model_dump_json(exclude={"api_key"}).encode("utf-8")).hexdigest()[:16],
+            language_lock_languages=language_assurance.languages,
+            language_assurance_level=language_assurance.overall_level,
+            language_assurance_summary=language_assurance.summary,
         )
         self.latest = state
         self._cache_key = key
@@ -562,6 +569,34 @@ class PreflightService:
             return False
         return True
 
+    def _validate_language_assurance(self, assurance, issues: list[PreflightIssue]) -> bool:
+        ready = True
+        for decision in assurance.decisions:
+            row = decision.rows[0] if len(decision.rows) == 1 else None
+            filename = decision.canonical_language or decision.requested_language
+            if decision.blocking:
+                self._issue(
+                    issues,
+                    "hard_error",
+                    row,
+                    filename,
+                    decision.message,
+                    decision.suggested_action,
+                    decision.code,
+                )
+                ready = False
+            elif decision.requires_acknowledgement:
+                self._issue(
+                    issues,
+                    "warning",
+                    row,
+                    filename,
+                    decision.message,
+                    decision.suggested_action,
+                    decision.code,
+                )
+        return ready
+
     def _validate_pronunciation_dictionary(self, settings: AppSettings, issues: list[PreflightIssue]) -> None:
         if settings.provider != "elevenlabs":
             return
@@ -695,7 +730,16 @@ class PreflightService:
         project_id: int | None = None,
     ) -> tuple[Any, ...]:
         return (
-            tuple((job.row_number, job.filename, job.text, job.status.value) for job in jobs),
+            tuple(
+                (
+                    job.row_number,
+                    job.filename,
+                    job.text,
+                    job.status.value,
+                    job.language_override or "",
+                )
+                for job in jobs
+            ),
             settings.model_dump_json(exclude={"api_key"}),
             hashlib.sha256((settings.api_key or "").encode("utf-8")).hexdigest(),
             str(output_dir),

@@ -145,6 +145,23 @@ class GenerationConfirmationCoordinator:
                 "success" if state.provider_ready else "info",
             ),
         ]
+        if state.language_assurance_summary:
+            level = state.language_assurance_level
+            checks.append(
+                GenerationLaunchCheck(
+                    "language_assurance",
+                    "Language Lock assurance",
+                    state.language_assurance_summary,
+                    (
+                        "success"
+                        if level == "strong"
+                        else "info"
+                        if level == "bounded"
+                        else "warning"
+                    ),
+                    level in {"best_effort", "none"},
+                )
+            )
 
         warning_count = max(
             state.warnings,
