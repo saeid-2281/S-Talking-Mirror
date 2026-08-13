@@ -163,6 +163,20 @@ class GenerationConfirmationCoordinator:
                 )
             )
 
+        if state.pronunciation_risk_summary:
+            pronunciation_risk = bool(
+                state.pronunciation_high_risk_rows or state.pronunciation_medium_risk_rows
+            )
+            checks.append(
+                GenerationLaunchCheck(
+                    "pronunciation_review",
+                    "Short-utterance pronunciation review",
+                    state.pronunciation_risk_summary,
+                    "warning" if pronunciation_risk else "success",
+                    pronunciation_risk,
+                )
+            )
+
         warning_count = max(
             state.warnings,
             sum(1 for issue in state.issues if issue.severity == "warning"),

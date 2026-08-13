@@ -21,6 +21,7 @@ from app.repositories.voice_repository import VoiceRepository
 from app.services.generation_planning_service import GenerationPlanningService
 from app.services.language_assurance_service import LanguageAssuranceService
 from app.services.monitor_formatting import format_duration
+from app.services.pronunciation_assurance_service import PronunciationAssuranceService
 from app.services.provider_catalog_service import ProviderCatalogService
 from app.services.provider_readiness_service import ProviderReadinessService
 from app.services.voice_service import VoiceService
@@ -58,6 +59,7 @@ class PreflightService:
         self.cost_capacity_service = cost_capacity_service
         self.planning_service = GenerationPlanningService(cost_capacity_service)
         self.language_assurance_service = LanguageAssuranceService()
+        self.pronunciation_assurance_service = PronunciationAssuranceService()
         self.fallback_seconds_per_job = fallback_seconds_per_job
         self.latest: PreflightState | None = None
         self._cache_key: tuple[Any, ...] | None = None
@@ -127,6 +129,13 @@ class PreflightService:
         provider_ready = self._validate_job_provider_overrides(jobs, settings, issues) and provider_ready
         language_assurance = self.language_assurance_service.assess_batch(jobs, settings)
         provider_ready = self._validate_language_assurance(language_assurance, issues) and provider_ready
+        pronunciation_assurance = self.pronunciation_assurance_service.assess_batch(jobs, settings)
+        provider_ready = self._validate_pronunciation_assurance(
+            jobs,
+            pronunciation_assurance,
+            language_assurance.overall_level,
+            issues,
+        ) and provider_ready
         self._validate_pronunciation_dictionary(settings, issues)
         extension_ready = self._validate_extension(settings, issues)
         if csv_path and not csv_path.exists():
@@ -233,6 +242,24 @@ class PreflightService:
             language_lock_languages=language_assurance.languages,
             language_assurance_level=language_assurance.overall_level,
             language_assurance_summary=language_assurance.summary,
+            pronunciation_risk_summary=pronunciation_assurance.summary,
+            pronunciation_high_risk_rows=pronunciation_assurance.high_risk_rows,
+            pronunciation_medium_risk_rows=pronunciation_assurance.medium_risk_rows,
+            pronunciation_normalizable_rows=pronunciation_assurance.normalizable_rows,
+            pronunciation_previews=tuple(
+                {
+                    "row": item.row,
+                    "language": item.language,
+                    "risk_level": item.risk_level,
+                    "flags": list(item.flags),
+                    "original_text": item.original_text,
+                    "normalized_text": item.normalized_text,
+                    "normalization_kind": item.normalization_kind,
+                    "normalization_safe": item.normalization_safe,
+                }
+                for item in pronunciation_assurance.assessments
+                if item.risk_level in {"medium", "high"} or item.normalization_safe
+            ),
         )
         self.latest = state
         self._cache_key = key
@@ -597,6 +624,68 @@ class PreflightService:
                 )
         return ready
 
+    def _validate_pronunciation_assurance(
+        self,
+        jobs: list[TTSJob],
+        assurance,
+        language_assurance_level: str,
+        issues: list[PreflightIssue],
+    ) -> bool:
+        ready = True
+        jobs_by_row = {job.row_number: job for job in jobs}
+        unresolved_high: list[int] = []
+        unresolved_medium: list[int] = []
+        for assessment in assurance.assessments:
+            if assessment.row is None:
+                continue
+            job = jobs_by_row.get(assessment.row)
+            override = str(getattr(job, "pronunciation_override", None) or "").strip() if job else ""
+            if override == "normalized":
+                if not assessment.normalization_safe:
+                    self._issue(
+                        issues,
+                        "hard_error",
+                        assessment.row,
+                        getattr(job, "filename", "") if job else "",
+                        "Language-locked normalization was requested, but no safe normalized form is available for this text and selected language.",
+                        "Keep the original text, use a pronunciation dictionary, or review the row in Language Probe.",
+                        "pronunciation_normalization_unavailable",
+                    )
+                    ready = False
+                continue
+            if assessment.risk_level == "high":
+                unresolved_high.append(assessment.row)
+            elif assessment.risk_level == "medium":
+                unresolved_medium.append(assessment.row)
+
+        if unresolved_high or unresolved_medium:
+            level_detail = (
+                " Language Lock is best-effort for the selected provider/model, so short-text review is especially important."
+                if language_assurance_level in {"best_effort", "none"}
+                else ""
+            )
+            self._issue(
+                issues,
+                "warning",
+                None,
+                "pronunciation",
+                f"Pronunciation review is recommended for {len(unresolved_high) + len(unresolved_medium)} job(s) "
+                f"({len(unresolved_high)} high risk, {len(unresolved_medium)} medium risk).{level_detail}",
+                "Select 1-3 rows and open Language Probe. Apply a normalized form only when explicitly reviewed.",
+                "pronunciation_review_required",
+            )
+        if len(assurance.languages) > 1:
+            self._issue(
+                issues,
+                "info",
+                None,
+                ", ".join(assurance.languages),
+                "The batch contains multiple explicit target languages from project/job language settings.",
+                "Review Language Probe samples per target language. No content-based language detection or automatic language switching is performed.",
+                "pronunciation_mixed_explicit_languages",
+            )
+        return ready
+
     def _validate_pronunciation_dictionary(self, settings: AppSettings, issues: list[PreflightIssue]) -> None:
         if settings.provider != "elevenlabs":
             return
@@ -737,6 +826,7 @@ class PreflightService:
                     job.text,
                     job.status.value,
                     job.language_override or "",
+                    job.pronunciation_override or "",
                 )
                 for job in jobs
             ),

@@ -58,6 +58,11 @@ class PreflightState:
     language_lock_languages: tuple[str, ...] = ()
     language_assurance_level: str = "unknown"
     language_assurance_summary: str = ""
+    pronunciation_risk_summary: str = ""
+    pronunciation_high_risk_rows: tuple[int, ...] = ()
+    pronunciation_medium_risk_rows: tuple[int, ...] = ()
+    pronunciation_normalizable_rows: tuple[int, ...] = ()
+    pronunciation_previews: tuple[dict[str, object], ...] = ()
 
     @property
     def status(self) -> str:

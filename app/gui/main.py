@@ -37,12 +37,14 @@ from app.gui.dialogs.unified_voice_model_catalog_dialog import UnifiedVoiceModel
 from app.gui.dialogs.provider_cost_quota_limits_dialog import ProviderCostQuotaLimitsDialog
 from app.gui.dialogs.danish_provider_benchmark_dialog import DanishProviderBenchmarkDialog
 from app.gui.dialogs.user_controlled_provider_recovery_dialog import UserControlledProviderRecoveryDialog
+from app.gui.dialogs.language_probe_dialog import LanguageProbeDialog
 from app.gui.dialogs.provider_plugin_sdk_dialog import ProviderPluginSDKDialog
 from app.gui.dialogs.provider_ga_certification_dialog import ProviderGACertificationDialog
 from app.gui.dialogs.product_ux_audit_dialog import ProductUXAuditDialog
 from app.gui.dialogs.first_run_onboarding_dialog import FirstRunOnboardingDialog
 from app.gui.dialogs.provider_setup_wizard_dialog import ProviderSetupWizardDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
+from app.services.pronunciation_assurance_service import PronunciationAssuranceService
 from app.gui.widgets.application_shell import (
     ActivityCenter,
     ApplicationShell,
@@ -843,6 +845,7 @@ class MainWindow(QMainWindow):
         workflow_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Generation Workflow'); workflow_action.setShortcut(QKeySequence('Ctrl+Alt+G')); workflow_action.triggered.connect(self.focus_generation_workflow); self.actions_by_name['Generation Workflow']=workflow_action; batch_action=self.generation_menu.addAction(action_icon('queue'),'Queue Batch Operations'); batch_action.setShortcut(QKeySequence('Ctrl+Alt+Q')); batch_action.triggered.connect(self.focus_queue_batch_operations); self.actions_by_name['Queue Batch Operations']=batch_action; live_action=self.generation_menu.addAction(action_icon('history'),'Generation Live Operations'); live_action.setShortcut(QKeySequence('Ctrl+Alt+R')); live_action.triggered.connect(self.focus_generation_live_operations); self.actions_by_name['Generation Live Operations']=live_action; self.generation_menu.addSeparator()
         self.show_monitor_action=self.generation_menu.addAction('Show/Hide Generation Monitor'); self.show_monitor_action.setCheckable(True); self.show_monitor_action.setChecked(True); self.show_monitor_action.triggered.connect(self.toggle_generation_monitor); self.actions_by_name['Show/Hide Generation Monitor']=self.show_monitor_action
         self.dry_run_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Dry run'); self.dry_run_action.triggered.connect(self.dry_run); self.actions_by_name['Dry run']=self.dry_run_action; self.actions_by_name['Run Preflight']=self.dry_run_action
+        language_probe_action=self.generation_menu.addAction(action_icon('pronunciation.dictionary'),'Language Probe (1-3 samples)'); language_probe_action.setShortcut(QKeySequence('Ctrl+Alt+P')); language_probe_action.triggered.connect(self.open_language_probe); self.actions_by_name['Language Probe']=language_probe_action
         for text,handler,shortcut,ic in [('Start Generation',self.start,'Ctrl+Return','generation.start'),('Pause/Resume',self.pause,'Ctrl+Space','generation.pause'),('Stop Generation',self.stop,'Shift+Esc','generation.stop'),('Voice Browser',self.open_voice_browser,'Ctrl+Shift+V','provider.browse_voices')]:
             action=self.generation_menu.addAction(action_icon(ic),text); action.triggered.connect(handler); action.setShortcut(QKeySequence(shortcut)); self.actions_by_name[text]=action
         recovery_action=self.generation_menu.addAction(action_icon('history'),'Multi-provider Recovery'); recovery_action.triggered.connect(self.open_user_controlled_provider_recovery); self.actions_by_name['Multi-provider Recovery']=recovery_action
@@ -3420,15 +3423,56 @@ class MainWindow(QMainWindow):
     def copy_selected_text(self):
         jobs=self.selected_queue_jobs()
         if jobs: QApplication.clipboard().setText(jobs[0].text)
-    def set_selected_pronunciation_override(self,value):
-        jobs=self.selected_queue_jobs()
-        for job in jobs:
+    def set_pronunciation_override_for_rows(self,rows,value):
+        targets={int(row) for row in rows}
+        for job in self.generation_controller.jobs:
+            if job.row_number not in targets:
+                continue
             job.pronunciation_override=value
-            if value is None: self.job_pronunciation_overrides.pop(job.row_number,None)
-            else: self.job_pronunciation_overrides[job.row_number]=value
+            if value is None:
+                self.job_pronunciation_overrides.pop(job.row_number,None)
+            else:
+                self.job_pronunciation_overrides[job.row_number]=value
         project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None
         self.generation_controller.set_jobs(self.generation_controller.jobs,project_id=project_id,output_dir=Path(self.out.text() or self.project_controller.default_output_path),settings=self.settings())
-        self.invalidate_preflight(); self.dashboard(); self.statusBar().showMessage('Pronunciation override updated for selected row(s).',5000)
+        self.invalidate_preflight(); self.render_queue(); self.dashboard(); self.statusBar().showMessage('Pronunciation override updated. Run Preflight before generation.',6000)
+
+    def open_language_probe(self):
+        jobs=self.selected_queue_jobs()
+        if not 1 <= len(jobs) <= 3:
+            self.notifications.warning('Language Probe','Select between 1 and 3 queue rows, then open Language Probe again.')
+            return None
+        settings=self.settings()
+        service=PronunciationAssuranceService()
+        assessments=tuple(service.assess_job(job,settings) for job in jobs)
+        dialog=LanguageProbeDialog(assessments,parent=self)
+        dialog.previewRequested.connect(self.language_probe_preview)
+        dialog.overrideRequested.connect(self.language_probe_override)
+        dialog.show()
+        self.language_probe_dialog=dialog
+        return dialog
+
+    def language_probe_preview(self,row,text):
+        dialog=self.open_voice_browser()
+        editor=getattr(dialog,'preview_text',None) if dialog is not None else None
+        if editor is not None:
+            if hasattr(editor,'setPlainText'):
+                editor.setPlainText(text)
+            elif hasattr(editor,'setText'):
+                editor.setText(text)
+        self.statusBar().showMessage(f'Language Probe row {row}: preview text loaded. Press Preview manually in Voice Browser.',7000)
+
+    def language_probe_override(self,row,value):
+        override=value or None
+        self.set_pronunciation_override_for_rows([row],override)
+        if override=='normalized':
+            self.statusBar().showMessage(f'Row {row}: language-locked normalized provider form selected. Run Preflight before generation.',7000)
+        else:
+            self.statusBar().showMessage(f'Row {row}: original provider text selected. Run Preflight before generation.',7000)
+
+    def set_selected_pronunciation_override(self,value):
+        jobs=self.selected_queue_jobs()
+        self.set_pronunciation_override_for_rows([job.row_number for job in jobs],value)
     def select_dictionary_for_selected_jobs(self):
         jobs=self.selected_queue_jobs()
         if not jobs: return
@@ -3464,7 +3508,7 @@ class MainWindow(QMainWindow):
     def queue_context_menu(self,pos):
         menu=QMenu(self); selected=bool(self.selected_queue_jobs())
         output_path=self.selected_output_path(); output_exists=bool(output_path and output_path.exists())
-        actions=[('Generate selected row',self.generate_selected_row,selected),('Generate selected rows',self.generate_selected_rows,selected),('Retry selected',self.retry_selected_policy,selected and any(j.status.value=='failed' for j in self.selected_queue_jobs())),('Skip selected',self.skip_selected,selected),('Reset selected',self.reset_selected,selected),('Move to top',lambda:self.move_selected_custom('top'),selected),('Move up',lambda:self.move_selected_custom('up'),selected),('Move down',lambda:self.move_selected_custom('down'),selected),('Move to bottom',lambda:self.move_selected_custom('bottom'),selected),('Use project dictionary',lambda:self.set_selected_pronunciation_override(None),selected),('Disable dictionary for this job',lambda:self.set_selected_pronunciation_override('dictionary_disabled'),selected),('Select dictionary for this job',self.select_dictionary_for_selected_jobs,selected),('Test pronunciation',self.test_selected_pronunciation,selected),('Reveal output',self.open_selected_output,output_exists),('Copy filename',self.copy_selected_filename,selected),('Copy text',self.copy_selected_text,selected),('Open containing folder',self.open_output_folder,True),('Play output',self.play_selected_output,output_exists),('Copy output path',self.copy_selected_output_path,selected)]
+        actions=[('Generate selected row',self.generate_selected_row,selected),('Generate selected rows',self.generate_selected_rows,selected),('Retry selected',self.retry_selected_policy,selected and any(j.status.value=='failed' for j in self.selected_queue_jobs())),('Skip selected',self.skip_selected,selected),('Reset selected',self.reset_selected,selected),('Move to top',lambda:self.move_selected_custom('top'),selected),('Move up',lambda:self.move_selected_custom('up'),selected),('Move down',lambda:self.move_selected_custom('down'),selected),('Move to bottom',lambda:self.move_selected_custom('bottom'),selected),('Use project dictionary',lambda:self.set_selected_pronunciation_override(None),selected),('Disable dictionary for this job',lambda:self.set_selected_pronunciation_override('dictionary_disabled'),selected),('Select dictionary for this job',self.select_dictionary_for_selected_jobs,selected),('Language Probe (1-3 samples)',self.open_language_probe,selected),('Test pronunciation',self.test_selected_pronunciation,selected),('Reveal output',self.open_selected_output,output_exists),('Copy filename',self.copy_selected_filename,selected),('Copy text',self.copy_selected_text,selected),('Open containing folder',self.open_output_folder,True),('Play output',self.play_selected_output,output_exists),('Copy output path',self.copy_selected_output_path,selected)]
         for text,handler,enabled in actions:
             action=menu.addAction(text); action.setEnabled(enabled); action.triggered.connect(handler)
         menu.exec(self.queue_adapter.map_viewport_to_global(pos))
@@ -4212,6 +4256,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Settings: Provider Setup Wizard',act('Provider Setup Wizard')),
             PaletteCommand('Settings: Provider Accounts',act('Provider accounts')),
             PaletteCommand('Settings: Pronunciation Dictionaries',act('Pronunciation dictionaries')),
+            PaletteCommand('Generation: Language Probe (1-3 samples)',act('Language Probe'),lambda: 1 <= len(self.selected_queue_jobs()) <= 3),
             PaletteCommand('Help: Getting Started / First-run Onboarding',act('Getting Started / First-run Onboarding')),
             PaletteCommand('Help: Quick Setup',act('Quick Setup')),
             PaletteCommand('Help: Shortcut Reference',act('Shortcut Reference')),
