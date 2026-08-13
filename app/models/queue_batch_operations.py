@@ -23,6 +23,27 @@ class QueueBatchSnapshot:
     quota_characters: int
     group_by: str
     groups: tuple[QueueBatchGroup, ...]
+    completed_jobs: int = 0
+    lens: str = "all"
+    lens_jobs: int = 0
+    lens_characters: int = 0
+
+    @property
+    def lens_label(self) -> str:
+        return {
+            "all": "All visible",
+            "pending": "Pending",
+            "failed": "Failed",
+            "selected": "Current selection",
+            "quota": "Quota-ready",
+        }.get(self.lens, "All visible")
+
+    @property
+    def lens_summary(self) -> str:
+        return (
+            f"{self.lens_label} · {self.lens_jobs:,} job(s) · "
+            f"{self.lens_characters:,} characters"
+        )
 
     @property
     def summary(self) -> str:

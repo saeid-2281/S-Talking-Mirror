@@ -319,7 +319,7 @@ class MainWindow(QMainWindow):
         self.left_dock=WorkspaceDockWidget('Workspace',self); self.left_dock.setObjectName('workspaceLeftDock'); self.left_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea); self.left_dock.setWidget(self.left_tabs); self.left_dock.setMinimumWidth(270); self.left_dock.setMaximumWidth(340); self.addDockWidget(Qt.LeftDockWidgetArea,self.left_dock)
         self.queue_workspace=QueueWorkspace(); mid=self.queue_workspace; ml=self.queue_workspace.body_layout; self.queue_count_labels={}
         self.generation_journey=GenerationJourneyWidget(self.queue_workspace); self.generation_journey.actionRequested.connect(self.handle_generation_journey_action); self.queue_workspace.root_layout.insertWidget(1,self.generation_journey)
-        self.queue_batch_service=QueueBatchOperationsService(); self.queue_batch_operations=QueueBatchOperationsWidget(self.queue_workspace); self.queue_batch_operations.lensRequested.connect(self.apply_queue_batch_lens); self.queue_batch_operations.groupChanged.connect(lambda _value:self.refresh_queue_batch_operations()); self.queue_batch_operations.useSelectionRequested.connect(self.use_selection_as_scope); self.queue_batch_operations.actionRequested.connect(self.handle_queue_batch_action); self.queue_workspace.root_layout.insertWidget(2,self.queue_batch_operations)
+        self.queue_batch_service=QueueBatchOperationsService(); self.queue_batch_operations=QueueBatchOperationsWidget(self.queue_workspace); self.queue_batch_operations.lensRequested.connect(self.apply_queue_batch_lens); self.queue_batch_operations.lensChanged.connect(lambda _value:self.refresh_queue_batch_operations()); self.queue_batch_operations.groupChanged.connect(lambda _value:self.refresh_queue_batch_operations()); self.queue_batch_operations.useSelectionRequested.connect(self.use_selection_as_scope); self.queue_batch_operations.actionRequested.connect(self.handle_queue_batch_action); self.queue_workspace.root_layout.insertWidget(2,self.queue_batch_operations)
         rangebar=self.queue_workspace.range_layout; self.range_basis=QComboBox(); self.range_basis.addItem('Original source row','row_range'); self.range_basis.addItem('Current displayed order','display_range'); self.range_from=ControlledSpinBox(); self.range_to=ControlledSpinBox(); self.range_from.setRange(0,999999); self.range_to.setRange(0,999999); self.range_from.setSpecialValueText('First'); self.range_to.setSpecialValueText('Last'); self.range_summary_label=QLabel('Range basis: Original source row · all rows'); self.quota_scope_label=QLabel('Quota unavailable'); self.quota_scope_label.setToolTip('Scoped ElevenLabs quota comparison updates after account refresh and range changes.'); self.range_basis.currentIndexChanged.connect(self.apply_row_range); self.range_from.valueChanged.connect(self.apply_row_range); self.range_to.valueChanged.connect(self.apply_row_range); rangebar.addWidget(QLabel('Range basis')); rangebar.addWidget(self.range_basis); rangebar.addWidget(QLabel('From')); rangebar.addWidget(self.range_from); rangebar.addWidget(QLabel('To')); rangebar.addWidget(self.range_to); rangebar.addWidget(self.range_summary_label,1); rangebar.addWidget(self.quota_scope_label)
         qbar=self.queue_workspace.command_layout; actionbar=self.queue_workspace.action_layout
         self.queue_search=QLineEdit(); self.queue_search.setObjectName('queueSearch'); self.queue_search.setPlaceholderText('Search filename, source or text…'); self.queue_search.setClearButtonEnabled(True); self.queue_search.setAccessibleName('Search generation queue'); self.queue_search.setAccessibleDescription('Filter jobs by filename, source or text'); self.queue_search.setMinimumWidth(220); self.queue_search.setMaximumWidth(360); self.queue_search.textChanged.connect(self.queue_search_changed)
@@ -2053,9 +2053,20 @@ class MainWindow(QMainWindow):
         if self.current_scope_mode()=='display_range': self.apply_row_range()
     def use_selection_as_scope(self):
         rows=self.selected_row_numbers()
+        if not rows:
+            self.statusBar().showMessage(
+                'No queue rows selected. Generation scope and Preflight state are unchanged.',
+                5000,
+            )
+            return
         self.generation_controller.set_generation_selection(rows)
         self.set_combo_data(self.scope_selector,'selected')
         self.update_selection_scope_summary(); self.dashboard(); self.invalidate_preflight()
+        self.statusBar().showMessage(
+            f'Generation scope set to {len(rows):,} selected row(s). '
+            'Preflight was invalidated but has NOT run; generation has NOT started.',
+            7000,
+        )
     def use_current_sort_as_generation_order(self):
         self.generation_controller.scope_service.use_current_order_as_custom(self.displayed_queue_jobs()); self.generation_controller.execution_order='custom'; self.order_selector.setCurrentIndex(self.order_selector.findData('custom')); self.dashboard(); self.invalidate_preflight(); self.statusBar().showMessage('Current table order will be used for generation.',5000)
     def open_offline_tts_engines(self):
@@ -3251,6 +3262,7 @@ class MainWindow(QMainWindow):
             selected_rows=selected_rows,
             quota_remaining=self.generation_controller.quota_remaining,
             group_by=group_by,
+            lens=str(self.queue_batch_operations.lens.currentData() or 'all'),
             default_provider=self.provider.currentText(),
             default_voice=self.voice.text(),
         )
@@ -3267,8 +3279,14 @@ class MainWindow(QMainWindow):
         )
         self.table.clearSelection()
         if row_ids: self.queue_adapter.restore_selection(row_ids)
+        selected_ids=set(row_ids)
+        selected_characters=sum(job.character_count for job in jobs if job.row_number in selected_ids)
         self.update_queue_scope_summary(jobs); self.refresh_queue_batch_operations(jobs)
-        self.statusBar().showMessage(f'Batch lens selected {len(row_ids):,} job(s).',4000)
+        self.statusBar().showMessage(
+            f'Batch preview selected {len(row_ids):,} row(s) / {selected_characters:,} characters. '
+            'Generation scope is unchanged; Preflight has NOT run.',
+            6000,
+        )
     def handle_queue_batch_action(self,code):
         handlers={
             'retry_failed':self.retry_failed,

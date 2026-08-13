@@ -25,6 +25,7 @@ class QueueBatchOperationsService:
         selected_rows: Iterable[int] = (),
         quota_remaining: int | None = None,
         group_by: str = "status",
+        lens: str = "all",
         default_provider: str = "",
         default_voice: str = "",
     ) -> QueueBatchSnapshot:
@@ -37,6 +38,13 @@ class QueueBatchOperationsService:
             quota_remaining=quota_remaining,
         )
         normalized_group = group_by if group_by in self.GROUPS else "status"
+        normalized_lens = lens if lens in self.LENSES else "all"
+        lens_jobs = self.lens_jobs(
+            normalized_lens,
+            visible,
+            selected_rows=selected,
+            quota_remaining=quota_remaining,
+        )
         groups = self._groups(
             visible,
             normalized_group,
@@ -56,6 +64,10 @@ class QueueBatchOperationsService:
             quota_characters=sum(job.character_count for job in quota_jobs),
             group_by=normalized_group,
             groups=groups,
+            completed_jobs=sum(1 for job in visible if job.status == JobStatus.COMPLETED),
+            lens=normalized_lens,
+            lens_jobs=len(lens_jobs),
+            lens_characters=sum(job.character_count for job in lens_jobs),
         )
 
     def lens_job_ids(
