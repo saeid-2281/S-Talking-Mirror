@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from app.gui.icons import action_icon
 from app.gui.widgets.batch_plan_summary import BatchPlanSummary
 from app.gui.widgets.dialog_workspace import DialogSection, DialogStatusCard, DialogWorkspace
+from app.models.domain import AppSettings
 from app.models.preflight_state import PreflightState
 from app.services.generation_confirmation_service import GenerationConfirmation
 
@@ -30,10 +31,13 @@ class GenerationLaunchDialog(QDialog):
         confirmation: GenerationConfirmation,
         state: PreflightState,
         parent: QWidget | None = None,
+        *,
+        settings: AppSettings | None = None,
     ) -> None:
         super().__init__(parent)
         self.confirmation = confirmation
         self.state = state
+        self.settings = settings
         self.acknowledgement_boxes: dict[str, QCheckBox] = {}
         self.setObjectName("generationLaunchDialog")
         self.setWindowTitle("Generation launch review")
@@ -57,6 +61,14 @@ class GenerationLaunchDialog(QDialog):
         self.status_card = DialogStatusCard("Review required", "", tone="warning")
         self.status_card.setObjectName("generationLaunchStatusCard")
         self.workspace.add_body_widget(self.status_card)
+
+        self.readiness_card = DialogStatusCard(
+            "Current explicit Preflight",
+            "",
+            tone="info",
+        )
+        self.readiness_card.setObjectName("generationLaunchReadinessSnapshot")
+        self.workspace.add_body_widget(self.readiness_card)
 
         self.decision_section = DialogSection(
             "Unified preflight decision",
@@ -140,8 +152,8 @@ class GenerationLaunchDialog(QDialog):
         tools.addStretch(1)
         self.workspace.add_body_widget(self._layout_host(tools))
 
-        self.review_button = QPushButton("Review preflight")
-        self.start_button = QPushButton("Start generation")
+        self.review_button = QPushButton("Back to Preflight")
+        self.start_button = QPushButton("Start reviewed generation")
         self.start_button.setObjectName("dialogPrimaryAction")
         self.start_button.setIcon(action_icon("generation.start"))
         self.review_button.clicked.connect(self.reject)
@@ -160,6 +172,28 @@ class GenerationLaunchDialog(QDialog):
             tone=tone,
         )
         decision = self.confirmation.unified_decision
+        settings = self.settings
+        provider = settings.provider if settings is not None else (
+            self.state.generation_plan.provider if self.state.generation_plan is not None else "Unknown provider"
+        )
+        model = settings.model_id if settings is not None else (
+            self.state.generation_plan.model if self.state.generation_plan is not None else ""
+        )
+        voice = settings.voice_id if settings is not None else ""
+        language = settings.language_code if settings is not None else ""
+        trace = decision.trace_id[:12] if decision is not None and decision.trace_id else "not calculated"
+        self.readiness_card.update_status(
+            "Current explicit Preflight",
+            (
+                f"Status: {self.state.status} · Preflight revision: {self.state.revision[:12] or 'unknown'} · "
+                f"Settings revision: {self.state.settings_revision[:12] or 'unknown'} · Decision trace: {trace}\n"
+                f"Resolved request: {provider or 'Unknown provider'} · {voice or 'Default voice'} · "
+                f"{model or 'Default model'} · {language or 'Language not set'}\n"
+                "This launch review is read-only: it does not change provider/account/voice/model, "
+                "rerun Preflight, or start generation. Generation begins only after Start reviewed generation."
+            ),
+            tone="success" if self.confirmation.allowed else "error",
+        )
         self.decision_section.setVisible(decision is not None)
         if decision is not None:
             decision_tone = {
@@ -273,7 +307,7 @@ class GenerationLaunchDialog(QDialog):
                 f"Acknowledge {remaining:,} remaining decision(s) before starting."
             )
         else:
-            self.start_button.setToolTip("Start the reviewed generation batch.")
+            self.start_button.setToolTip("Start exactly the reviewed generation batch. No provider or scope change is applied here.")
 
     @staticmethod
     def _layout_host(layout: QHBoxLayout) -> QFrame:

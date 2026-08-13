@@ -122,6 +122,13 @@ class GenerationConfirmationCoordinator:
 
         checks: list[GenerationLaunchCheck] = [
             GenerationLaunchCheck(
+                "preflight_snapshot",
+                "Current explicit Preflight",
+                f"{state.status} · revision {state.revision[:12] or 'unknown'} · "
+                f"settings {state.settings_revision[:12] or 'unknown'}",
+                "success",
+            ),
+            GenerationLaunchCheck(
                 "scope",
                 "Generation scope",
                 f"{state.estimated_files:,} file(s), {state.estimated_characters:,} characters and "
@@ -130,8 +137,11 @@ class GenerationConfirmationCoordinator:
             ),
             GenerationLaunchCheck(
                 "provider",
-                "Provider and model",
-                f"{settings.provider or 'Unknown provider'} · {settings.model_id or 'Default model'}",
+                "Resolved provider, voice, model and language",
+                f"{settings.provider or 'Unknown provider'} · "
+                f"{settings.voice_id or 'Default voice'} · "
+                f"{settings.model_id or 'Default model'} · "
+                f"{settings.language_code or 'Language not set'}",
                 "success" if state.provider_ready else "info",
             ),
         ]
@@ -772,6 +782,7 @@ class GenerationConfirmationCoordinator:
             "provider": settings.provider,
             "model": settings.model_id,
             "voice": settings.voice_id,
+            "language": settings.language_code,
             "file_extension": settings.file_extension,
             "skip_existing": settings.skip_existing,
             "overwrite_existing": settings.overwrite_existing,

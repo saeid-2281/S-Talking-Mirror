@@ -64,6 +64,46 @@ class PreflightService:
         self.latest = None
         self._cache_key = None
 
+    def current_state(
+        self,
+        *,
+        jobs: list[TTSJob],
+        settings: AppSettings,
+        output_dir: Path,
+        csv_path: Path | None = None,
+        project_id: int | None = None,
+    ) -> PreflightState | None:
+        """Return the latest Preflight only when it still matches the resolved request.
+
+        This method is intentionally side-effect free: it never refreshes provider
+        state, rebuilds planning evidence, contacts the network, or mutates the
+        cached Preflight result.
+        """
+        key = self._key(jobs, settings, output_dir, csv_path, project_id)
+        if self.latest is None or self._cache_key != key:
+            return None
+        return self.latest
+
+    def is_current(
+        self,
+        *,
+        jobs: list[TTSJob],
+        settings: AppSettings,
+        output_dir: Path,
+        csv_path: Path | None = None,
+        project_id: int | None = None,
+    ) -> bool:
+        return (
+            self.current_state(
+                jobs=jobs,
+                settings=settings,
+                output_dir=output_dir,
+                csv_path=csv_path,
+                project_id=project_id,
+            )
+            is not None
+        )
+
     def run(
         self,
         *,

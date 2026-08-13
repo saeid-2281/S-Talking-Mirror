@@ -53,7 +53,7 @@ class PreflightDialog(QDialog):
         root.setSpacing(0)
         self.workspace = DialogWorkspace(
             "Preflight review",
-            "Review blocking errors, warnings and safe fixes before generation begins.",
+            "Review blocking errors, warnings and safe fixes. Preflight review never starts generation.",
             icon_name="generation.preflight",
             parent=self,
         )
@@ -138,8 +138,8 @@ class PreflightDialog(QDialog):
         tools_section.add_layout(tools)
         self.workspace.add_body_widget(tools_section)
 
-        self.cancel_button = QPushButton("Cancel")
-        self.start_button = QPushButton("Start generation")
+        self.cancel_button = QPushButton("Close")
+        self.start_button = QPushButton("Review complete")
         self.start_button.setObjectName("dialogPrimaryAction")
         self.start_button.setIcon(action_icon("generation.start"))
         self.start_button.clicked.connect(self.accept)
@@ -164,7 +164,12 @@ class PreflightDialog(QDialog):
             tone = "error"
         self.summary_card.update_status(self.state.status, detail, tone=tone)
         self.plan_summary.set_plan(self.state.generation_plan)
-        self.start_button.setText("Continue anyway" if self.state.status == "Ready with warnings" else "Start generation")
+        self.start_button.setText(
+            "Warnings reviewed" if self.state.status == "Ready with warnings" else "Review complete"
+        )
+        self.start_button.setToolTip(
+            "Close this Preflight review. Generation is started separately from the explicit launch control."
+        )
         selected = self.severity.currentText()
         issues = self.state.issues
         if selected == "Errors":

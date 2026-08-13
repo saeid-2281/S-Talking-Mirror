@@ -720,7 +720,10 @@ class MainWindow(QMainWindow):
         elif region=='activity':
             self.set_activity_expanded(True); target=getattr(self,'activity_tabs',None); label='Activity panel'
         elif region=='generation':
-            target=getattr(self,'startb',None); label='Generation controls'
+            target=getattr(self,'startb',None)
+            if target is not None and not target.isEnabled():
+                target=getattr(self,'dry_run_button',None)
+            label='Generation controls'
         elif region=='output':
             self.show_output_workspace(); target=getattr(getattr(self,'output_workspace',None),'player',None); label='Output playback'
         elif region=='text-studio':
@@ -964,6 +967,7 @@ class MainWindow(QMainWindow):
                 'voice_model_catalog':self.open_unified_voice_model_catalog,
                 'project_continuity':self.open_project_continuity,
                 'text_source_preparation':self.open_text_studio,
+                'preflight_readiness':self.focus_preflight_readiness,
                 'live_operations':self.focus_generation_live_operations,
             },
         )
@@ -2823,9 +2827,19 @@ class MainWindow(QMainWindow):
         if hasattr(self,'preflight_status'):
             self.generation_status_strip.set_preflight_text('Preflight: Not checked'); self.preflight_status.setStyleSheet('color:#94A3B8;font-weight:700;')
             if hasattr(self,'project_context_widget'): self.project_context_widget.set_preflight_state('not checked')
-            if hasattr(self,'generation_status_strip'): self.generation_status_strip.set_generation_state('Ready','Preflight has not been checked')
-            self.startb.setEnabled(not self.generation_controller.is_active)
+            if hasattr(self,'generation_status_strip'): self.generation_status_strip.set_generation_state('Preflight required','Run Preflight explicitly before launch review')
+            self.startb.setEnabled(False)
+            self.startb.setToolTip('Run Preflight explicitly before reviewing or starting generation.')
         self.refresh_generation_journey()
+    def current_preflight_state(self,settings=None):
+        s=settings or self.settings()
+        return self.preflight_service.current_state(
+            jobs=self.generation_controller.generation_jobs(),
+            settings=s,
+            output_dir=Path(self.out.text() or self.project_controller.default_output_path),
+            csv_path=Path(self.csv.text()) if self.csv.text().strip() else None,
+            project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None,
+        )
     def run_preflight(self,write_report=False):
         self.refresh_quota_snapshot()
         state=self.preflight_service.run(jobs=self.generation_controller.generation_jobs(),settings=self.settings(),output_dir=Path(self.out.text() or self.project_controller.default_output_path),csv_path=Path(self.csv.text()) if self.csv.text().strip() else None,project_name=self.project_controller.project_name,project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None)
@@ -2838,15 +2852,25 @@ class MainWindow(QMainWindow):
         if hasattr(self,'generation_status_strip'):
             detail=f'{pending:,} pending · {errors} errors · {warnings} warnings'
             self.generation_status_strip.set_generation_state(state.status,detail)
-        self.startb.setEnabled(state.status!='Blocked by errors' and not self.generation_controller.is_active)
+        self.startb.setEnabled(state.can_start and not self.generation_controller.is_active)
+        self.startb.setToolTip(
+            'Review current launch readiness' if state.can_start else 'Resolve Preflight blockers before launch review.'
+        )
         self.refresh_generation_journey()
         return state
     def show_preflight_dialog(self,state):
         d=PreflightDialog(state,export_report=lambda:self.export_preflight(state),open_output_folder=self.open_output_folder,apply_fixes=lambda:self.fix_preflight_issues(state),parent=self)
         return d.exec()
     def show_latest_preflight(self):
-        state=self.preflight_service.latest or self.run_preflight(write_report=False)
-        self.show_preflight_dialog(state)
+        state=self.current_preflight_state()
+        if state is None:
+            self.notifications.information(
+                'Preflight required',
+                'No current Preflight result exists for the resolved request. Run Preflight explicitly first.',
+            )
+            if hasattr(self,'dry_run_button'): self.dry_run_button.setFocus()
+            return None
+        return self.show_preflight_dialog(state)
     def export_preflight(self,state):
         report=self.preflight_service.write_report(state,self.project_controller.project_name); self.open_path(report); return report
     def preflight_fix_preview(self,state):
@@ -2862,15 +2886,22 @@ class MainWindow(QMainWindow):
         self.render_queue(); self.preview(); self.refresh_monitor_queue(); self.dashboard(); self.log.appendPlainText(f'Preflight fixed {changed} filename issue(s).'); self.run_preflight(write_report=False)
     def dry_run(self):
         if not self.generation_controller.has_jobs(): self.load_csv()
-        state=self.run_preflight(write_report=True); self.show_preflight_dialog(state); self.log.appendPlainText(f'Dry run complete: {state.status}.')
+        state=self.run_preflight(write_report=True); self.show_preflight_dialog(state); self.log.appendPlainText(f'Preflight complete: {state.status}. Generation has NOT started.')
+    def focus_preflight_readiness(self):
+        if hasattr(self,'dry_run_button'):
+            self.dry_run_button.setFocus()
+        self.statusBar().showMessage(
+            'Run Preflight explicitly. Start remains unavailable until the current resolved request has a valid Preflight result.',
+            7000,
+        )
     def review_generation_launch(self,confirmation,state):
-        if not confirmation.requires_user_confirmation: return ()
         app=QApplication.instance(); platform=app.platformName().casefold() if app is not None else ''
         if platform in {'offscreen','minimal'} or not self.isVisible():
+            if not confirmation.requires_user_confirmation: return ()
             if self.notifications.confirmation(confirmation.title,confirmation.message):
                 return confirmation.required_acknowledgements
             return None
-        launch_dialog=GenerationLaunchDialog(confirmation,state,parent=self)
+        launch_dialog=GenerationLaunchDialog(confirmation,state,parent=self,settings=self.settings())
         if launch_dialog.exec()!=QDialog.Accepted: return None
         return launch_dialog.acknowledged_codes()
     def request_generation_launch_exception(self,confirmation):
@@ -2901,7 +2932,6 @@ class MainWindow(QMainWindow):
     def start(self):
         if not self.generation_controller.has_jobs():self.load_csv()
         if not self.generation_controller.has_jobs():return
-        self.refresh_quota_snapshot()
         s=self.settings(); project=self.project_controller.generation_context(self.out.text())
         pending_resume=self.pending_resume_receipt
         if pending_resume is not None:
@@ -2916,7 +2946,19 @@ class MainWindow(QMainWindow):
                 self.notifications.warning("Safe resume",f"Recovery settings changed: {', '.join(mismatch)}. Prepare the recovery queue again.")
                 return
             self.generation_controller.set_generation_selection(list(pending_resume.selected_rows)); self.set_combo_data(self.scope_selector,'selected')
-        state=self.run_preflight(write_report=False)
+        state=self.current_preflight_state(s)
+        if state is None:
+            self.startb.setEnabled(False)
+            self.generation_status_strip.set_generation_state(
+                'Preflight required',
+                'The resolved request changed or has not been checked',
+            )
+            self.notifications.information(
+                'Preflight required',
+                'Run Preflight explicitly for the current queue, scope, provider, voice, model, language and output settings before launch review.',
+            )
+            if hasattr(self,'dry_run_button'): self.dry_run_button.setFocus()
+            return
         confirmation=self.context.generation_confirmation_service.evaluate(
             state,
             s,

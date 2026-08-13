@@ -122,6 +122,8 @@ def test_offscreen_app_smoke_creates_dashboard_and_report(qt_app, tmp_path: Path
     assert window.cards["files"].value.text() != "0"
     assert window.cards["chars"].value.text() != "0"
 
+    preflight = window.run_preflight(write_report=False)
+    assert preflight.can_start is True
     window.start()
     deadline = time.time() + 10
     while window.generation_controller.is_active and time.time() < deadline:

@@ -59,11 +59,11 @@ class FirstRunOnboardingService:
         ),
         FirstRunOnboardingStep(
             "preflight_approval",
-            "Understand Preflight and launch approval",
+            "Run explicit Preflight before launch review",
             "Validate",
-            "Preflight validates the resolved request and launch approval remains explicit. This step only brings the workflow into focus; it never runs Preflight or generation.",
-            "focus_workflow",
-            "Focus Preflight workflow",
+            "Preflight validates the exact current queue, scope, provider, voice, model, language and output settings. Start remains unavailable when Preflight is missing or stale; onboarding only focuses the control and never runs Preflight or generation.",
+            "preflight_readiness",
+            "Focus explicit Preflight",
         ),
         FirstRunOnboardingStep(
             "generation_output",
