@@ -49,6 +49,7 @@ from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.services.pronunciation_assurance_service import PronunciationAssuranceService
 from app.services.pronunciation_audit_service import PronunciationAuditTrailService
 from app.services.pronunciation_readiness_service import PronunciationReadinessService
+from app.services.launch_assurance_service import LaunchAssuranceContextChanged, LaunchAssuranceService
 from app.models.pronunciation_audit import PronunciationAuditDraft
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -189,6 +190,7 @@ class MainWindow(QMainWindow):
         self.audio_player_service=context.audio_player_service
         self.pronunciation_audit_service=PronunciationAuditTrailService()
         self.pronunciation_readiness_service=PronunciationReadinessService()
+        self.launch_assurance_service=LaunchAssuranceService(); self.last_launch_assurance=None
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
         self.crash_recovery_service=context.crash_recovery_service; self.safe_mode=self.crash_recovery_service.safe_mode
@@ -2835,7 +2837,7 @@ class MainWindow(QMainWindow):
             if self.project_controller.autosave_if_needed(generation_active=self.generation_controller.is_active): self.log.appendPlainText('Project auto-saved.'); self.update_window_title(); self.update_status_bar()
         except Exception as e: self.log.appendPlainText(f'Auto-save failed: {e}')
     def invalidate_preflight(self):
-        self.preflight_service.invalidate()
+        self.preflight_service.invalidate(); self.last_launch_assurance=None
         if hasattr(self,'preflight_status'):
             self.generation_status_strip.set_preflight_text('Preflight: Not checked'); self.preflight_status.setStyleSheet('color:#94A3B8;font-weight:700;')
             if hasattr(self,'project_context_widget'): self.project_context_widget.set_preflight_state('not checked')
@@ -2843,6 +2845,24 @@ class MainWindow(QMainWindow):
             self.startb.setEnabled(False)
             self.startb.setToolTip('Run Preflight explicitly before reviewing or starting generation.')
         self.refresh_generation_journey()
+    def current_launch_request_revision(self,settings=None):
+        s=settings or self.settings()
+        return self.preflight_service.request_revision(
+            self.generation_controller.generation_jobs(),
+            s,
+            Path(self.out.text() or self.project_controller.default_output_path),
+            Path(self.csv.text()) if self.csv.text().strip() else None,
+            self.project_controller.current_project.project_id if self.project_controller.current_project else None,
+        )
+    def reject_launch_context_change(self,error):
+        self.last_launch_assurance=None
+        self.invalidate_preflight()
+        message=f'{error} Run Preflight explicitly again before launch.'
+        self.generation_status_strip.set_generation_state('Preflight required','Launch context changed after explicit Preflight')
+        self.notifications.warning('Launch context changed',message)
+        self.statusBar().showMessage(message,8000)
+        if hasattr(self,'dry_run_button'): self.dry_run_button.setFocus()
+
     def current_preflight_state(self,settings=None):
         s=settings or self.settings()
         return self.preflight_service.current_state(
@@ -2853,6 +2873,7 @@ class MainWindow(QMainWindow):
             project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None,
         )
     def run_preflight(self,write_report=False):
+        self.last_launch_assurance=None
         self.refresh_quota_snapshot()
         state=self.preflight_service.run(jobs=self.generation_controller.generation_jobs(),settings=self.settings(),output_dir=Path(self.out.text() or self.project_controller.default_output_path),csv_path=Path(self.csv.text()) if self.csv.text().strip() else None,project_name=self.project_controller.project_name,project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None)
         if write_report: self.preflight_service.write_report(state,self.project_controller.project_name)
@@ -2958,6 +2979,7 @@ class MainWindow(QMainWindow):
                 self.notifications.warning("Safe resume",f"Recovery settings changed: {', '.join(mismatch)}. Prepare the recovery queue again.")
                 return
             self.generation_controller.set_generation_selection(list(pending_resume.selected_rows)); self.set_combo_data(self.scope_selector,'selected')
+            s=self.settings()
         state=self.current_preflight_state(s)
         if state is None:
             self.startb.setEnabled(False)
@@ -2970,6 +2992,14 @@ class MainWindow(QMainWindow):
                 'Run Preflight explicitly for the current queue, scope, provider, voice, model, language and output settings before launch review.',
             )
             if hasattr(self,'dry_run_button'): self.dry_run_button.setFocus()
+            return
+        try:
+            launch_assurance=self.launch_assurance_service.verify_launch(
+                state,
+                self.current_launch_request_revision(s),
+            )
+        except LaunchAssuranceContextChanged as exc:
+            self.reject_launch_context_change(exc)
             return
         confirmation=self.context.generation_confirmation_service.evaluate(
             state,
@@ -3004,9 +3034,29 @@ class MainWindow(QMainWindow):
                 )
         if not confirmation.allowed:
             self.show_preflight_dialog(state); return
+        try:
+            launch_assurance=self.launch_assurance_service.verify_launch(
+                state,
+                self.current_launch_request_revision(s),
+            )
+        except LaunchAssuranceContextChanged as exc:
+            self.reject_launch_context_change(exc)
+            return
         acknowledged_codes=self.review_generation_launch(confirmation,state)
         if acknowledged_codes is None:
             self.show_preflight_dialog(state); return
+        try:
+            launch_assurance=self.launch_assurance_service.verify_launch(
+                state,
+                self.current_launch_request_revision(s),
+            )
+        except LaunchAssuranceContextChanged as exc:
+            self.reject_launch_context_change(exc)
+            return
+        self.last_launch_assurance=launch_assurance
+        self.log.appendPlainText(
+            f'Launch assurance: {launch_assurance.preflight_context_fingerprint[:16]} · Preflight == Launch'
+        )
         self.generation_started_at=datetime.now(timezone.utc); self.run_logs=[]; self.current_execution_receipt=None; self.dashboard()
         run_service=self.context.generation_execution_session_service
         run_id=run_service.new_run_id(confirmation.fingerprint)
@@ -3075,6 +3125,29 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.current_run_id=run_id; self.current_execution_session=session_path
             self.log.appendPlainText(f'Execution session initialization failed: {exc}')
+        try:
+            launch_assurance=self.launch_assurance_service.verify_generation(
+                launch_assurance,
+                state,
+                self.current_launch_request_revision(s),
+            )
+            self.last_launch_assurance=launch_assurance
+            self.log.appendPlainText(
+                f'Generation assurance: {launch_assurance.preflight_context_fingerprint[:16]} · Preflight == Launch == Generation'
+            )
+        except LaunchAssuranceContextChanged as exc:
+            if self.current_budget_reservation_id:
+                try:
+                    self.context.generation_budget_guard_service.release_reservation(
+                        self.current_budget_reservation_id,
+                        reason='launch_context_changed',
+                    )
+                except Exception as release_exc:
+                    self.log.appendPlainText(f'Budget reservation release failed: {release_exc}')
+                self.current_budget_reservation_id=None
+            self.finish_execution_session('cancelled')
+            self.reject_launch_context_change(exc)
+            return
         if not self.generation_controller.start(self,s,project.output_path,project.project_key):
             if self.current_budget_reservation_id:
                 try: self.context.generation_budget_guard_service.release_reservation(self.current_budget_reservation_id,reason='generation_did_not_start')
@@ -3106,7 +3179,7 @@ class MainWindow(QMainWindow):
             self.pending_resume_receipt=None
         self.sync_execution_session('running')
         self.monitor_service.start_run(self.generation_controller.generation_jobs(),provider=s.provider,output_dir=project.output_path,settings=s,project_key=project.project_key); self.set_generation_controls(active=True); self.generation_status_strip.set_generation_state('Running',f'{len(self.generation_controller.generation_jobs()):,} jobs queued · {run_id}'); self.update_status_bar()
-        self.context.product_activity_service.activity('generation','Generation started',f'{len(self.generation_controller.generation_jobs()):,} job(s) queued · {run_id}.',project_id=current.project_id if current else None,metadata={'run_id':run_id,'launch_receipt':str(receipt or '')})
+        self.context.product_activity_service.activity('generation','Generation started',f'{len(self.generation_controller.generation_jobs()):,} job(s) queued · {run_id}.',project_id=current.project_id if current else None,metadata={'run_id':run_id,'launch_receipt':str(receipt or ''),'launch_assurance':launch_assurance.preflight_context_fingerprint[:16]})
     def sync_execution_session(self,status=None):
         if not self.current_run_id: return None
         try:

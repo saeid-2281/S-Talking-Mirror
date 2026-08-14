@@ -108,6 +108,20 @@ class PreflightService:
             is not None
         )
 
+    def request_revision(
+        self,
+        jobs: list[TTSJob],
+        settings: AppSettings,
+        output_dir: Path,
+        csv_path: Path | None = None,
+        project_id: int | None = None,
+    ) -> str:
+        """Return the canonical revision for one fully resolved generation request."""
+        payload = self._key(jobs, settings, output_dir, csv_path, project_id)
+        return hashlib.sha256(
+            json.dumps(payload, default=str, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+
     def run(
         self,
         *,
@@ -199,7 +213,7 @@ class PreflightService:
         quota_snapshot = self._validate_quota(settings, pending_characters, issues)
         warnings = sum(1 for issue in issues if issue.severity == "warning")
         blocking = sum(1 for issue in issues if issue.severity in {"hard_error", "overridable_error", "error"} and not (issue.overridable and issue.overridden))
-        revision = hashlib.sha256(json.dumps(self._key(jobs, settings, output_dir, csv_path, project_id), default=str, sort_keys=True).encode("utf-8")).hexdigest()
+        revision = self.request_revision(jobs, settings, output_dir, csv_path, project_id)
         fallback_duration = len(pending) * self.fallback_seconds_per_job
         generation_plan = self.planning_service.build(
             project_id=project_id,
@@ -891,6 +905,9 @@ class PreflightService:
                     job.filename,
                     job.text,
                     job.status.value,
+                    job.provider_override or "",
+                    job.voice_override or "",
+                    job.model_override or "",
                     job.language_override or "",
                     job.pronunciation_override or "",
                 )
