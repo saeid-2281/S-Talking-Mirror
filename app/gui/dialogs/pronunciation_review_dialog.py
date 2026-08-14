@@ -31,6 +31,7 @@ class PronunciationReviewDialog(QDialog):
     decisionRequested = Signal(object, str)
     revalidateRequested = Signal(object)
     probeRequested = Signal(object)
+    auditExportRequested = Signal()
 
     FILTER_NEEDS_REVIEW = "Needs review"
     FILTER_HIGH = "High risk"
@@ -45,11 +46,16 @@ class PronunciationReviewDialog(QDialog):
         jobs: tuple[TTSJob, ...],
         settings: AppSettings,
         parent=None,
+        *,
+        audit_summary: str = "",
+        audit_rows: dict[int, dict[str, object]] | None = None,
     ) -> None:
         super().__init__(parent)
         self.jobs = jobs
         self.settings = settings
         self.assurance = PronunciationAssuranceService()
+        self.audit_rows = dict(audit_rows or {})
+        self.audit_summary_text = audit_summary or "Audit evidence: no recorded events for this project."
         self.assessments: dict[int, PronunciationAssessment] = {}
         self.batch = self.assurance.assess_batch(list(jobs), settings, require_freshness=True)
         self._refresh_assessments()
@@ -74,6 +80,11 @@ class PronunciationReviewDialog(QDialog):
         self.summary_label.setWordWrap(True)
         root.addWidget(self.summary_label)
 
+        self.audit_summary_label = QLabel(self.audit_summary_text)
+        self.audit_summary_label.setWordWrap(True)
+        self.audit_summary_label.setObjectName("auditEvidenceSummary")
+        root.addWidget(self.audit_summary_label)
+
         controls = QHBoxLayout()
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search row, text, flag, language or decision")
@@ -95,9 +106,9 @@ class PronunciationReviewDialog(QDialog):
         controls.addWidget(self.filter_combo)
         root.addLayout(controls)
 
-        self.table = QTableWidget(0, 9)
+        self.table = QTableWidget(0, 10)
         self.table.setHorizontalHeaderLabels(
-            ["Row", "Risk", "Language", "Signals", "Decision", "Freshness", "Source", "Normalized candidate", "Filename"]
+            ["Row", "Risk", "Language", "Signals", "Decision", "Freshness", "Source", "Normalized candidate", "Filename", "Audit evidence"]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -105,7 +116,7 @@ class PronunciationReviewDialog(QDialog):
         self.table.setSortingEnabled(False)
         self.table.itemSelectionChanged.connect(self._update_action_state)
         self.table.horizontalHeader().setStretchLastSection(True)
-        for column, width in {0: 70, 1: 85, 2: 90, 3: 190, 4: 175, 5: 120, 6: 280, 7: 280}.items():
+        for column, width in {0: 70, 1: 85, 2: 90, 3: 190, 4: 175, 5: 120, 6: 280, 7: 280, 9: 240}.items():
             self.table.setColumnWidth(column, width)
         root.addWidget(self.table, 1)
 
@@ -136,6 +147,11 @@ class PronunciationReviewDialog(QDialog):
         self.probe_button = QPushButton("Language Probe selected (1-3)")
         self.probe_button.clicked.connect(self._request_probe)
         actions.addWidget(self.probe_button)
+
+        self.audit_export_button = QPushButton("Export audit evidence")
+        self.audit_export_button.setToolTip("Export a privacy-safe, read-only pronunciation decision audit report.")
+        self.audit_export_button.clicked.connect(self.auditExportRequested.emit)
+        actions.addWidget(self.audit_export_button)
         actions.addStretch(1)
 
         close_button = QPushButton("Close")
@@ -161,6 +177,23 @@ class PronunciationReviewDialog(QDialog):
         self._refresh_assessments()
         self.refresh_table()
         self._update_action_state()
+
+    def refresh_audit_evidence(self, summary: str, rows: dict[int, dict[str, object]]) -> None:
+        self.audit_summary_text = summary
+        self.audit_rows = dict(rows)
+        self.audit_summary_label.setText(summary)
+        self.refresh_table()
+
+    def _audit_label(self, row_number: int) -> str:
+        evidence = self.audit_rows.get(int(row_number), {})
+        if not evidence:
+            return "No audit event"
+        count = int(evidence.get("count", 0))
+        action = str(evidence.get("last_action", "event"))
+        occurred = str(evidence.get("last_at", ""))
+        reason = str(evidence.get("stale_reason", ""))
+        stamp = occurred.replace("T", " ")[:19] if occurred else "unknown time"
+        return f"{count} event(s) · {action} · {stamp} · {reason}"
 
     def _candidate_rows(self) -> list[int]:
         rows: list[int] = []
@@ -231,6 +264,7 @@ class PronunciationReviewDialog(QDialog):
                     " ".join(item.flags),
                     decision,
                     item.normalized_text if item.normalization_safe else "",
+                    self._audit_label(row),
                 ]
             ).casefold()
             if needle and needle not in haystack:
@@ -251,6 +285,7 @@ class PronunciationReviewDialog(QDialog):
                 job.text,
                 item.normalized_text if item.normalization_safe else "—",
                 job.filename,
+                self._audit_label(job.row_number),
             ]
             for column, value in enumerate(values):
                 cell = QTableWidgetItem(value)

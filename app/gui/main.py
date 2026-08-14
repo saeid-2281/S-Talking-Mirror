@@ -46,6 +46,8 @@ from app.gui.dialogs.first_run_onboarding_dialog import FirstRunOnboardingDialog
 from app.gui.dialogs.provider_setup_wizard_dialog import ProviderSetupWizardDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.services.pronunciation_assurance_service import PronunciationAssuranceService
+from app.services.pronunciation_audit_service import PronunciationAuditTrailService
+from app.models.pronunciation_audit import PronunciationAuditDraft
 from app.gui.widgets.application_shell import (
     ActivityCenter,
     ApplicationShell,
@@ -183,6 +185,7 @@ class MainWindow(QMainWindow):
         self.interface_preferences=InterfacePreferences.from_settings(QSettings('S Talking','S Talking'))
         self.monitor_service=context.generation_monitor_service; self.preflight_service=context.preflight_service
         self.audio_player_service=context.audio_player_service
+        self.pronunciation_audit_service=PronunciationAuditTrailService()
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
         self.crash_recovery_service=context.crash_recovery_service; self.safe_mode=self.crash_recovery_service.safe_mode
@@ -3425,24 +3428,81 @@ class MainWindow(QMainWindow):
     def copy_selected_text(self):
         jobs=self.selected_queue_jobs()
         if jobs: QApplication.clipboard().setText(jobs[0].text)
+    def _pronunciation_audit_scope(self):
+        project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None
+        output_dir=Path(self.out.text() or self.project_controller.default_output_path)
+        return output_dir,project_id
+
+    def _pronunciation_audit_workspace_evidence(self,jobs=None):
+        scoped_jobs=tuple(jobs or self.generation_controller.generation_plan().jobs)
+        output_dir,project_id=self._pronunciation_audit_scope()
+        return self.pronunciation_audit_service.workspace_evidence(output_dir,project_id,scoped_jobs,self.settings())
+
+    def _refresh_pronunciation_audit_dialog(self):
+        dialog=getattr(self,'pronunciation_review_dialog',None)
+        if dialog is None:
+            return
+        summary,rows=self._pronunciation_audit_workspace_evidence(tuple(dialog.jobs))
+        dialog.refresh_audit_evidence(summary,rows)
+
+    def export_pronunciation_audit_evidence(self):
+        jobs=tuple(self.generation_controller.generation_plan().jobs)
+        output_dir,project_id=self._pronunciation_audit_scope()
+        try:
+            report_path=self.pronunciation_audit_service.export_report(output_dir,project_id,jobs,self.settings())
+        except (OSError,ValueError) as exc:
+            self.notifications.error('Pronunciation Audit',f'Unable to export verified pronunciation audit evidence: {exc}')
+            return None
+        self.statusBar().showMessage(f'Pronunciation audit evidence exported: {report_path}',8000)
+        self._refresh_pronunciation_audit_dialog()
+        return report_path
+
     def set_pronunciation_override_for_rows(self,rows,value):
         targets={int(row) for row in rows}
         settings=self.settings()
         assurance=PronunciationAssuranceService()
+        changes=[]
+        drafts=[]
+        jobs_by_row={job.row_number:job for job in self.generation_controller.jobs}
         for job in self.generation_controller.jobs:
             if job.row_number not in targets:
                 continue
+            previous=getattr(job,'pronunciation_override',None)
+            previous_kind=assurance.decision_kind(previous)
             stored=value
             if value in {'original','normalized'}:
                 stored=assurance.encode_review_decision(value,job,settings)
+            new_kind=assurance.decision_kind(stored)
+            changes.append((job,previous,stored))
+            if new_kind in {'original','normalized'}:
+                drafts.append(PronunciationAuditDraft(job.row_number,'decision_set',new_kind,previous_kind if previous_kind in {'original','normalized'} else ''))
+            elif previous_kind in {'original','normalized'}:
+                drafts.append(PronunciationAuditDraft(job.row_number,'decision_cleared','',previous_kind))
+        if not changes:
+            return False
+        previous_map=dict(self.job_pronunciation_overrides)
+        for job,_previous,stored in changes:
             job.pronunciation_override=stored
             if stored is None:
                 self.job_pronunciation_overrides.pop(job.row_number,None)
             else:
                 self.job_pronunciation_overrides[job.row_number]=stored
         project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None
-        self.generation_controller.set_jobs(self.generation_controller.jobs,project_id=project_id,output_dir=Path(self.out.text() or self.project_controller.default_output_path),settings=self.settings())
-        self.invalidate_preflight(); self.render_queue(); self.dashboard(); self.statusBar().showMessage('Pronunciation override updated. Run Preflight before generation.',6000)
+        output_dir=Path(self.out.text() or self.project_controller.default_output_path)
+        self.generation_controller.set_jobs(self.generation_controller.jobs,project_id=project_id,output_dir=output_dir,settings=self.settings())
+        try:
+            if drafts:
+                self.pronunciation_audit_service.append_events(output_dir,project_id,jobs_by_row,settings,tuple(drafts))
+        except (OSError,ValueError) as exc:
+            for job,previous,_stored in changes:
+                job.pronunciation_override=previous
+            self.job_pronunciation_overrides=previous_map
+            self.generation_controller.set_jobs(self.generation_controller.jobs,project_id=project_id,output_dir=output_dir,settings=self.settings())
+            self.invalidate_preflight(); self.render_queue(); self.dashboard()
+            self.notifications.error('Pronunciation Audit',f'Pronunciation decision was rolled back because audit evidence could not be recorded: {exc}')
+            return False
+        self.invalidate_preflight(); self.render_queue(); self.dashboard(); self._refresh_pronunciation_audit_dialog(); self.statusBar().showMessage('Pronunciation override updated. Run Preflight before generation.',6000)
+        return True
 
     def _open_language_probe_for_jobs(self,jobs):
         if not 1 <= len(jobs) <= 3:
@@ -3469,10 +3529,12 @@ class MainWindow(QMainWindow):
         if not jobs:
             self.notifications.warning('Pronunciation Review','No jobs are available in the current generation scope.')
             return None
-        dialog=PronunciationReviewDialog(jobs,self.settings(),parent=self)
+        audit_summary,audit_rows=self._pronunciation_audit_workspace_evidence(jobs)
+        dialog=PronunciationReviewDialog(jobs,self.settings(),parent=self,audit_summary=audit_summary,audit_rows=audit_rows)
         dialog.decisionRequested.connect(self.pronunciation_review_decision)
         dialog.revalidateRequested.connect(self.pronunciation_review_revalidate)
         dialog.probeRequested.connect(self.pronunciation_review_probe)
+        dialog.auditExportRequested.connect(self.export_pronunciation_audit_evidence)
         dialog.show()
         self.pronunciation_review_dialog=dialog
         return dialog
@@ -3482,7 +3544,8 @@ class MainWindow(QMainWindow):
             self.notifications.warning('Pronunciation Review','Stop the active generation before changing pronunciation review decisions.')
             return
         decision=value or None
-        self.set_pronunciation_override_for_rows(list(rows),decision)
+        if not self.set_pronunciation_override_for_rows(list(rows),decision):
+            return
         dialog=getattr(self,'pronunciation_review_dialog',None)
         if dialog is not None:
             dialog.refresh_decisions()
@@ -3496,11 +3559,14 @@ class MainWindow(QMainWindow):
         wanted={int(row) for row in rows}
         settings=self.settings()
         assurance=PronunciationAssuranceService()
-        changed=0
+        changes=[]
+        drafts=[]
+        jobs_by_row={job.row_number:job for job in self.generation_controller.jobs}
         for job in self.generation_controller.jobs:
             if job.row_number not in wanted:
                 continue
-            decision=assurance.decision_kind(getattr(job,'pronunciation_override',None))
+            previous=getattr(job,'pronunciation_override',None)
+            decision=assurance.decision_kind(previous)
             if decision not in {'original','normalized'}:
                 continue
             assessment=assurance.assess_job(job,settings)
@@ -3508,17 +3574,32 @@ class MainWindow(QMainWindow):
                 self.notifications.warning('Pronunciation Review',f'Row {job.row_number} no longer has a safe normalized candidate; no revalidation was recorded for that row.')
                 continue
             stored=assurance.encode_review_decision(decision,job,settings)
-            job.pronunciation_override=stored
-            self.job_pronunciation_overrides[job.row_number]=stored
-            changed+=1
-        if changed:
+            changes.append((job,previous,stored))
+            drafts.append(PronunciationAuditDraft(job.row_number,'decision_revalidated',decision,decision))
+        if changes:
+            previous_map=dict(self.job_pronunciation_overrides)
+            for job,_previous,stored in changes:
+                job.pronunciation_override=stored
+                self.job_pronunciation_overrides[job.row_number]=stored
             project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None
-            self.generation_controller.set_jobs(self.generation_controller.jobs,project_id=project_id,output_dir=Path(self.out.text() or self.project_controller.default_output_path),settings=self.settings())
+            output_dir=Path(self.out.text() or self.project_controller.default_output_path)
+            self.generation_controller.set_jobs(self.generation_controller.jobs,project_id=project_id,output_dir=output_dir,settings=self.settings())
+            try:
+                self.pronunciation_audit_service.append_events(output_dir,project_id,jobs_by_row,settings,tuple(drafts))
+            except (OSError,ValueError) as exc:
+                for job,previous,_stored in changes:
+                    job.pronunciation_override=previous
+                self.job_pronunciation_overrides=previous_map
+                self.generation_controller.set_jobs(self.generation_controller.jobs,project_id=project_id,output_dir=output_dir,settings=self.settings())
+                self.invalidate_preflight(); self.render_queue(); self.dashboard()
+                self.notifications.error('Pronunciation Audit',f'Revalidation was rolled back because audit evidence could not be recorded: {exc}')
+                return
             self.invalidate_preflight(); self.render_queue(); self.dashboard()
         dialog=getattr(self,'pronunciation_review_dialog',None)
         if dialog is not None:
             dialog.refresh_decisions()
-        self.statusBar().showMessage(f'Pronunciation review freshness revalidated for {changed} row(s). Run Preflight before generation.',7000)
+        self._refresh_pronunciation_audit_dialog()
+        self.statusBar().showMessage(f'Pronunciation review freshness revalidated for {len(changes)} row(s). Run Preflight before generation.',7000)
 
     def pronunciation_review_probe(self,rows):
         wanted={int(row) for row in rows}
@@ -3543,7 +3624,8 @@ class MainWindow(QMainWindow):
             self.notifications.warning('Language Probe','Stop the active generation before changing pronunciation review decisions.')
             return
         override=value or None
-        self.set_pronunciation_override_for_rows([row],override)
+        if not self.set_pronunciation_override_for_rows([row],override):
+            return
         review_dialog=getattr(self,'pronunciation_review_dialog',None)
         if review_dialog is not None:
             review_dialog.refresh_decisions()
