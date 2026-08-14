@@ -39,6 +39,7 @@ from app.gui.dialogs.danish_provider_benchmark_dialog import DanishProviderBench
 from app.gui.dialogs.user_controlled_provider_recovery_dialog import UserControlledProviderRecoveryDialog
 from app.gui.dialogs.language_probe_dialog import LanguageProbeDialog
 from app.gui.dialogs.pronunciation_review_dialog import PronunciationReviewDialog
+from app.gui.dialogs.pronunciation_readiness_dialog import PronunciationReadinessDialog
 from app.gui.dialogs.provider_plugin_sdk_dialog import ProviderPluginSDKDialog
 from app.gui.dialogs.provider_ga_certification_dialog import ProviderGACertificationDialog
 from app.gui.dialogs.product_ux_audit_dialog import ProductUXAuditDialog
@@ -47,6 +48,7 @@ from app.gui.dialogs.provider_setup_wizard_dialog import ProviderSetupWizardDial
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.services.pronunciation_assurance_service import PronunciationAssuranceService
 from app.services.pronunciation_audit_service import PronunciationAuditTrailService
+from app.services.pronunciation_readiness_service import PronunciationReadinessService
 from app.models.pronunciation_audit import PronunciationAuditDraft
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -186,6 +188,7 @@ class MainWindow(QMainWindow):
         self.monitor_service=context.generation_monitor_service; self.preflight_service=context.preflight_service
         self.audio_player_service=context.audio_player_service
         self.pronunciation_audit_service=PronunciationAuditTrailService()
+        self.pronunciation_readiness_service=PronunciationReadinessService()
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
         self.crash_recovery_service=context.crash_recovery_service; self.safe_mode=self.crash_recovery_service.safe_mode
@@ -851,6 +854,7 @@ class MainWindow(QMainWindow):
         self.dry_run_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Dry run'); self.dry_run_action.triggered.connect(self.dry_run); self.actions_by_name['Dry run']=self.dry_run_action; self.actions_by_name['Run Preflight']=self.dry_run_action
         language_probe_action=self.generation_menu.addAction(action_icon('pronunciation.dictionary'),'Language Probe (1-3 samples)'); language_probe_action.setShortcut(QKeySequence('Ctrl+Alt+P')); language_probe_action.triggered.connect(self.open_language_probe); self.actions_by_name['Language Probe']=language_probe_action
         pronunciation_review_action=self.generation_menu.addAction(action_icon('pronunciation.dictionary'),'Pronunciation Review Workspace'); pronunciation_review_action.setShortcut(QKeySequence('Ctrl+Alt+Shift+P')); pronunciation_review_action.triggered.connect(self.open_pronunciation_review); self.actions_by_name['Pronunciation Review Workspace']=pronunciation_review_action
+        pronunciation_readiness_action=self.generation_menu.addAction(action_icon('report'),'Pronunciation Project Readiness'); pronunciation_readiness_action.triggered.connect(self.open_pronunciation_readiness); self.actions_by_name['Pronunciation Project Readiness']=pronunciation_readiness_action
         for text,handler,shortcut,ic in [('Start Generation',self.start,'Ctrl+Return','generation.start'),('Pause/Resume',self.pause,'Ctrl+Space','generation.pause'),('Stop Generation',self.stop,'Shift+Esc','generation.stop'),('Voice Browser',self.open_voice_browser,'Ctrl+Shift+V','provider.browse_voices')]:
             action=self.generation_menu.addAction(action_icon(ic),text); action.triggered.connect(handler); action.setShortcut(QKeySequence(shortcut)); self.actions_by_name[text]=action
         recovery_action=self.generation_menu.addAction(action_icon('history'),'Multi-provider Recovery'); recovery_action.triggered.connect(self.open_user_controlled_provider_recovery); self.actions_by_name['Multi-provider Recovery']=recovery_action
@@ -3457,6 +3461,33 @@ class MainWindow(QMainWindow):
         self._refresh_pronunciation_audit_dialog()
         return report_path
 
+    def _pronunciation_project_readiness(self,jobs=None):
+        scoped_jobs=tuple(jobs or self.generation_controller.generation_plan().jobs)
+        output_dir,project_id=self._pronunciation_audit_scope()
+        return self.pronunciation_readiness_service.assess_project(
+            scoped_jobs,self.settings(),output_dir=output_dir,project_id=project_id
+        )
+
+    def _refresh_pronunciation_readiness_dialog(self):
+        dialog=getattr(self,'pronunciation_readiness_dialog',None)
+        if dialog is None:
+            return
+        dialog.refresh_readiness(self._pronunciation_project_readiness())
+
+    def open_pronunciation_readiness(self):
+        jobs=tuple(self.generation_controller.generation_plan().jobs)
+        if not jobs:
+            self.notifications.warning('Pronunciation Readiness','No jobs are available in the current generation scope.')
+            return None
+        readiness=self.pronunciation_readiness_service.assess_project(
+            jobs,self.settings(),output_dir=self._pronunciation_audit_scope()[0],project_id=self._pronunciation_audit_scope()[1]
+        )
+        dialog=PronunciationReadinessDialog(readiness,parent=self)
+        dialog.reviewWorkspaceRequested.connect(self.open_pronunciation_review)
+        dialog.show()
+        self.pronunciation_readiness_dialog=dialog
+        return dialog
+
     def set_pronunciation_override_for_rows(self,rows,value):
         targets={int(row) for row in rows}
         settings=self.settings()
@@ -3501,7 +3532,7 @@ class MainWindow(QMainWindow):
             self.invalidate_preflight(); self.render_queue(); self.dashboard()
             self.notifications.error('Pronunciation Audit',f'Pronunciation decision was rolled back because audit evidence could not be recorded: {exc}')
             return False
-        self.invalidate_preflight(); self.render_queue(); self.dashboard(); self._refresh_pronunciation_audit_dialog(); self.statusBar().showMessage('Pronunciation override updated. Run Preflight before generation.',6000)
+        self.invalidate_preflight(); self.render_queue(); self.dashboard(); self._refresh_pronunciation_audit_dialog(); self._refresh_pronunciation_readiness_dialog(); self.statusBar().showMessage('Pronunciation override updated. Run Preflight before generation.',6000)
         return True
 
     def _open_language_probe_for_jobs(self,jobs):
@@ -3599,6 +3630,7 @@ class MainWindow(QMainWindow):
         if dialog is not None:
             dialog.refresh_decisions()
         self._refresh_pronunciation_audit_dialog()
+        self._refresh_pronunciation_readiness_dialog()
         self.statusBar().showMessage(f'Pronunciation review freshness revalidated for {len(changes)} row(s). Run Preflight before generation.',7000)
 
     def pronunciation_review_probe(self,rows):
@@ -4419,6 +4451,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Provider: Plugins / SDK',self.open_provider_plugin_sdk),
             PaletteCommand('Voice: Browse and Preview Voices',self.open_voice_browser,lambda: self.voice_browser_button.isEnabled()),
             PaletteCommand('Voice: Pronunciation Review Workspace',self.open_pronunciation_review,lambda: self.generation_controller.has_jobs() and not self.generation_controller.is_active),
+            PaletteCommand('Voice: Pronunciation Project Readiness',self.open_pronunciation_readiness,lambda: self.generation_controller.has_jobs()),
             PaletteCommand('Voice: Language Probe (1-3 samples)',self.open_language_probe,lambda: 1 <= len(self.selected_queue_jobs()) <= 3),
             PaletteCommand('Voice: Unified Voice & Model Catalog',self.open_unified_voice_model_catalog),
             PaletteCommand('Settings: Provider Setup Wizard',act('Provider Setup Wizard')),
