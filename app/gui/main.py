@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from PySide6.QtCore import QSettings,Qt,QTimer,QUrl,QSize
-from PySide6.QtGui import QAction,QColor,QDesktopServices,QDragEnterEvent,QDropEvent,QKeySequence
+from PySide6.QtGui import QAction,QColor,QDesktopServices,QDragEnterEvent,QDropEvent,QKeySequence,QPalette
 from PySide6.QtWidgets import *
 from app.bootstrap import ApplicationContext, create_application_context
 from app.config.runtime import RuntimeConfig
@@ -16,6 +16,7 @@ from app.gui.command_palette import CommandPalette, PaletteCommand
 from app.gui.connection_test_runner import start_connection_test
 from app.gui.developer_tools import DeveloperTools
 from app.gui.design_system import density_metrics, normalize_density
+from app.gui.visual_design_system_v2 import ACTIVE_CONCEPT, visual_system_stylesheet
 from app.gui.interface_preferences import (
     ContrastMode,
     FocusStyle,
@@ -45,6 +46,7 @@ from app.gui.dialogs.provider_ga_certification_dialog import ProviderGACertifica
 from app.gui.dialogs.product_ux_audit_dialog import ProductUXAuditDialog
 from app.gui.dialogs.first_run_onboarding_dialog import FirstRunOnboardingDialog
 from app.gui.dialogs.provider_setup_wizard_dialog import ProviderSetupWizardDialog
+from app.gui.dialogs.visual_design_system_dialog import VisualDesignSystemDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
 from app.services.pronunciation_assurance_service import PronunciationAssuranceService
 from app.services.pronunciation_audit_service import PronunciationAuditTrailService
@@ -424,6 +426,7 @@ class MainWindow(QMainWindow):
         self.generation_status_strip.stateChanged.connect(self.announce_interface_status)
         self.generation_action_bar=self.generation_status_strip
         self.startb=self.generation_status_strip.start_button; self.preflight_status=self.generation_status_strip.preflight_button
+        self.startb.setProperty('primary',True)
         self.pauseb=self.generation_status_strip.pause_button; self.stopb=self.generation_status_strip.stop_button; self.bar=self.generation_status_strip.progress_bar
         self.application_shell.add_footer(self.activity_center,self.generation_status_strip)
         self.generation_controller.progress.connect(self.progress); self.generation_controller.log.connect(self.log.appendPlainText); self.generation_controller.finished.connect(self.finished); self.generation_controller.failed.connect(self.failed); self.generation_controller.failover.connect(self.generation_failover)
@@ -484,6 +487,10 @@ class MainWindow(QMainWindow):
         self.view_menu=QMenu('View',self); self.menuBar().addMenu(self.view_menu); theme_menu=self.view_menu.addMenu('Theme'); self.theme_actions={}
         for name in self.theme_manager.available_themes():
             action=theme_menu.addAction(name); action.setCheckable(True); action.triggered.connect(lambda _checked,n=name:self.apply_theme(n)); self.theme_actions[name]=action
+        self.visual_design_system_action=self.view_menu.addAction('Visual Design System 2.0…')
+        self.visual_design_system_action.setShortcut(QKeySequence('Ctrl+Alt+8'))
+        self.visual_design_system_action.triggered.connect(self.open_visual_design_system)
+        self.actions_by_name['Visual Design System 2.0']=self.visual_design_system_action
         self.view_menu.addSeparator(); self.view_toolbar_action=self.view_menu.addAction(icon('queue'),'Toolbar'); self.view_toolbar_action.setCheckable(True); self.view_toolbar_action.setChecked(True); self.view_toolbar_action.triggered.connect(lambda checked:self.main_toolbar.setVisible(checked)); self.view_provider_dock_action=self.view_menu.addAction(icon('provider'),'Provider/Sources dock'); self.view_provider_dock_action.setCheckable(True); self.view_provider_dock_action.setChecked(True); self.view_provider_dock_action.triggered.connect(lambda checked:self.left_dock.setVisible(checked)); self.view_inspector_dock_action=self.view_menu.addAction(icon('report'),'Inspector/Monitor dock'); self.view_inspector_dock_action.setCheckable(True); self.view_inspector_dock_action.setChecked(True); self.view_inspector_dock_action.triggered.connect(lambda checked:self.right_dock.setVisible(checked)); self.view_activity_action=self.view_menu.addAction(icon('activity'),'Activity panel'); self.view_activity_action.setCheckable(True); self.view_activity_action.setChecked(False); self.view_activity_action.triggered.connect(lambda checked:self.set_activity_expanded(checked)); self.view_notifications_action=self.view_menu.addAction(icon('notification'),'Notification Center'); self.view_notifications_action.setCheckable(True); self.view_notifications_action.setChecked(False); self.view_notifications_action.triggered.connect(lambda checked:self.notification_dock.setVisible(checked)); self.view_text_studio_action=self.view_menu.addAction(action_icon('project.add_text_source'),'Text Studio'); self.view_text_studio_action.setCheckable(True); self.view_text_studio_action.setChecked(False); self.view_text_studio_action.setShortcut(QKeySequence('Ctrl+7')); self.view_text_studio_action.triggered.connect(lambda checked:self.text_studio_dock.setVisible(checked)); self.actions_by_name['Text Studio']=self.view_text_studio_action; self.follow_active_job_action=self.view_menu.addAction(icon('success'),'Follow active job'); self.follow_active_job_action.setCheckable(True); self.follow_active_job_action.setChecked(True)
         self.open_output_workspace_action=self.view_menu.addAction(icon('folder-output'),'Output playback')
         self.open_output_workspace_action.setShortcut(QKeySequence('Ctrl+6'))
@@ -554,7 +561,8 @@ class MainWindow(QMainWindow):
         self.theme_manager.save(name)
         application=QApplication.instance()
         palette=self.theme_manager.palette(name)
-        stylesheet=self.theme_manager.stylesheet(name)
+        is_dark=palette.color(QPalette.Window).lightness() < 128
+        stylesheet=self.theme_manager.stylesheet(name)+'\n'+visual_system_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)
         theme_changed=application is None or application.styleSheet()!=stylesheet
         if application is not None:
             # QApplication is the single theme authority. A second copy of the
@@ -699,7 +707,8 @@ class MainWindow(QMainWindow):
         # interface property; this removes a second full stylesheet pass from
         # every MainWindow construction while preserving live preference changes.
         if properties_changed:
-            self.setStyleSheet(self.theme_manager.stylesheet(self.theme_manager.current()))
+            current_theme=self.theme_manager.current(); palette=self.theme_manager.palette(current_theme); is_dark=palette.color(QPalette.Window).lightness() < 128
+            self.setStyleSheet(self.theme_manager.stylesheet(current_theme)+'\n'+visual_system_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT))
         if announce: self.announce_interface_status('Interface updated',value.summary())
     def toggle_high_contrast(self,checked):
         self.apply_interface_preferences(replace(self.interface_preferences,contrast=ContrastMode.HIGH if checked else ContrastMode.STANDARD),persist=True)
@@ -1051,7 +1060,9 @@ class MainWindow(QMainWindow):
         return True
 
     def show_shortcut_reference(self):
-        self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Shift+T Add text source\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Alt+V Voice & Model Catalog\nCtrl+Alt+C Provider Cost / Quota / Limits\nCtrl+Alt+S Smart Provider Routing\nCtrl+Shift+L Offline TTS Engines\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nCtrl+Shift+F Focus queue\nCtrl+Alt+I Interface settings\nCtrl+1 Provider panel\nCtrl+2 Generation queue\nCtrl+3 Inspector panel\nCtrl+4 Activity panel\nCtrl+5 Generation controls\nCtrl+6 Output playback\nCtrl+7 Text Studio\nF6 Cycle major panels')
+        self.notifications.information('Shortcut reference','Ctrl+N New project\nCtrl+O Open project\nCtrl+S Save project\nCtrl+Shift+O Add source files\nCtrl+Shift+T Add text source\nCtrl+Enter Start generation\nShift+Esc Stop generation\nCtrl+K Command Palette\nCtrl+Shift+P Provider accounts\nCtrl+Alt+V Voice & Model Catalog\nCtrl+Alt+C Provider Cost / Quota / Limits\nCtrl+Alt+S Smart Provider Routing\nCtrl+Shift+L Offline TTS Engines\nCtrl+Shift+V Voice Browser\nCtrl+Shift+D Pronunciation dictionaries\nCtrl+Shift+F Focus queue\nCtrl+Alt+I Interface settings\nCtrl+Alt+8 Visual Design System 2.0\nCtrl+1 Provider panel\nCtrl+2 Generation queue\nCtrl+3 Inspector panel\nCtrl+4 Activity panel\nCtrl+5 Generation controls\nCtrl+6 Output playback\nCtrl+7 Text Studio\nF6 Cycle major panels')
+    def open_visual_design_system(self):
+        dialog=VisualDesignSystemDialog(self); dialog.exec()
     def open_about_dialog(self):
         dialog=AboutDialog(self.context.container.runtime,open_diagnostics=self.export_diagnostics,parent=self); dialog.exec()
     def build_project_sources_panel(self):
@@ -4531,6 +4542,7 @@ class MainWindow(QMainWindow):
             PaletteCommand('Settings: Provider Accounts',act('Provider accounts')),
             PaletteCommand('Settings: Pronunciation Dictionaries',act('Pronunciation dictionaries')),
             PaletteCommand('Generation: Language Probe (1-3 samples)',act('Language Probe'),lambda: 1 <= len(self.selected_queue_jobs()) <= 3),
+            PaletteCommand('View: Visual Design System 2.0',act('Visual Design System 2.0')),
             PaletteCommand('Help: Getting Started / First-run Onboarding',act('Getting Started / First-run Onboarding')),
             PaletteCommand('Help: Quick Setup',act('Quick Setup')),
             PaletteCommand('Help: Shortcut Reference',act('Shortcut Reference')),
