@@ -129,10 +129,11 @@ class PreflightService:
         provider_ready = self._validate_job_provider_overrides(jobs, settings, issues) and provider_ready
         language_assurance = self.language_assurance_service.assess_batch(jobs, settings)
         provider_ready = self._validate_language_assurance(language_assurance, issues) and provider_ready
-        pronunciation_assurance = self.pronunciation_assurance_service.assess_batch(jobs, settings)
+        pronunciation_assurance = self.pronunciation_assurance_service.assess_batch(jobs, settings, require_freshness=True)
         provider_ready = self._validate_pronunciation_assurance(
             jobs,
             pronunciation_assurance,
+            settings,
             language_assurance.overall_level,
             issues,
         ) and provider_ready
@@ -251,6 +252,9 @@ class PreflightService:
             pronunciation_medium_risk_rows=pronunciation_assurance.medium_risk_rows,
             pronunciation_normalizable_rows=pronunciation_assurance.normalizable_rows,
             pronunciation_reviewed_rows=pronunciation_assurance.reviewed_rows,
+            pronunciation_current_review_rows=pronunciation_assurance.current_review_rows,
+            pronunciation_stale_review_rows=pronunciation_assurance.stale_review_rows,
+            pronunciation_legacy_review_rows=pronunciation_assurance.legacy_review_rows,
             pronunciation_explicit_original_rows=pronunciation_assurance.explicit_original_rows,
             pronunciation_normalized_rows=pronunciation_assurance.normalized_rows,
             pronunciation_previews=tuple(
@@ -264,6 +268,18 @@ class PreflightService:
                     "normalization_kind": item.normalization_kind,
                     "normalization_safe": item.normalization_safe,
                     "decision": pronunciation_decisions.get(int(item.row or 0), ""),
+                    "decision_kind": self.pronunciation_assurance_service.decision_kind(
+                        pronunciation_decisions.get(int(item.row or 0), "")
+                    ),
+                    "decision_freshness": self.pronunciation_assurance_service.decision_freshness(
+                        next(job for job in jobs if job.row_number == item.row), settings
+                    ),
+                    "decision_fingerprint": self.pronunciation_assurance_service.decision_fingerprint(
+                        pronunciation_decisions.get(int(item.row or 0), "")
+                    ),
+                    "current_fingerprint": self.pronunciation_assurance_service.review_context_fingerprint(
+                        next(job for job in jobs if job.row_number == item.row), settings
+                    ),
                 }
                 for item in pronunciation_assurance.assessments
                 if item.risk_level in {"medium", "high"} or item.normalization_safe
@@ -636,6 +652,7 @@ class PreflightService:
         self,
         jobs: list[TTSJob],
         assurance,
+        settings: AppSettings,
         language_assurance_level: str,
         issues: list[PreflightIssue],
     ) -> bool:
@@ -643,14 +660,28 @@ class PreflightService:
         jobs_by_row = {job.row_number: job for job in jobs}
         unresolved_high: list[int] = []
         unresolved_medium: list[int] = []
+        stale_original_rows: list[int] = []
+        legacy_original_rows: list[int] = []
         for assessment in assurance.assessments:
             if assessment.row is None:
                 continue
             job = jobs_by_row.get(assessment.row)
             override = str(getattr(job, "pronunciation_override", None) or "").strip() if job else ""
             if override == "original":
-                continue
-            if override == "normalized":
+                decision = "original"
+            elif override == "normalized":
+                decision = "normalized"
+            else:
+                decision = self.pronunciation_assurance_service.decision_kind(override)
+            freshness = self.pronunciation_assurance_service.decision_freshness(job, settings) if job else "none"
+            if decision == "original":
+                if freshness == "current":
+                    continue
+                if freshness == "stale":
+                    stale_original_rows.append(assessment.row)
+                elif freshness == "legacy":
+                    legacy_original_rows.append(assessment.row)
+            elif decision == "normalized":
                 if not assessment.normalization_safe:
                     self._issue(
                         issues,
@@ -662,11 +693,36 @@ class PreflightService:
                         "pronunciation_normalization_unavailable",
                     )
                     ready = False
+                    continue
+                if freshness != "current":
+                    self._issue(
+                        issues,
+                        "hard_error",
+                        assessment.row,
+                        getattr(job, "filename", "") if job else "",
+                        "The explicit normalized pronunciation decision is stale or predates freshness evidence for the current pronunciation context.",
+                        "Open Pronunciation Review Workspace and explicitly revalidate this normalized decision before generation.",
+                        "pronunciation_normalized_decision_stale",
+                    )
+                    ready = False
+                    continue
                 continue
             if assessment.risk_level == "high":
                 unresolved_high.append(assessment.row)
             elif assessment.risk_level == "medium":
                 unresolved_medium.append(assessment.row)
+
+        if stale_original_rows or legacy_original_rows:
+            self._issue(
+                issues,
+                "warning",
+                None,
+                "pronunciation",
+                f"{len(stale_original_rows) + len(legacy_original_rows)} explicit keep-original review decision(s) need revalidation "
+                f"({len(stale_original_rows)} stale, {len(legacy_original_rows)} legacy/unversioned).",
+                "Open Pronunciation Review Workspace and revalidate only after confirming the current text, target language, voice, model and dictionary context.",
+                "pronunciation_review_evidence_stale",
+            )
 
         if unresolved_high or unresolved_medium:
             level_detail = (
@@ -681,7 +737,7 @@ class PreflightService:
                 "pronunciation",
                 f"Pronunciation review is recommended for {len(unresolved_high) + len(unresolved_medium)} job(s) "
                 f"({len(unresolved_high)} high risk, {len(unresolved_medium)} medium risk).{level_detail}",
-                "Open Pronunciation Review Workspace or select 1-3 rows for Language Probe. Record an explicit original/normalized decision only after review.",
+                "Open Pronunciation Review Workspace or select 1-3 rows for Language Probe. Record or revalidate an explicit original/normalized decision only after review.",
                 "pronunciation_review_required",
             )
         if len(assurance.languages) > 1:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections import Counter
 from datetime import date
@@ -180,28 +182,96 @@ class PronunciationAssuranceService:
         language = str(getattr(job, "language_override", None) or settings.language_code or "").strip()
         return self.assess(job.text, settings, row=job.row_number, language_code=language)
 
-    def assess_batch(self, jobs: list[TTSJob], settings: AppSettings) -> PronunciationBatchAssessment:
+    REVIEW_EVIDENCE_VERSION = "a74"
+
+    def decision_kind(self, value: str | None) -> str:
+        raw = str(value or "").strip()
+        for kind in ("original", "normalized"):
+            if raw == kind or raw.startswith(f"{kind}@{self.REVIEW_EVIDENCE_VERSION}:"):
+                return kind
+        return raw
+
+    def decision_fingerprint(self, value: str | None) -> str | None:
+        raw = str(value or "").strip()
+        marker = f"@{self.REVIEW_EVIDENCE_VERSION}:"
+        if marker not in raw:
+            return None
+        kind, fingerprint = raw.split(marker, 1)
+        if kind not in {"original", "normalized"} or not fingerprint:
+            return None
+        return fingerprint
+
+    def review_context_fingerprint(self, job: TTSJob, settings: AppSettings) -> str:
+        language = str(getattr(job, "language_override", None) or settings.language_code or "").strip()
+        payload = {
+            "schema": self.REVIEW_EVIDENCE_VERSION,
+            "text": str(job.text or ""),
+            "language": self._canonical_language(language),
+            "provider": str(settings.provider or ""),
+            "voice_id": str(settings.voice_id or ""),
+            "model_id": str(settings.model_id or ""),
+            "dictionary_id": str(settings.active_pronunciation_dictionary_id or ""),
+            "dictionary_locators": list(settings.pronunciation_dictionary_locators),
+        }
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+
+    def encode_review_decision(self, decision: str, job: TTSJob, settings: AppSettings) -> str:
+        kind = self.decision_kind(decision)
+        if kind not in {"original", "normalized"}:
+            raise ValueError("Only original or normalized pronunciation review decisions can be versioned.")
+        return f"{kind}@{self.REVIEW_EVIDENCE_VERSION}:{self.review_context_fingerprint(job, settings)}"
+
+    def decision_freshness(self, job: TTSJob, settings: AppSettings) -> str:
+        raw = str(getattr(job, "pronunciation_override", None) or "").strip()
+        kind = self.decision_kind(raw)
+        if kind not in {"original", "normalized"}:
+            return "none"
+        fingerprint = self.decision_fingerprint(raw)
+        if fingerprint is None:
+            return "legacy"
+        return "current" if fingerprint == self.review_context_fingerprint(job, settings) else "stale"
+
+    def assess_batch(
+        self,
+        jobs: list[TTSJob],
+        settings: AppSettings,
+        *,
+        require_freshness: bool = False,
+    ) -> PronunciationBatchAssessment:
         assessments = tuple(self.assess_job(job, settings) for job in jobs)
         counts = Counter(flag for item in assessments for flag in item.flags)
         languages = tuple(sorted({item.language for item in assessments if item.language}))
         pairs = tuple(zip(jobs, assessments, strict=True))
+        freshness = {job.row_number: self.decision_freshness(job, settings) for job, _item in pairs}
+        kinds = {
+            job.row_number: self.decision_kind(str(getattr(job, "pronunciation_override", None) or "").strip())
+            for job, _item in pairs
+        }
+        current = tuple(sorted(row for row, status in freshness.items() if status == "current"))
+        stale = tuple(sorted(row for row, status in freshness.items() if status == "stale"))
+        legacy = tuple(sorted(row for row, status in freshness.items() if status == "legacy"))
+
+        def accepted(job: TTSJob, item: PronunciationAssessment) -> bool:
+            kind = kinds[job.row_number]
+            if kind == "normalized" and not item.normalization_safe:
+                return False
+            if kind not in {"original", "normalized"}:
+                return False
+            return freshness[job.row_number] == "current" if require_freshness else True
+
         explicit_original = tuple(
             job.row_number
-            for job, _item in pairs
-            if str(getattr(job, "pronunciation_override", None) or "").strip() == "original"
+            for job, item in pairs
+            if kinds[job.row_number] == "original" and accepted(job, item)
         )
         normalized = tuple(
             job.row_number
             for job, item in pairs
-            if str(getattr(job, "pronunciation_override", None) or "").strip() == "normalized"
-            and item.normalization_safe
+            if kinds[job.row_number] == "normalized" and item.normalization_safe and accepted(job, item)
         )
         reviewed_set = set(explicit_original) | set(normalized)
-        unresolved = tuple(
-            (job, item)
-            for job, item in pairs
-            if job.row_number not in reviewed_set
-        )
+        unresolved = tuple((job, item) for job, item in pairs if job.row_number not in reviewed_set)
         high = tuple(
             item.row
             for _job, item in unresolved
@@ -216,17 +286,26 @@ class PronunciationAssuranceService:
         unsafe = tuple(
             job.row_number
             for job, item in pairs
-            if str(getattr(job, "pronunciation_override", None) or "").strip() == "normalized"
-            and not item.normalization_safe
+            if kinds[job.row_number] == "normalized" and not item.normalization_safe
         )
         reviewed = tuple(sorted(reviewed_set))
         risk_count = len(high) + len(medium)
-        summary = (
-            f"Pronunciation review: {risk_count}/{len(assessments)} job(s) need review; "
-            f"{len(reviewed)} explicit decision(s) recorded; "
-            f"{len(normalizable)} have a safe language-locked normalized form; "
-            f"languages: {', '.join(languages) if languages else 'not set'}."
-        )
+        if require_freshness:
+            stale_count = len(stale) + len(legacy)
+            summary = (
+                f"Pronunciation review: {risk_count}/{len(assessments)} job(s) need review; "
+                f"{len(reviewed)} explicit decision(s) current; "
+                f"{stale_count} decision(s) need revalidation; "
+                f"{len(normalizable)} have a safe language-locked normalized form; "
+                f"languages: {', '.join(languages) if languages else 'not set'}."
+            )
+        else:
+            summary = (
+                f"Pronunciation review: {risk_count}/{len(assessments)} job(s) need review; "
+                f"{len(reviewed)} explicit decision(s) recorded; "
+                f"{len(normalizable)} have a safe language-locked normalized form; "
+                f"languages: {', '.join(languages) if languages else 'not set'}."
+            )
         return PronunciationBatchAssessment(
             assessments=assessments,
             languages=languages,
@@ -234,6 +313,9 @@ class PronunciationAssuranceService:
             medium_risk_rows=medium,
             normalizable_rows=normalizable,
             reviewed_rows=reviewed,
+            current_review_rows=current,
+            stale_review_rows=stale,
+            legacy_review_rows=legacy,
             explicit_original_rows=explicit_original,
             normalized_rows=normalized,
             unsafe_normalization_rows=unsafe,

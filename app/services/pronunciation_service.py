@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.exceptions import ConfigurationError
 from app.models.domain import AppSettings, TTSJob
 from app.services.pronunciation_assurance_service import PronunciationAssuranceService
 
@@ -41,6 +42,8 @@ class PronunciationService:
 
     def prepare_job(self, job: TTSJob, settings: AppSettings) -> PronunciationResult:
         override = str(getattr(job, "pronunciation_override", None) or "").strip()
+        decision = self.assurance.decision_kind(override)
+        freshness = self.assurance.decision_freshness(job, settings)
         if override == "dictionary_disabled":
             return PronunciationResult(
                 original_text=job.text,
@@ -49,7 +52,7 @@ class PronunciationService:
                 strategy="dictionary_disabled",
             )
 
-        if override == "original":
+        if decision == "original":
             return PronunciationResult(
                 original_text=job.text,
                 provider_text=job.text,
@@ -59,8 +62,13 @@ class PronunciationService:
                 dictionary_fingerprint=settings.active_pronunciation_dictionary_id,
             )
 
-        if override == "normalized":
-            assessment = self.assurance.assess(job.text, settings)
+        if decision == "normalized":
+            if self.assurance.decision_fingerprint(override) is not None and freshness != "current":
+                raise ConfigurationError(
+                    "Pronunciation normalized decision is stale for the current text/language/voice/model/dictionary context. "
+                    "Revalidate the row explicitly before generation."
+                )
+            assessment = self.assurance.assess_job(job, settings)
             if assessment.normalization_safe and assessment.normalized_text != job.text:
                 return PronunciationResult(
                     original_text=job.text,

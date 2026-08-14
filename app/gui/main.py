@@ -3427,14 +3427,19 @@ class MainWindow(QMainWindow):
         if jobs: QApplication.clipboard().setText(jobs[0].text)
     def set_pronunciation_override_for_rows(self,rows,value):
         targets={int(row) for row in rows}
+        settings=self.settings()
+        assurance=PronunciationAssuranceService()
         for job in self.generation_controller.jobs:
             if job.row_number not in targets:
                 continue
-            job.pronunciation_override=value
-            if value is None:
+            stored=value
+            if value in {'original','normalized'}:
+                stored=assurance.encode_review_decision(value,job,settings)
+            job.pronunciation_override=stored
+            if stored is None:
                 self.job_pronunciation_overrides.pop(job.row_number,None)
             else:
-                self.job_pronunciation_overrides[job.row_number]=value
+                self.job_pronunciation_overrides[job.row_number]=stored
         project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None
         self.generation_controller.set_jobs(self.generation_controller.jobs,project_id=project_id,output_dir=Path(self.out.text() or self.project_controller.default_output_path),settings=self.settings())
         self.invalidate_preflight(); self.render_queue(); self.dashboard(); self.statusBar().showMessage('Pronunciation override updated. Run Preflight before generation.',6000)
@@ -3466,6 +3471,7 @@ class MainWindow(QMainWindow):
             return None
         dialog=PronunciationReviewDialog(jobs,self.settings(),parent=self)
         dialog.decisionRequested.connect(self.pronunciation_review_decision)
+        dialog.revalidateRequested.connect(self.pronunciation_review_revalidate)
         dialog.probeRequested.connect(self.pronunciation_review_probe)
         dialog.show()
         self.pronunciation_review_dialog=dialog
@@ -3482,6 +3488,37 @@ class MainWindow(QMainWindow):
             dialog.refresh_decisions()
         label='cleared' if decision is None else decision
         self.statusBar().showMessage(f'Pronunciation review decision {label} for {len(rows)} row(s). Run Preflight before generation.',7000)
+
+    def pronunciation_review_revalidate(self,rows):
+        if self.generation_controller.is_active:
+            self.notifications.warning('Pronunciation Review','Stop the active generation before revalidating pronunciation review decisions.')
+            return
+        wanted={int(row) for row in rows}
+        settings=self.settings()
+        assurance=PronunciationAssuranceService()
+        changed=0
+        for job in self.generation_controller.jobs:
+            if job.row_number not in wanted:
+                continue
+            decision=assurance.decision_kind(getattr(job,'pronunciation_override',None))
+            if decision not in {'original','normalized'}:
+                continue
+            assessment=assurance.assess_job(job,settings)
+            if decision=='normalized' and not assessment.normalization_safe:
+                self.notifications.warning('Pronunciation Review',f'Row {job.row_number} no longer has a safe normalized candidate; no revalidation was recorded for that row.')
+                continue
+            stored=assurance.encode_review_decision(decision,job,settings)
+            job.pronunciation_override=stored
+            self.job_pronunciation_overrides[job.row_number]=stored
+            changed+=1
+        if changed:
+            project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None
+            self.generation_controller.set_jobs(self.generation_controller.jobs,project_id=project_id,output_dir=Path(self.out.text() or self.project_controller.default_output_path),settings=self.settings())
+            self.invalidate_preflight(); self.render_queue(); self.dashboard()
+        dialog=getattr(self,'pronunciation_review_dialog',None)
+        if dialog is not None:
+            dialog.refresh_decisions()
+        self.statusBar().showMessage(f'Pronunciation review freshness revalidated for {changed} row(s). Run Preflight before generation.',7000)
 
     def pronunciation_review_probe(self,rows):
         wanted={int(row) for row in rows}

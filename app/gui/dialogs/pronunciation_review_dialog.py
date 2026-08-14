@@ -29,13 +29,15 @@ class PronunciationReviewDialog(QDialog):
     """
 
     decisionRequested = Signal(object, str)
+    revalidateRequested = Signal(object)
     probeRequested = Signal(object)
 
     FILTER_NEEDS_REVIEW = "Needs review"
     FILTER_HIGH = "High risk"
     FILTER_MEDIUM = "Medium risk"
     FILTER_NORMALIZABLE = "Safe normalized candidate"
-    FILTER_REVIEWED = "Reviewed"
+    FILTER_REVIEWED = "Reviewed · current"
+    FILTER_STALE = "Needs revalidation"
     FILTER_ALL = "All review candidates"
 
     def __init__(
@@ -49,7 +51,7 @@ class PronunciationReviewDialog(QDialog):
         self.settings = settings
         self.assurance = PronunciationAssuranceService()
         self.assessments: dict[int, PronunciationAssessment] = {}
-        self.batch = self.assurance.assess_batch(list(jobs), settings)
+        self.batch = self.assurance.assess_batch(list(jobs), settings, require_freshness=True)
         self._refresh_assessments()
 
         self.setWindowTitle("Pronunciation Review Workspace")
@@ -85,6 +87,7 @@ class PronunciationReviewDialog(QDialog):
                 self.FILTER_MEDIUM,
                 self.FILTER_NORMALIZABLE,
                 self.FILTER_REVIEWED,
+                self.FILTER_STALE,
                 self.FILTER_ALL,
             ]
         )
@@ -92,9 +95,9 @@ class PronunciationReviewDialog(QDialog):
         controls.addWidget(self.filter_combo)
         root.addLayout(controls)
 
-        self.table = QTableWidget(0, 8)
+        self.table = QTableWidget(0, 9)
         self.table.setHorizontalHeaderLabels(
-            ["Row", "Risk", "Language", "Signals", "Decision", "Source", "Normalized candidate", "Filename"]
+            ["Row", "Risk", "Language", "Signals", "Decision", "Freshness", "Source", "Normalized candidate", "Filename"]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -102,7 +105,7 @@ class PronunciationReviewDialog(QDialog):
         self.table.setSortingEnabled(False)
         self.table.itemSelectionChanged.connect(self._update_action_state)
         self.table.horizontalHeader().setStretchLastSection(True)
-        for column, width in {0: 70, 1: 85, 2: 90, 3: 190, 4: 175, 5: 300, 6: 300}.items():
+        for column, width in {0: 70, 1: 85, 2: 90, 3: 190, 4: 175, 5: 120, 6: 280, 7: 280}.items():
             self.table.setColumnWidth(column, width)
         root.addWidget(self.table, 1)
 
@@ -120,6 +123,11 @@ class PronunciationReviewDialog(QDialog):
         self.normalized_button.setToolTip("Available only when every selected row has a safe language-locked candidate.")
         self.normalized_button.clicked.connect(lambda: self._request_decision("normalized"))
         actions.addWidget(self.normalized_button)
+
+        self.revalidate_button = QPushButton("Revalidate selected decisions")
+        self.revalidate_button.setToolTip("Refresh freshness evidence without changing original vs normalized intent.")
+        self.revalidate_button.clicked.connect(self._request_revalidation)
+        actions.addWidget(self.revalidate_button)
 
         self.clear_button = QPushButton("Clear decision")
         self.clear_button.clicked.connect(lambda: self._request_decision(""))
@@ -139,7 +147,10 @@ class PronunciationReviewDialog(QDialog):
         self._update_action_state()
 
     def _refresh_assessments(self) -> None:
-        self.batch = self.assurance.assess_batch(list(self.jobs), self.settings)
+        parent_settings = getattr(self.parent(), "settings", None)
+        if callable(parent_settings):
+            self.settings = parent_settings()
+        self.batch = self.assurance.assess_batch(list(self.jobs), self.settings, require_freshness=True)
         self.assessments = {
             int(item.row): item
             for item in self.batch.assessments
@@ -158,15 +169,19 @@ class PronunciationReviewDialog(QDialog):
             if item is None:
                 continue
             override = str(getattr(job, "pronunciation_override", None) or "").strip()
-            if item.risk_level in {"high", "medium"} or item.normalization_safe or override in {"original", "normalized"}:
+            decision = self.assurance.decision_kind(override)
+            if item.risk_level in {"high", "medium"} or item.normalization_safe or decision in {"original", "normalized"}:
                 rows.append(job.row_number)
         return rows
 
     def _matches_filter(self, job: TTSJob, item: PronunciationAssessment, selected_filter: str) -> bool:
         override = str(getattr(job, "pronunciation_override", None) or "").strip()
-        reviewed = override == "original" or (override == "normalized" and item.normalization_safe)
+        decision = self.assurance.decision_kind(override)
+        freshness = self.assurance.decision_freshness(job, self.settings)
+        reviewed = decision == "original" or (decision == "normalized" and item.normalization_safe)
+        current = reviewed and freshness == "current"
         if selected_filter == self.FILTER_NEEDS_REVIEW:
-            return item.risk_level in {"high", "medium"} and not reviewed
+            return item.risk_level in {"high", "medium"} and not current
         if selected_filter == self.FILTER_HIGH:
             return item.risk_level == "high"
         if selected_filter == self.FILTER_MEDIUM:
@@ -174,19 +189,25 @@ class PronunciationReviewDialog(QDialog):
         if selected_filter == self.FILTER_NORMALIZABLE:
             return item.normalization_safe
         if selected_filter == self.FILTER_REVIEWED:
-            return reviewed
+            return current
+        if selected_filter == self.FILTER_STALE:
+            return reviewed and freshness in {"stale", "legacy"}
         return True
 
-    @staticmethod
-    def _decision_label(job: TTSJob, item: PronunciationAssessment) -> str:
+    def _decision_label(self, job: TTSJob, item: PronunciationAssessment) -> str:
         override = str(getattr(job, "pronunciation_override", None) or "").strip()
-        if override == "original":
+        decision = self.assurance.decision_kind(override)
+        if decision == "original":
             return "Reviewed · original"
-        if override == "normalized":
+        if decision == "normalized":
             return "Reviewed · normalized" if item.normalization_safe else "Invalid · normalized unavailable"
         if override:
             return override
         return "Not reviewed"
+
+    def _freshness_label(self, job: TTSJob) -> str:
+        status = self.assurance.decision_freshness(job, self.settings)
+        return {"current": "Current", "stale": "Stale", "legacy": "Legacy", "none": "—"}.get(status, status.title())
 
     def refresh_table(self) -> None:
         selected_rows = set(self.selected_rows()) if hasattr(self, "table") else set()
@@ -226,6 +247,7 @@ class PronunciationReviewDialog(QDialog):
                 item.language or "not set",
                 ", ".join(item.flags) if item.flags else "plain prose",
                 self._decision_label(job, item),
+                self._freshness_label(job),
                 job.text,
                 item.normalized_text if item.normalization_safe else "—",
                 job.filename,
@@ -239,8 +261,9 @@ class PronunciationReviewDialog(QDialog):
 
         self.summary_label.setText(
             f"{self.batch.summary} Visible review candidates: {len(rows):,}. "
-            f"Explicit original: {len(self.batch.explicit_original_rows):,}; "
-            f"normalized: {len(self.batch.normalized_rows):,}."
+            f"Current: {len(self.batch.reviewed_rows):,}; "
+            f"stale: {len(self.batch.stale_review_rows):,}; legacy: {len(self.batch.legacy_review_rows):,}; "
+            f"explicit original: {len(self.batch.explicit_original_rows):,}; normalized: {len(self.batch.normalized_rows):,}."
         )
 
     def selected_rows(self) -> tuple[int, ...]:
@@ -259,6 +282,17 @@ class PronunciationReviewDialog(QDialog):
         self.original_button.setEnabled(selected)
         self.clear_button.setEnabled(selected)
         self.probe_button.setEnabled(1 <= len(rows) <= 3)
+        revalidatable = selected and all(
+            self.assurance.decision_kind(getattr(next(job for job in self.jobs if job.row_number == row), "pronunciation_override", None))
+            in {"original", "normalized"}
+            for row in rows
+        )
+        normalized_revalidatable = revalidatable and all(
+            self.assurance.decision_kind(getattr(next(job for job in self.jobs if job.row_number == row), "pronunciation_override", None)) != "normalized"
+            or self.assessments[row].normalization_safe
+            for row in rows
+        )
+        self.revalidate_button.setEnabled(normalized_revalidatable)
         safe = selected and all(self.assessments[row].normalization_safe for row in rows)
         self.normalized_button.setEnabled(safe)
         if not selected:
@@ -288,6 +322,12 @@ class PronunciationReviewDialog(QDialog):
                 return
         self.decisionRequested.emit(rows, decision)
         self.refresh_decisions()
+
+    def _request_revalidation(self) -> None:
+        rows = self.selected_rows()
+        if not rows:
+            return
+        self.revalidateRequested.emit(rows)
 
     def _request_probe(self) -> None:
         rows = self.selected_rows()
