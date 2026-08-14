@@ -29,6 +29,7 @@ from app.gui.visual_design_system_v2 import (
     UI_INVENTORY,
     concept,
     concept_preview_stylesheet,
+    selected_concept_badge_stylesheet,
     token_rows,
 )
 
@@ -64,10 +65,7 @@ class VisualDesignSystemDialog(QDialog):
             f"Selected direction: {selected.name}  ·  Professional AI Production Tool + Modern Desktop SaaS"
         )
         self.selected_badge.setObjectName("selectedConceptBadge")
-        self.selected_badge.setStyleSheet(
-            "padding:8px 10px;border-radius:7px;font-weight:600;"
-            "background:#EDF1FF;color:#304FBF;border:1px solid #C9D4FF;"
-        )
+        self.selected_badge.setStyleSheet(selected_concept_badge_stylesheet(ACTIVE_CONCEPT))
         root.addWidget(self.selected_badge)
 
         self.tabs = QTabWidget()

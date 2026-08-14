@@ -238,9 +238,9 @@ SOFT_PROFESSIONAL_DARK = SemanticPalette(
     focus_ring="#9BAFE8",
 )
 
-# Selected A8 direction.  The light values below are the formal product tokens
-# for the Modern Technical concept and intentionally match the Roadmap 2 visual
-# direction agreed for the desktop production tool.
+# Modern Technical remains one of the three A8 reference concepts.  A8.1
+# changes the active product direction to Soft Professional after visual review;
+# the Modern Technical tokens stay available for comparison and future reference.
 MODERN_TECHNICAL_LIGHT = SemanticPalette(
     canvas="#F6F7F9",
     surface="#FFFFFF",
@@ -321,7 +321,22 @@ CONCEPTS: dict[str, ConceptSpec] = {
     ),
 }
 
-ACTIVE_CONCEPT = "modern_technical"
+ACTIVE_CONCEPT = "soft_professional"
+
+SELECTED_DIRECTION_RATIONALE: tuple[str, ...] = (
+    "warmer neutral surfaces for long production sessions",
+    "calmer grouping with less technical visual pressure",
+    "professional desktop hierarchy without reducing operational clarity",
+)
+
+A9_HANDOFF_PRINCIPLES: tuple[str, ...] = (
+    "structural workspace modernization, not another color-only skin",
+    "queue remains the dominant production surface",
+    "provider and inspector areas use quieter grouped hierarchy",
+    "reduce stacked horizontal command bars and repeated border noise",
+    "preserve explicit Preflight and generation authority",
+)
+
 
 UI_INVENTORY: tuple[InventoryItem, ...] = (
     InventoryItem("Application shell", "Menu bar, main toolbar, status bar", "global hierarchy + chrome", "A8"),
@@ -535,6 +550,18 @@ QLabel#specimenDanger {{ color:{p.danger}; background:{p.danger_soft}; border-ra
 QTableWidget {{ background:{p.surface}; alternate-background-color:{p.surface_secondary}; color:{p.text_primary}; border:1px solid {p.border}; gridline-color:{p.border}; }}
 QHeaderView::section {{ background:{p.surface_secondary}; color:{p.text_secondary}; border:0; border-bottom:1px solid {p.border_strong}; padding:5px; font-weight:600; }}
 """.strip()
+
+
+def selected_concept_badge_stylesheet(concept_key: str = ACTIVE_CONCEPT) -> str:
+    """Style the selected-direction badge from semantic tokens, never hard-coded concept colors."""
+
+    spec = concept(concept_key)
+    p = spec.light
+    r = spec.radii
+    return (
+        f"padding:8px 10px;border-radius:{r.control}px;font-weight:600;"
+        f"background:{p.primary_soft};color:{p.primary};border:1px solid {p.border_strong};"
+    )
 
 
 def token_rows(concept_key: str = ACTIVE_CONCEPT) -> tuple[tuple[str, str], ...]:

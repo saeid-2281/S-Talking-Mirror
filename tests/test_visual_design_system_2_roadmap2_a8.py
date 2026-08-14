@@ -30,9 +30,9 @@ def test_a8_defines_exactly_three_real_visual_concepts() -> None:
     ]
 
 
-def test_a8_selects_modern_technical_as_product_direction() -> None:
-    assert ACTIVE_CONCEPT == "modern_technical"
-    assert "production queues" in CONCEPTS[ACTIVE_CONCEPT].description.lower()
+def test_a8_selects_soft_professional_as_product_direction() -> None:
+    assert ACTIVE_CONCEPT == "soft_professional"
+    assert "calm professional" in CONCEPTS[ACTIVE_CONCEPT].description.lower()
 
 
 def test_a8_modern_technical_light_semantic_tokens_match_product_contract() -> None:
@@ -167,9 +167,10 @@ def test_a8_dialog_renders_inventory_and_all_three_concept_pages(qt_app) -> None
         assert dialog.tabs.count() == 4
         assert dialog.tabs.tabText(0) == "Visual inventory"
         assert dialog.tabs.tabText(1) == "Precision"
-        assert dialog.tabs.tabText(2) == "Soft Professional"
-        assert "Modern Technical" in dialog.tabs.tabText(3)
-        assert "Selected" in dialog.selected_badge.text()
+        assert "Soft Professional" in dialog.tabs.tabText(2)
+        assert "Selected" in dialog.tabs.tabText(2)
+        assert dialog.tabs.tabText(3) == "Modern Technical"
+        assert "Soft Professional" in dialog.selected_badge.text()
         assert dialog.inventory_table.rowCount() == len(UI_INVENTORY)
     finally:
         dialog.close()
