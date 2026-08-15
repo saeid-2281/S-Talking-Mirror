@@ -17,6 +17,7 @@ from app.gui.connection_test_runner import start_connection_test
 from app.gui.developer_tools import DeveloperTools
 from app.gui.design_system import density_metrics, normalize_density
 from app.gui.main_workspace_modernization import MainWorkspaceModernizer, main_workspace_stylesheet
+from app.gui.dialog_form_modernization import DialogFormModernizer, dialog_form_stylesheet
 from app.gui.visual_design_system_v2 import ACTIVE_CONCEPT, visual_system_stylesheet
 from app.gui.interface_preferences import (
     ContrastMode,
@@ -441,6 +442,7 @@ class MainWindow(QMainWindow):
         self.set_generation_controls(active=False)
         self.build_generation_monitor(); self.build_project_sources_panel()
         self.main_workspace_modernizer=MainWorkspaceModernizer(self); self.main_workspace_modernizer.install()
+        self.dialog_form_modernizer=DialogFormModernizer(self); self.dialog_form_modernizer.install()
     def build_project_menu(self):
         self.project_menu=QMenu('Project',self); self.menuBar().addMenu(self.project_menu)
         for tx,fn,ic in [('New Project',self.new_project,'project.new'),('Open Project',self.open_project,'project.open')]: a=self.project_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
@@ -564,7 +566,12 @@ class MainWindow(QMainWindow):
         application=QApplication.instance()
         palette=self.theme_manager.palette(name)
         is_dark=palette.color(QPalette.Window).lightness() < 128
-        stylesheet=(self.theme_manager.stylesheet(name)+'\n'+visual_system_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)+'\n'+main_workspace_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT))
+        stylesheet=(
+            self.theme_manager.stylesheet(name)
+            +'\n'+visual_system_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)
+            +'\n'+main_workspace_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)
+            +'\n'+dialog_form_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)
+        )
         theme_changed=application is None or application.styleSheet()!=stylesheet
         if application is not None:
             # QApplication is the single theme authority. A second copy of the
@@ -766,6 +773,8 @@ class MainWindow(QMainWindow):
         if hasattr(self,'queue_workspace'): self.queue_workspace.apply_density(density)
         if hasattr(self,'main_workspace_modernizer'):
             self.main_workspace_modernizer.reapply_visual_geometry()
+        if hasattr(self,'dialog_form_modernizer'):
+            self.dialog_form_modernizer.apply_density(density)
         if hasattr(self,'main_toolbar'):
             # Density changes padding and control rhythm, but the shared toolbar
             # keeps its established 38–42 px shell contract.
