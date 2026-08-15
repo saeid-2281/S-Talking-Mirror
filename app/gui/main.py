@@ -18,6 +18,7 @@ from app.gui.developer_tools import DeveloperTools
 from app.gui.design_system import density_metrics, normalize_density
 from app.gui.main_workspace_modernization import MainWorkspaceModernizer, main_workspace_stylesheet
 from app.gui.dialog_form_modernization import DialogFormModernizer, dialog_form_stylesheet
+from app.gui.theme_accessibility_v2 import ThemeAccessibilityModernizer, theme_accessibility_stylesheet
 from app.gui.visual_design_system_v2 import ACTIVE_CONCEPT, visual_system_stylesheet
 from app.gui.interface_preferences import (
     ContrastMode,
@@ -443,6 +444,7 @@ class MainWindow(QMainWindow):
         self.build_generation_monitor(); self.build_project_sources_panel()
         self.main_workspace_modernizer=MainWorkspaceModernizer(self); self.main_workspace_modernizer.install()
         self.dialog_form_modernizer=DialogFormModernizer(self); self.dialog_form_modernizer.install()
+        self.theme_accessibility_modernizer=ThemeAccessibilityModernizer(self); self.theme_accessibility_modernizer.install()
     def build_project_menu(self):
         self.project_menu=QMenu('Project',self); self.menuBar().addMenu(self.project_menu)
         for tx,fn,ic in [('New Project',self.new_project,'project.new'),('Open Project',self.open_project,'project.open')]: a=self.project_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
@@ -566,11 +568,19 @@ class MainWindow(QMainWindow):
         application=QApplication.instance()
         palette=self.theme_manager.palette(name)
         is_dark=palette.color(QPalette.Window).lightness() < 128
+        high_contrast=self.interface_preferences.contrast is ContrastMode.HIGH
+        enhanced_focus=self.interface_preferences.focus_style is FocusStyle.ENHANCED
         stylesheet=(
             self.theme_manager.stylesheet(name)
             +'\n'+visual_system_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)
             +'\n'+main_workspace_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)
             +'\n'+dialog_form_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)
+            +'\n'+theme_accessibility_stylesheet(
+                is_dark=is_dark,
+                high_contrast=high_contrast,
+                enhanced_focus=enhanced_focus,
+                concept_key=ACTIVE_CONCEPT,
+            )
         )
         theme_changed=application is None or application.styleSheet()!=stylesheet
         if application is not None:
@@ -590,6 +600,8 @@ class MainWindow(QMainWindow):
         # only need recoloring when the application theme actually changed.
         if theme_changed:
             refresh_icons(self)
+        if hasattr(self,'theme_accessibility_modernizer'):
+            self.theme_accessibility_modernizer.apply_theme(name,is_dark=is_dark)
         if hasattr(self,'theme_actions'):
             for key,action in self.theme_actions.items(): action.setChecked(key==name)
     def setup_responsive_workspace(self):
@@ -692,6 +704,8 @@ class MainWindow(QMainWindow):
         value=preferences.normalized() if isinstance(preferences,InterfacePreferences) else InterfacePreferences.defaults()
         properties_changed=previous.stylesheet_properties()!=value.stylesheet_properties()
         self.interface_preferences=value
+        if hasattr(self,'theme_accessibility_modernizer'):
+            self.theme_accessibility_modernizer.apply_preferences(value)
         for key,property_value in value.stylesheet_properties().items(): self.setProperty(key,property_value)
         if hasattr(self,'application_shell'):
             for key,property_value in value.stylesheet_properties().items(): self.application_shell.setProperty(key,property_value)
@@ -718,8 +732,43 @@ class MainWindow(QMainWindow):
         # interface property; this removes a second full stylesheet pass from
         # every MainWindow construction while preserving live preference changes.
         if properties_changed:
-            current_theme=self.theme_manager.current(); palette=self.theme_manager.palette(current_theme); is_dark=palette.color(QPalette.Window).lightness() < 128
-            self.setStyleSheet(self.theme_manager.stylesheet(current_theme)+'\n'+visual_system_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)+'\n'+main_workspace_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT))
+            current_theme=self.theme_manager.current()
+            palette=self.theme_manager.palette(current_theme)
+            is_dark=palette.color(QPalette.Window).lightness() < 128
+            high_contrast=value.contrast is ContrastMode.HIGH
+            enhanced_focus=value.focus_style is FocusStyle.ENHANCED
+            application=QApplication.instance()
+            stylesheet=(
+                self.theme_manager.stylesheet(current_theme)
+                +'\n'+visual_system_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)
+                +'\n'+main_workspace_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)
+                +'\n'+dialog_form_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)
+                +'\n'+theme_accessibility_stylesheet(
+                    is_dark=is_dark,
+                    high_contrast=high_contrast,
+                    enhanced_focus=enhanced_focus,
+                    concept_key=ACTIVE_CONCEPT,
+                )
+            )
+            if application is not None:
+                application.setPalette(palette)
+                if application.styleSheet()!=stylesheet:
+                    application.setStyleSheet(stylesheet)
+                if self.styleSheet():
+                    self.setStyleSheet('')
+            else:
+                self.setPalette(palette)
+                self.setStyleSheet(self.theme_manager.stylesheet(current_theme)
+                    +'\n'+visual_system_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)
+                    +'\n'+main_workspace_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)
+                    +'\n'+dialog_form_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)
+                    +'\n'+theme_accessibility_stylesheet(
+                        is_dark=is_dark,
+                        high_contrast=high_contrast,
+                        enhanced_focus=enhanced_focus,
+                        concept_key=ACTIVE_CONCEPT,
+                    )
+                )
         if announce: self.announce_interface_status('Interface updated',value.summary())
     def toggle_high_contrast(self,checked):
         self.apply_interface_preferences(replace(self.interface_preferences,contrast=ContrastMode.HIGH if checked else ContrastMode.STANDARD),persist=True)
