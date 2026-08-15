@@ -45,3 +45,14 @@ A9.1 is therefore a presentation-only alignment pass. It does not change provide
 ## Exit criterion
 
 A9.1 is complete only after dedicated visual-alignment tests, A9 regressions, historical workspace/theme regressions, Track A authority regressions, DevCheckRunner QProcess regression and one Full Quality Gate pass. A real Light-theme screenshot is reviewed again before A10.
+
+## Hotfix 3 — post-certification screenshot defect repair
+
+The Light-theme review after successful A9.1 certification exposed two presentation defects that automated behavior tests had not made visually obvious:
+
+- the legacy `Scope & order` section label could become a detached top-level Qt window in Wide mode;
+- the queue heading and command-center surfaces could consume excessive vertical space, stretching the queue-focus badge and weakening the intended Soft Professional hierarchy.
+
+Hotfix 3 keeps all queue actions and responsive authority unchanged. It permanently suppresses the redundant planning section label, reparents it defensively if Qt has detached it, caps the queue heading/command/range surface heights, constrains the focus badge, and explicitly removes inherited label fills from the queue heading/section labels.
+
+The historical Wide contract remains unchanged: the full operator action set returns in Wide mode, while Standard/Compact continue to use progressive disclosure.

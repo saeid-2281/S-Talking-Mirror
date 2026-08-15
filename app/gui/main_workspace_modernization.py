@@ -57,6 +57,15 @@ class MainWorkspaceModernizer:
         self._tune_layout(shell.root_layout, (10, 8, 10, 8), 8)
         self._tune_layout(owner.queue_workspace.layout(), (0, 0, 0, 0), 8)
         self._tune_layout(owner.queue_workspace.heading.layout(), (12, 8, 10, 8), 8)
+        owner.queue_workspace.heading.setMinimumHeight(46)
+        owner.queue_workspace.heading.setMaximumHeight(56)
+        owner.queue_workspace.title_label.setMaximumHeight(24)
+        owner.queue_workspace.subtitle_label.setMaximumHeight(22)
+        if hasattr(owner, "queue_focus_badge"):
+            owner.queue_focus_badge.setMaximumHeight(30)
+            owner.queue_focus_badge.setAlignment(Qt.AlignCenter)
+        owner.queue_workspace.command_host.setMaximumHeight(112)
+        owner.queue_workspace.range_host.setMaximumHeight(56)
         self._tune_layout(owner.queue_workspace.command_layout, (10, 6, 10, 6), 6)
         self._tune_layout(owner.queue_workspace.range_layout, (10, 6, 10, 6), 6)
         self._tune_layout(owner.queue_workspace.body_layout, (0, 0, 0, 0), 6)
@@ -212,9 +221,14 @@ class MainWorkspaceModernizer:
     def _simplify_queue_commands(self) -> None:
         owner = self.owner
         command_widgets = owner.queue_workspace._command_widgets  # presentation registry
+        planning_label = command_widgets.get("planning_label")
+        if planning_label is not None:
+            if planning_label.isWindow() or planning_label.parentWidget() is None:
+                planning_label.setParent(owner.queue_workspace.command_host)
+            planning_label.hide()
+
         secondary_names = (
             "filter_label",
-            "planning_label",
             "action_label",
             "use_sort",
             "use_selection",
@@ -368,8 +382,12 @@ QWidget#queueWorkspace {{
 QFrame#queueWorkspaceHeading {{
     background:transparent; border:0; border-bottom:1px solid {p.border};
 }}
-QLabel#queueWorkspaceTitle {{ color:{p.text_primary}; font-weight:700; font-size:14px; }}
-QLabel#queueWorkspaceSubtitle {{ color:{p.text_muted}; font-size:11px; }}
+QLabel#queueWorkspaceTitle {{
+    color:{p.text_primary}; font-weight:700; font-size:14px; background:transparent; border:0;
+}}
+QLabel#queueWorkspaceSubtitle {{
+    color:{p.text_muted}; font-size:11px; background:transparent; border:0;
+}}
 QLabel#queueFocusBadge {{
     color:{p.primary}; background:{p.primary_soft}; border:1px solid {p.border};
     border-radius:8px; padding:4px 8px; font-weight:600; font-size:11px;
@@ -392,7 +410,9 @@ QFrame#queueRangeBar {{
 QFrame#queueScopeSummary {{
     background:transparent; border:0; border-top:1px solid {p.border}; border-radius:0;
 }}
-QLabel#queueCommandSectionLabel {{ color:{p.text_muted}; font-size:10px; font-weight:700; }}
+QLabel#queueCommandSectionLabel {{
+    color:{p.text_muted}; font-size:10px; font-weight:700; background:transparent; border:0;
+}}
 QLineEdit#queueSearch, QComboBox#queueStatusFilter, QComboBox#queueSourceFilter,
 QComboBox#queueScopeSelector, QComboBox#queueOrderSelector {{
     min-height:30px; background:{p.surface}; color:{p.text_primary};

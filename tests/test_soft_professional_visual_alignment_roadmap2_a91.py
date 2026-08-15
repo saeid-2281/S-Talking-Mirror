@@ -137,3 +137,38 @@ def test_a91_wide_operator_visibility_and_standard_more_contract_survive(qt_app,
     assert window.use_selection_scope_button.isHidden()
     assert not window.queue_more_actions_button.isHidden()
     window.close()
+
+def test_a91_wide_mode_never_detaches_scope_order_label_as_window(qt_app, tmp_path: Path) -> None:
+    window = _window(tmp_path)
+    window.show()
+    qt_app.processEvents()
+
+    window.main_workspace_modernizer.apply_responsive_mode("wide")
+    planning_label = window.queue_workspace._command_widgets["planning_label"]
+    assert planning_label.isHidden()
+    assert not planning_label.isWindow()
+    assert planning_label.parentWidget() is not None
+
+    assert not window.use_selection_scope_button.isHidden()
+    assert not window.skip_menu_button.isHidden()
+    assert not window.reset_menu_button.isHidden()
+    assert not window.clear_completed_button.isHidden()
+    assert not window.output_menu_button.isHidden()
+    window.close()
+
+
+def test_a91_queue_header_and_command_surfaces_stay_compact_in_wide_mode(qt_app, tmp_path: Path) -> None:
+    window = _window(tmp_path)
+    window.main_workspace_modernizer.apply_responsive_mode("wide")
+
+    assert 46 <= window.queue_workspace.heading.minimumHeight() <= 56
+    assert window.queue_workspace.heading.maximumHeight() <= 56
+    assert window.queue_focus_badge.maximumHeight() <= 30
+    assert window.queue_workspace.command_host.maximumHeight() <= 112
+    assert window.queue_workspace.range_host.maximumHeight() <= 56
+
+    stylesheet = main_workspace_stylesheet(is_dark=False)
+    assert "QLabel#queueWorkspaceTitle" in stylesheet
+    assert "background:transparent; border:0" in stylesheet
+    assert "QLabel#queueCommandSectionLabel" in stylesheet
+    window.close()
