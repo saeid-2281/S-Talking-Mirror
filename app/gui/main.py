@@ -19,6 +19,7 @@ from app.gui.design_system import density_metrics, normalize_density
 from app.gui.main_workspace_modernization import MainWorkspaceModernizer, main_workspace_stylesheet
 from app.gui.dialog_form_modernization import DialogFormModernizer, dialog_form_stylesheet
 from app.gui.theme_accessibility_v2 import ThemeAccessibilityModernizer, theme_accessibility_stylesheet
+from app.gui.visual_fidelity_hardening import VisualFidelityHardener
 from app.gui.visual_design_system_v2 import ACTIVE_CONCEPT, visual_system_stylesheet
 from app.gui.interface_preferences import (
     ContrastMode,
@@ -445,6 +446,7 @@ class MainWindow(QMainWindow):
         self.main_workspace_modernizer=MainWorkspaceModernizer(self); self.main_workspace_modernizer.install()
         self.dialog_form_modernizer=DialogFormModernizer(self); self.dialog_form_modernizer.install()
         self.theme_accessibility_modernizer=ThemeAccessibilityModernizer(self); self.theme_accessibility_modernizer.install()
+        self.visual_fidelity_hardener=VisualFidelityHardener(self); self.visual_fidelity_hardener.install()
     def build_project_menu(self):
         self.project_menu=QMenu('Project',self); self.menuBar().addMenu(self.project_menu)
         for tx,fn,ic in [('New Project',self.new_project,'project.new'),('Open Project',self.open_project,'project.open')]: a=self.project_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
@@ -652,6 +654,8 @@ class MainWindow(QMainWindow):
             self.monitor_more_details.setText('Extended details' if mode is WorkspaceBreakpoint.COMPACT else 'Show extended details')
         if hasattr(self,'main_workspace_modernizer'):
             self.main_workspace_modernizer.apply_responsive_mode(mode)
+        if hasattr(self,'visual_fidelity_hardener'):
+            self.visual_fidelity_hardener.refresh_main_window()
         self.update()
     def reflow_source_actions(self,columns):
         if not hasattr(self,'sources_action_layout'): return
@@ -2516,6 +2520,8 @@ class MainWindow(QMainWindow):
             model_text=self.model.currentText().strip() if hasattr(self,'model') else ''
             voice_section.summary=' · '.join(part for part in (voice_text or 'Voice not set',model_text or 'Model not set') if part)
             if not voice_section.header.isChecked(): voice_section.set_expanded(False)
+        if hasattr(self,'visual_fidelity_hardener'):
+            self.visual_fidelity_hardener.refresh_provider_overview()
     def api_profile_display_name(self, profile_id: str) -> str:
         if not profile_id:
             return "Temporary key"
