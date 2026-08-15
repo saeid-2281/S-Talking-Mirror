@@ -16,6 +16,7 @@ from app.gui.command_palette import CommandPalette, PaletteCommand
 from app.gui.connection_test_runner import start_connection_test
 from app.gui.developer_tools import DeveloperTools
 from app.gui.design_system import density_metrics, normalize_density
+from app.gui.main_workspace_modernization import MainWorkspaceModernizer, main_workspace_stylesheet
 from app.gui.visual_design_system_v2 import ACTIVE_CONCEPT, visual_system_stylesheet
 from app.gui.interface_preferences import (
     ContrastMode,
@@ -136,7 +137,7 @@ class MonitorDockWidget(QDockWidget):
 
 class WorkspaceDockWidget(QDockWidget):
     def minimumWidth(self):
-        return 270
+        return max(270, super().minimumWidth())
     def sizeHint(self):
         hint=super().sizeHint()
         if self.objectName()=='workspaceLeftDock':
@@ -439,6 +440,7 @@ class MainWindow(QMainWindow):
         for w in [self.stability,self.similarity,self.style,self.speed,self.delay,self.retries,self.boost,self.pronunciation_aid,self.skip]: w.valueChanged.connect(self.settings_changed) if hasattr(w,'valueChanged') else w.toggled.connect(self.settings_changed)
         self.set_generation_controls(active=False)
         self.build_generation_monitor(); self.build_project_sources_panel()
+        self.main_workspace_modernizer=MainWorkspaceModernizer(self); self.main_workspace_modernizer.install()
     def build_project_menu(self):
         self.project_menu=QMenu('Project',self); self.menuBar().addMenu(self.project_menu)
         for tx,fn,ic in [('New Project',self.new_project,'project.new'),('Open Project',self.open_project,'project.open')]: a=self.project_menu.addAction(action_icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
@@ -562,7 +564,7 @@ class MainWindow(QMainWindow):
         application=QApplication.instance()
         palette=self.theme_manager.palette(name)
         is_dark=palette.color(QPalette.Window).lightness() < 128
-        stylesheet=self.theme_manager.stylesheet(name)+'\n'+visual_system_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)
+        stylesheet=(self.theme_manager.stylesheet(name)+'\n'+visual_system_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)+'\n'+main_workspace_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT))
         theme_changed=application is None or application.styleSheet()!=stylesheet
         if application is not None:
             # QApplication is the single theme authority. A second copy of the
@@ -629,6 +631,8 @@ class MainWindow(QMainWindow):
             self.monitor_sections.setProperty('responsiveMode',mode_value)
         if hasattr(self,'monitor_more_details'):
             self.monitor_more_details.setText('Extended details' if mode is WorkspaceBreakpoint.COMPACT else 'Show extended details')
+        if hasattr(self,'main_workspace_modernizer'):
+            self.main_workspace_modernizer.apply_responsive_mode(mode)
         self.update()
     def reflow_source_actions(self,columns):
         if not hasattr(self,'sources_action_layout'): return
@@ -708,7 +712,7 @@ class MainWindow(QMainWindow):
         # every MainWindow construction while preserving live preference changes.
         if properties_changed:
             current_theme=self.theme_manager.current(); palette=self.theme_manager.palette(current_theme); is_dark=palette.color(QPalette.Window).lightness() < 128
-            self.setStyleSheet(self.theme_manager.stylesheet(current_theme)+'\n'+visual_system_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT))
+            self.setStyleSheet(self.theme_manager.stylesheet(current_theme)+'\n'+visual_system_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT)+'\n'+main_workspace_stylesheet(is_dark=is_dark,concept_key=ACTIVE_CONCEPT))
         if announce: self.announce_interface_status('Interface updated',value.summary())
     def toggle_high_contrast(self,checked):
         self.apply_interface_preferences(replace(self.interface_preferences,contrast=ContrastMode.HIGH if checked else ContrastMode.STANDARD),persist=True)
@@ -843,6 +847,7 @@ class MainWindow(QMainWindow):
         if hasattr(self,'view_toolbar_action'): self.view_toolbar_action.setChecked(profile.toolbar_visible)
         if hasattr(self,'view_provider_dock_action'): self.view_provider_dock_action.setChecked(profile.left_dock_visible)
         if hasattr(self,'view_inspector_dock_action'): self.view_inspector_dock_action.setChecked(profile.right_dock_visible)
+        if hasattr(self,'main_workspace_modernizer'): self.main_workspace_modernizer.refresh_presentation()
         if hasattr(self,'focus_queue_action'): self.focus_queue_action.setChecked(profile.name=='Focus Mode')
         if hasattr(self,'show_workspace_header_action'):
             self.show_workspace_header_action.setChecked(profile.header_mode!='hidden')
@@ -1129,7 +1134,8 @@ class MainWindow(QMainWindow):
     def focus_generation_workflow(self):
         if not hasattr(self,'generation_journey'):
             return
-        self.generation_journey.setVisible(True)
+        if hasattr(self,'main_workspace_modernizer'): self.main_workspace_modernizer.reveal_workflow(True)
+        else: self.generation_journey.setVisible(True)
         self.generation_journey.focus_primary_action()
         self.statusBar().showMessage('Generation workflow focused.',3000)
 
@@ -1216,6 +1222,7 @@ class MainWindow(QMainWindow):
             generation_active=self.generation_controller.is_active,
         )
         self.generation_journey.set_state(state)
+        if hasattr(self,'main_workspace_modernizer'): self.main_workspace_modernizer.refresh_generation_state(state)
 
     def _provider_intelligence_profile(self):
         profile_id=self.active_api_profile_id() if hasattr(self,'api_profile') else None
@@ -1325,6 +1332,7 @@ class MainWindow(QMainWindow):
 
     def focus_provider_intelligence(self):
         self.left_dock.show(); self.left_dock.raise_(); self.left_tabs.setCurrentIndex(0)
+        if hasattr(self,'main_workspace_modernizer'): self.main_workspace_modernizer.reveal_provider_insights(True)
         if hasattr(self,'provider_intelligence'):
             self.provider_intelligence.primary_action.setFocus(Qt.ShortcutFocusReason)
         self.statusBar().showMessage('Provider intelligence focused.',3000)
@@ -1432,6 +1440,7 @@ class MainWindow(QMainWindow):
 
     def focus_smart_provider_routing(self):
         self.left_dock.show(); self.left_dock.raise_(); self.left_tabs.setCurrentIndex(0)
+        if hasattr(self,'main_workspace_modernizer'): self.main_workspace_modernizer.reveal_provider_insights(True)
         if hasattr(self,'smart_provider_routing'):
             target=(
                 self.smart_provider_routing.primary_action
@@ -3435,6 +3444,7 @@ class MainWindow(QMainWindow):
         handler=handlers.get(str(code or ''))
         if handler is not None: handler()
     def focus_queue_batch_operations(self):
+        if hasattr(self,'main_workspace_modernizer'): self.main_workspace_modernizer.reveal_batch_planning(True)
         if hasattr(self,'queue_batch_operations'): self.queue_batch_operations.focus_lens()
     def update_queue_scope_summary(self,visible_jobs=None):
         if not hasattr(self,'queue_scope_summary'): return
