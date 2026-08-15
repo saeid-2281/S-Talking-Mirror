@@ -34,7 +34,39 @@ class MainWorkspaceModernizer:
         self._install_provider_disclosure()
         self._install_queue_disclosures()
         self._hide_duplicate_toolbar_generation_controls()
+        self._apply_soft_professional_geometry()
         self.refresh_presentation()
+
+    @staticmethod
+    def _tune_layout(layout, margins: tuple[int, int, int, int], spacing: int) -> None:  # noqa: ANN001
+        if layout is None:
+            return
+        layout.setContentsMargins(*margins)
+        layout.setSpacing(spacing)
+
+    def reapply_visual_geometry(self) -> None:
+        """Restore A9.1 geometry after legacy density/layout passes."""
+
+        self._apply_soft_professional_geometry()
+
+    def _apply_soft_professional_geometry(self) -> None:
+        """Apply calm spacing without changing compatibility-sensitive heights."""
+
+        owner = self.owner
+        shell = owner.application_shell
+        self._tune_layout(shell.root_layout, (10, 8, 10, 8), 8)
+        self._tune_layout(owner.queue_workspace.layout(), (0, 0, 0, 0), 8)
+        self._tune_layout(owner.queue_workspace.heading.layout(), (12, 8, 10, 8), 8)
+        self._tune_layout(owner.queue_workspace.command_layout, (10, 6, 10, 6), 6)
+        self._tune_layout(owner.queue_workspace.range_layout, (10, 6, 10, 6), 6)
+        self._tune_layout(owner.queue_workspace.body_layout, (0, 0, 0, 0), 6)
+        self._tune_layout(owner.generation_status_strip.layout(), (10, 4, 10, 4), 8)
+        self._tune_layout(owner.provider_panel.layout(), (8, 8, 8, 10), 8)
+        self._tune_layout(owner.selected_row_panel.layout(), (10, 10, 10, 10), 8)
+        owner.application_shell.setProperty("visualAlignment", "soft-professional")
+        owner.queue_workspace.setProperty("visualAlignment", "soft-professional")
+        owner.provider_panel.setProperty("visualAlignment", "soft-professional")
+        owner.selected_row_panel.setProperty("visualAlignment", "soft-professional")
 
     def _move_generation_commands_above_workspace(self) -> None:
         shell = self.owner.application_shell
@@ -231,6 +263,7 @@ class MainWorkspaceModernizer:
         self._simplify_queue_commands()
         owner.project_context_widget.context_label.hide()
         owner.queue_workspace.footer.hide()
+        self._apply_soft_professional_geometry()
 
     def refresh_presentation(self) -> None:
         owner = self.owner
@@ -241,9 +274,12 @@ class MainWorkspaceModernizer:
         owner.queue_workspace.footer.hide()
         if hasattr(owner, "empty_state"):
             owner.empty_state.setMaximumWidth(680)
-            owner.empty_state.setMinimumHeight(220)
+            owner.empty_state.setMinimumHeight(240)
+            owner.empty_state.setMaximumHeight(360)
+            owner.empty_state.setProperty("visualRole", "calm-empty-state")
         self._apply_metric_priority()
         self._simplify_queue_commands()
+        self._apply_soft_professional_geometry()
 
     def refresh_generation_state(self, state) -> None:  # noqa: ANN001
         """Update only the tiny visual queue-focus summary from existing state."""
@@ -261,69 +297,182 @@ class MainWorkspaceModernizer:
 
 
 def main_workspace_stylesheet(*, is_dark: bool, concept_key: str = ACTIVE_CONCEPT) -> str:
-    """A9 structural styling layered after ThemeManager + A8 semantic tokens.
+    """Soft Professional A9/A9.1 styling layered after ThemeManager + A8 tokens.
 
-    QMainWindow is intentionally not targeted: ThemeManager remains the root
-    QPalette authority certified by A8/A8.1.
+    The root QMainWindow palette remains under ThemeManager authority.  This
+    stylesheet aligns the real workspace with the A8 Soft Professional specimen
+    through typography, spacing, quieter surfaces and action hierarchy only.
     """
 
     p = palette_for(is_dark=is_dark, concept_key=concept_key)
     return f"""
-/* Roadmap 2 A9 — Soft Professional Main Workspace */
-QWidget#applicationShell {{ background:{p.canvas}; }}
+/* Roadmap 2 A9.1 — Soft Professional Visual Alignment */
+QWidget#applicationShell {{
+    background:{p.canvas}; color:{p.text_primary};
+    font-family:"Segoe UI Variable", "Segoe UI", sans-serif; font-size:13px;
+}}
+QMenuBar {{
+    background:{p.surface}; color:{p.text_secondary}; border-bottom:1px solid {p.border};
+    padding:2px 8px; font-size:12px;
+}}
+QMenuBar::item {{ padding:5px 8px; border-radius:8px; }}
+QMenuBar::item:selected {{ background:{p.surface_secondary}; color:{p.text_primary}; }}
+QToolBar#mainToolbar {{
+    background:{p.surface}; border:0; border-bottom:1px solid {p.border};
+    padding:2px 8px; spacing:4px;
+}}
+QToolBar#mainToolbar QToolButton {{
+    background:transparent; color:{p.text_secondary}; border:1px solid transparent;
+    border-radius:8px; padding:5px 9px; font-size:12px; font-weight:500;
+}}
+QToolBar#mainToolbar QToolButton:hover {{
+    background:{p.surface_secondary}; color:{p.text_primary}; border-color:{p.border};
+}}
+QToolButton#toolbarOverflowButton {{
+    background:{p.surface}; border:1px solid {p.border}; border-radius:8px; padding:5px 8px;
+}}
 QFrame#workspaceHero {{
-    background:{p.surface}; border:1px solid {p.border}; border-radius:10px;
+    background:{p.surface}; border:1px solid {p.border}; border-radius:14px;
 }}
 QFrame#projectContextStrip {{
-    background:{p.surface}; border:1px solid {p.border}; border-radius:8px;
+    background:{p.surface}; border:1px solid {p.border}; border-radius:12px;
 }}
+QLabel#compactSourceSummary, QLabel#compactOutputSummary {{ color:{p.text_secondary}; }}
+QFrame#metricsStrip {{ background:transparent; border:0; }}
+QFrame#metricPill, QFrame#metricCard, QFrame#card {{
+    background:{p.surface}; border:1px solid {p.border}; border-radius:12px;
+}}
+QFrame#metricPill:hover {{ background:{p.surface_secondary}; border-color:{p.border_strong}; }}
+QLabel#metricValue, QLabel#cardValue {{ color:{p.text_primary}; font-size:13px; font-weight:700; }}
+QLabel#metricCaption, QLabel#cardCaption {{ color:{p.text_muted}; font-size:10px; }}
 QFrame#generationActionBar {{
-    background:{p.surface}; border:1px solid {p.border}; border-radius:10px;
+    background:{p.surface_secondary}; border:0; border-radius:12px;
 }}
+QFrame#generationActionBar QPushButton {{
+    min-height:30px; padding:0 11px; border-radius:8px;
+    background:{p.surface}; color:{p.text_secondary}; border:1px solid {p.border};
+}}
+QFrame#generationActionBar QPushButton:hover {{
+    color:{p.text_primary}; border-color:{p.border_strong}; background:{p.surface};
+}}
+QFrame#generationActionBar QPushButton#startGenerationButton,
+QFrame#generationActionBar QPushButton[primary="true"] {{
+    background:{p.primary}; color:{p.text_inverse}; border-color:{p.primary}; font-weight:700;
+}}
+QFrame#generationActionBar QPushButton#startGenerationButton:hover,
+QFrame#generationActionBar QPushButton[primary="true"]:hover {{ background:{p.primary_hover}; }}
 QFrame#generationProgressContext {{ background:transparent; border:0; }}
+QWidget#queueWorkspace {{
+    background:{p.surface}; color:{p.text_primary}; border:1px solid {p.border}; border-radius:14px;
+}}
 QFrame#queueWorkspaceHeading {{
-    background:{p.surface}; border:0; border-bottom:1px solid {p.border};
+    background:transparent; border:0; border-bottom:1px solid {p.border};
 }}
 QLabel#queueWorkspaceTitle {{ color:{p.text_primary}; font-weight:700; font-size:14px; }}
-QLabel#queueWorkspaceSubtitle {{ color:{p.text_muted}; }}
+QLabel#queueWorkspaceSubtitle {{ color:{p.text_muted}; font-size:11px; }}
 QLabel#queueFocusBadge {{
     color:{p.primary}; background:{p.primary_soft}; border:1px solid {p.border};
-    border-radius:7px; padding:4px 8px; font-weight:600;
+    border-radius:8px; padding:4px 8px; font-weight:600; font-size:11px;
 }}
 QToolButton#queueWorkflowDisclosure, QToolButton#queueBatchDisclosure,
-QToolButton#providerInsightsDisclosure {{
-    background:transparent; color:{p.text_secondary}; border:1px solid {p.border};
-    border-radius:7px; padding:5px 8px; font-weight:600;
+QToolButton#providerInsightsDisclosure, QToolButton#queueColumnsButton {{
+    background:{p.surface}; color:{p.text_secondary}; border:1px solid {p.border};
+    border-radius:8px; padding:5px 8px; font-weight:600;
 }}
 QToolButton#queueWorkflowDisclosure:hover, QToolButton#queueBatchDisclosure:hover,
-QToolButton#providerInsightsDisclosure:hover {{
-    background:{p.surface_secondary}; color:{p.text_primary};
+QToolButton#providerInsightsDisclosure:hover, QToolButton#queueColumnsButton:hover {{
+    background:{p.surface_secondary}; color:{p.text_primary}; border-color:{p.border_strong};
 }}
-QFrame#queueCommandBar, QFrame#queueScopeSummary {{
-    background:{p.surface}; border:1px solid {p.border}; border-radius:9px;
+QFrame#queueCommandBar {{
+    background:{p.surface_secondary}; border:0; border-radius:12px;
 }}
 QFrame#queueRangeBar {{
-    background:{p.surface_secondary}; border:1px solid {p.border}; border-radius:8px;
+    background:{p.surface_secondary}; border:0; border-radius:12px;
+}}
+QFrame#queueScopeSummary {{
+    background:transparent; border:0; border-top:1px solid {p.border}; border-radius:0;
+}}
+QLabel#queueCommandSectionLabel {{ color:{p.text_muted}; font-size:10px; font-weight:700; }}
+QLineEdit#queueSearch, QComboBox#queueStatusFilter, QComboBox#queueSourceFilter,
+QComboBox#queueScopeSelector, QComboBox#queueOrderSelector {{
+    min-height:30px; background:{p.surface}; color:{p.text_primary};
+    border:1px solid {p.border}; border-radius:8px; padding:0 9px;
+}}
+QLineEdit#queueSearch:focus, QComboBox#queueStatusFilter:focus, QComboBox#queueSourceFilter:focus,
+QComboBox#queueScopeSelector:focus, QComboBox#queueOrderSelector:focus {{ border-color:{p.focus_ring}; }}
+QPushButton#queuePrimaryAction {{
+    min-height:30px; background:{p.primary_soft}; color:{p.primary};
+    border:1px solid {p.border}; border-radius:8px; padding:0 10px; font-weight:700;
+}}
+QPushButton#queuePrimaryAction:hover {{ border-color:{p.primary}; background:{p.primary_soft}; }}
+QPushButton#queueSecondaryAction, QToolButton#queueActionMenu, QToolButton#queueMoreActionsButton {{
+    min-height:30px; color:{p.text_secondary}; background:{p.surface};
+    border:1px solid {p.border}; border-radius:8px; padding:0 9px; font-weight:500;
+}}
+QPushButton#queueSecondaryAction:hover, QToolButton#queueActionMenu:hover,
+QToolButton#queueMoreActionsButton:hover {{
+    color:{p.text_primary}; background:{p.surface}; border-color:{p.border_strong};
 }}
 QFrame#providerPanelHeader {{
     background:transparent; border:0; border-bottom:1px solid {p.border};
 }}
-QFrame#providerPanel {{ background:{p.surface}; border:0; }}
+QFrame#providerPanel {{ background:{p.canvas}; border:0; }}
+QFrame#providerSection, QFrame#collapsibleSection {{
+    background:{p.surface}; border:1px solid {p.border}; border-radius:12px;
+}}
+QToolButton#providerSectionHeader, QToolButton#sectionHeader {{
+    min-height:30px; background:transparent; color:{p.text_primary}; border:0;
+    border-radius:8px; padding:4px 7px; font-weight:650;
+}}
+QToolButton#providerSectionHeader:hover, QToolButton#sectionHeader:hover {{ background:{p.surface_secondary}; }}
+QLabel#formLabel {{ color:{p.text_muted}; font-size:10px; font-weight:600; }}
+QFrame#providerFieldRow QLineEdit, QFrame#providerFieldRow QComboBox,
+QFrame#collapsibleSection QLineEdit, QFrame#collapsibleSection QComboBox,
+QFrame#collapsibleSection QSpinBox, QFrame#collapsibleSection QDoubleSpinBox {{
+    min-height:30px; background:{p.surface}; color:{p.text_primary}; border:1px solid {p.border};
+    border-radius:8px; padding:0 8px;
+}}
 QTabWidget#leftWorkspaceTabs::pane, QTabWidget#rightInspectorTabs::pane {{
-    background:{p.surface}; border:1px solid {p.border}; border-radius:9px;
+    background:{p.canvas}; border:0;
 }}
 QTabWidget#leftWorkspaceTabs QTabBar::tab, QTabWidget#rightInspectorTabs QTabBar::tab {{
     background:transparent; border:0; border-bottom:2px solid transparent;
-    padding:7px 10px; color:{p.text_secondary};
+    padding:8px 11px; color:{p.text_secondary}; font-size:12px; font-weight:600;
 }}
 QTabWidget#leftWorkspaceTabs QTabBar::tab:selected,
 QTabWidget#rightInspectorTabs QTabBar::tab:selected {{
     color:{p.primary}; border-bottom-color:{p.primary};
 }}
-QFrame#integratedDockTitle {{ background:transparent; border:0; }}
-QToolButton#queueMoreActionsButton {{
-    color:{p.text_secondary}; background:{p.surface}; border:1px solid {p.border_strong};
-    border-radius:7px; padding:5px 8px;
+QFrame#selectedRowCard, QGroupBox#selectedRowCard {{
+    background:{p.surface}; border:1px solid {p.border}; border-radius:12px;
 }}
-QToolButton#queueMoreActionsButton:hover {{ background:{p.surface_secondary}; }}
+QFrame#integratedDockTitle {{ background:transparent; border:0; }}
+QFrame#emptyState, QWidget#emptyState {{
+    background:{p.surface}; border:1px solid {p.border}; border-radius:14px;
+}}
+QFrame#emptyState QLabel, QWidget#emptyState QLabel {{
+    background:transparent; border:0; color:{p.text_secondary};
+}}
+QFrame#emptyState QPushButton, QWidget#emptyState QPushButton {{
+    min-height:34px; border-radius:8px; padding:0 11px;
+}}
+QFrame#emptyState QPushButton[primary="true"], QWidget#emptyState QPushButton[primary="true"] {{
+    background:{p.primary}; color:{p.text_inverse}; border-color:{p.primary}; font-weight:700;
+}}
+QTableView#queueTable, QTableWidget#queueTable {{
+    background:{p.surface}; alternate-background-color:{p.surface_secondary};
+    border:0; gridline-color:{p.border}; selection-background-color:{p.primary_soft};
+    selection-color:{p.text_primary};
+}}
+QTableView#queueTable QHeaderView::section, QTableWidget#queueTable QHeaderView::section {{
+    background:{p.surface_secondary}; color:{p.text_secondary}; border:0;
+    border-bottom:1px solid {p.border}; padding:7px 8px; font-weight:700;
+}}
+QTabWidget#activityTabs::pane {{ border:0; background:transparent; }}
+QTabWidget#activityTabs QTabBar::tab {{
+    background:transparent; border:0; border-top:2px solid transparent;
+    padding:7px 12px; color:{p.text_muted};
+}}
+QTabWidget#activityTabs QTabBar::tab:selected {{ color:{p.primary}; border-top-color:{p.primary}; }}
+QStatusBar {{ background:{p.surface}; color:{p.text_muted}; border-top:1px solid {p.border}; }}
 """.strip()

@@ -764,6 +764,8 @@ class MainWindow(QMainWindow):
             for widget in self.findChildren(cls): widget.setMinimumHeight(metrics.control_height)
         if hasattr(self,'application_shell'): self.application_shell.apply_density(density)
         if hasattr(self,'queue_workspace'): self.queue_workspace.apply_density(density)
+        if hasattr(self,'main_workspace_modernizer'):
+            self.main_workspace_modernizer.reapply_visual_geometry()
         if hasattr(self,'main_toolbar'):
             # Density changes padding and control rhythm, but the shared toolbar
             # keeps its established 38–42 px shell contract.
