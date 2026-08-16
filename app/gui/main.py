@@ -57,6 +57,7 @@ from app.services.pronunciation_audit_service import PronunciationAuditTrailServ
 from app.services.pronunciation_readiness_service import PronunciationReadinessService
 from app.services.launch_assurance_service import LaunchAssuranceContextChanged, LaunchAssuranceService
 from app.services.intelligent_tts_execution_service import IntelligentTTSExecutionDrift, IntelligentTTSExecutionService
+from app.services.intelligent_tts_run_ledger_service import IntelligentTTSRunLedgerService
 from app.models.pronunciation_audit import PronunciationAuditDraft
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -197,7 +198,7 @@ class MainWindow(QMainWindow):
         self.audio_player_service=context.audio_player_service
         self.pronunciation_audit_service=PronunciationAuditTrailService()
         self.pronunciation_readiness_service=PronunciationReadinessService()
-        self.launch_assurance_service=LaunchAssuranceService(); self.last_launch_assurance=None; self.intelligent_tts_execution_service=IntelligentTTSExecutionService(); self.last_intelligent_tts_execution=None
+        self.launch_assurance_service=LaunchAssuranceService(); self.last_launch_assurance=None; self.intelligent_tts_execution_service=IntelligentTTSExecutionService(); self.last_intelligent_tts_execution=None; self.intelligent_tts_run_ledger_service=IntelligentTTSRunLedgerService(); self.current_intelligent_tts_ledger=None; self.last_intelligent_tts_ledger=None
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
         self.crash_recovery_service=context.crash_recovery_service; self.safe_mode=self.crash_recovery_service.safe_mode
@@ -2921,7 +2922,7 @@ class MainWindow(QMainWindow):
                 if path.exists(): self.context.desktop_service.open_path(path)
         except Exception as e: self.notifications.error('Project continuity',str(e))
     def close_project(self):
-        self.project_controller.close_project(); self.project_path=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
+        self.project_controller.close_project(); self.project_path=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.current_intelligent_tts_ledger=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
     def autosave(self):
         try:
             if self.project_controller.autosave_if_needed(generation_active=self.generation_controller.is_active): self.log.appendPlainText('Project auto-saved.'); self.update_window_title(); self.update_status_bar()
@@ -3255,6 +3256,11 @@ class MainWindow(QMainWindow):
             self.log.appendPlainText(
                 f'Intelligent TTS execution binding: {execution_binding.manifest_digest[:16]} · {execution_binding.request_count} request(s)'
             )
+            self.begin_intelligent_tts_run_ledger(
+                execution_binding,
+                run_id,
+                project.project_key,
+            )
         except IntelligentTTSExecutionDrift as exc:
             if self.current_budget_reservation_id:
                 try:
@@ -3302,6 +3308,57 @@ class MainWindow(QMainWindow):
         self.sync_execution_session('running')
         self.monitor_service.start_run(self.generation_controller.generation_jobs(),provider=s.provider,output_dir=project.output_path,settings=s,project_key=project.project_key); self.set_generation_controls(active=True); self.generation_status_strip.set_generation_state('Running',f'{len(self.generation_controller.generation_jobs()):,} jobs queued · {run_id}'); self.update_status_bar()
         self.context.product_activity_service.activity('generation','Generation started',f'{len(self.generation_controller.generation_jobs()):,} job(s) queued · {run_id}.',project_id=current.project_id if current else None,metadata={'run_id':run_id,'launch_receipt':str(receipt or ''),'launch_assurance':launch_assurance.preflight_context_fingerprint[:16]})
+    def begin_intelligent_tts_run_ledger(self,binding,run_id,project_key):
+        try:
+            ledger_root=Path(self.context.container.runtime.reports_dir)/'intelligent-tts-run-ledger'
+            ledger=self.intelligent_tts_run_ledger_service.begin(
+                binding,
+                run_id=run_id,
+                project_key=project_key,
+                evidence_root=ledger_root,
+                started_at=self.generation_started_at,
+            )
+            self.current_intelligent_tts_ledger=ledger.path
+            self.last_intelligent_tts_ledger=ledger.path
+            self.log.appendPlainText(f'Intelligent TTS run ledger: {ledger.run_id} · {ledger.path}')
+            return ledger
+        except Exception as exc:
+            self.current_intelligent_tts_ledger=None
+            self.log.appendPlainText(f'Intelligent TTS run ledger initialization failed: {exc}')
+            return None
+    def sync_intelligent_tts_run_ledger(self,status,metrics=None):
+        if not self.current_intelligent_tts_ledger or not status: return None
+        try:
+            ledger=self.intelligent_tts_run_ledger_service.record_status(
+                self.current_intelligent_tts_ledger,
+                status,
+                metrics=metrics,
+            )
+            self.last_intelligent_tts_ledger=ledger.path
+            return ledger
+        except Exception as exc:
+            self.log.appendPlainText(f'Intelligent TTS run ledger update failed: {exc}')
+            return None
+    def finalize_intelligent_tts_run_ledger(self,result,summary=None,session=None,receipt=None,report_path=None):
+        if not self.current_intelligent_tts_ledger: return None
+        ledger_path=self.current_intelligent_tts_ledger
+        try:
+            ledger=self.intelligent_tts_run_ledger_service.finalize(
+                ledger_path,
+                result,
+                summary=summary,
+                execution_session_path=getattr(session,'path',self.current_execution_session),
+                execution_receipt_path=getattr(receipt,'path',self.current_execution_receipt),
+                report_path=report_path,
+            )
+            self.last_intelligent_tts_ledger=ledger.path
+            self.log.appendPlainText(f'Intelligent TTS run ledger finalized: {ledger.run_id} · {ledger.status} · {ledger.ledger_digest[:16]}')
+            return ledger
+        except Exception as exc:
+            self.log.appendPlainText(f'Intelligent TTS run ledger finalization failed: {exc}')
+            return None
+        finally:
+            self.current_intelligent_tts_ledger=None
     def sync_execution_session(self,status=None):
         if not self.current_run_id: return None
         try:
@@ -3317,11 +3374,12 @@ class MainWindow(QMainWindow):
                 retry_events=int(metrics.get('retry_events',0)),
             )
             self.current_execution_session=session.path
+            self.sync_intelligent_tts_run_ledger(status,metrics)
             return session
         except Exception as exc:
             self.log.appendPlainText(f'Execution session update failed: {exc}')
             return None
-    def finish_execution_session(self,result,report_path=None):
+    def finish_execution_session(self,result,report_path=None,summary=None):
         if not self.current_run_id: return None
         try:
             project=self.project_controller.generation_context(self.out.text()); settings=self.settings(); metrics=self.monitor_service.report_metrics()
@@ -3336,6 +3394,7 @@ class MainWindow(QMainWindow):
                 monitor_metrics=metrics,
             )
             self.current_execution_session=session.path
+            receipt=None
             try:
                 receipt=self.context.generation_execution_receipt_service.create_receipt(
                     session=session,
@@ -3379,9 +3438,21 @@ class MainWindow(QMainWindow):
                 except Exception as exc:
                     self.log.appendPlainText(f'Resume receipt finalization failed: {exc}')
             self.log.appendPlainText(f'Execution session finalized: {session.run_id} · {session.status}')
+            self.finalize_intelligent_tts_run_ledger(
+                result,
+                summary=summary,
+                session=session,
+                receipt=receipt,
+                report_path=report_path,
+            )
             return session
         except Exception as exc:
             self.log.appendPlainText(f'Execution session finalization failed: {exc}')
+            self.finalize_intelligent_tts_run_ledger(
+                result,
+                summary=summary,
+                report_path=report_path,
+            )
             return None
     def generation_failover(self,payload):
         source=str(payload.get('from_profile_name') or 'Current provider'); target=str(payload.get('to_profile_name') or 'No backup'); outcome=str(payload.get('outcome') or 'unknown'); filename=str(payload.get('filename') or 'job'); category=str(payload.get('failure_category') or 'unknown'); code=str(payload.get('error_code') or 'unknown'); message=f'Orchestration {outcome}: {filename} · {source} → {target} · {category}/{code}'; self.log.appendPlainText(message); self.statusBar().showMessage(message,8000); self.notification_center.refresh() if hasattr(self,'notification_center') else None; self.activity_timeline.refresh() if hasattr(self,'activity_timeline') else None
@@ -3967,10 +4038,10 @@ class MainWindow(QMainWindow):
         if failed>0:
             self.log.appendPlainText('Cross-provider recovery is user-controlled. Open Generation → Multi-provider Recovery to review alternate routes; no provider switch or restart will occur automatically.')
         result='cancelled' if stopped else 'partial' if failed and completed else 'failed' if failed else 'completed'
-        self.finish_execution_session(result,report.report_html)
+        self.finish_execution_session(result,report.report_html,s)
         self.context.health_service.invalidate(); self.notify_report_created(report,s); self.update_status_bar()
     def failed(self,e):
-        self.monitor_service.finish({'stopped':True}); self.set_generation_controls(active=False); self.generation_status_strip.set_generation_state('Failed',f'{e} · {self.current_run_id or "run"}'); self.dashboard(); self.run_logs.append(f'FAILED: {e}'); self.log.appendPlainText('Cross-provider recovery is user-controlled. Open Generation → Multi-provider Recovery; no alternate provider or generation restart will be applied automatically.'); report=self.create_report({'total':len(self.generation_controller.generation_jobs()),'completed':0,'skipped':0,'failed':1,'stopped':True,'error':e}); self.finish_execution_session('failed',report.report_html); self.context.product_activity_service.notify('error','Generation failed',str(e)); self.context.product_activity_service.activity('generation','Generation failed',str(e),metadata={'run_id':self.current_run_id or ''}); self.notify_report_created(report,{'completed':0,'skipped':0,'failed':1}); self.notifications.error('Error',e); self.update_status_bar()
+        self.monitor_service.finish({'stopped':True}); self.set_generation_controls(active=False); self.generation_status_strip.set_generation_state('Failed',f'{e} · {self.current_run_id or "run"}'); self.dashboard(); self.run_logs.append(f'FAILED: {e}'); self.log.appendPlainText('Cross-provider recovery is user-controlled. Open Generation → Multi-provider Recovery; no alternate provider or generation restart will be applied automatically.'); failure_summary={'total':len(self.generation_controller.generation_jobs()),'completed':0,'skipped':0,'failed':1,'stopped':True,'error':e}; report=self.create_report(failure_summary); self.finish_execution_session('failed',report.report_html,failure_summary); self.context.product_activity_service.notify('error','Generation failed',str(e)); self.context.product_activity_service.activity('generation','Generation failed',str(e),metadata={'run_id':self.current_run_id or ''}); self.notify_report_created(report,{'completed':0,'skipped':0,'failed':1}); self.notifications.error('Error',e); self.update_status_bar()
     def closeEvent(self,event):
         if hasattr(self,'performance_sample_timer'): self.performance_sample_timer.stop()
         if self.performance_stability_service.active_run_id: self.performance_stability_service.finish_observation(status='interrupted')
