@@ -493,7 +493,10 @@ class MainWindow(QMainWindow):
         self.actions_by_name['Pronunciation dictionaries'].setShortcut(QKeySequence('Ctrl+Shift+D'))
     def build_view_menu(self):
         self.view_menu=QMenu('View',self); self.menuBar().addMenu(self.view_menu); theme_menu=self.view_menu.addMenu('Theme'); self.theme_actions={}
-        for name in self.theme_manager.available_themes():
+        available_themes=set(self.theme_manager.available_themes())
+        for name in ("System","Light","Dark"):
+            if name not in available_themes:
+                continue
             action=theme_menu.addAction(name); action.setCheckable(True); action.triggered.connect(lambda _checked,n=name:self.apply_theme(n)); self.theme_actions[name]=action
         self.visual_design_system_action=self.view_menu.addAction('Visual Design System 2.0…')
         self.visual_design_system_action.setShortcut(QKeySequence('Ctrl+Alt+8'))

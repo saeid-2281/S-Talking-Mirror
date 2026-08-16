@@ -16,6 +16,30 @@ from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QFontDialog, Q
 from app.gui.visual_design_system_v2 import ACTIVE_CONCEPT, SemanticPalette, palette_for
 
 
+THEME_SURFACE_COHERENCE_THEMES = ("System", "Light", "Dark")
+THEME_SURFACE_CANVAS_OBJECTS = (
+    "applicationShell",
+    "workspaceLeftDock",
+    "workspaceRightDock",
+    "generationMonitorDock",
+    "notificationCenterDock",
+    "textStudioDock",
+    "leftWorkspaceTabs",
+    "rightInspectorTabs",
+    "providerScrollArea",
+    "monitorScroll",
+)
+THEME_SURFACE_RAISED_OBJECTS = (
+    "providerSection",
+    "collapsibleSection",
+    "selectedRowCard",
+    "monitorHero",
+    "monitorProgressCard",
+    "monitorOutputCard",
+    "monitorFailureCard",
+)
+
+
 WCAG_AA_NORMAL_TEXT = 4.5
 WCAG_UI_COMPONENT = 3.0
 
@@ -166,6 +190,31 @@ class ThemeAccessibilityModernizer(QObject):
         for widget in application.topLevelWidgets():
             if isinstance(widget, QDialog) and not isinstance(widget, (QFileDialog, QFontDialog)):
                 self._apply_properties(widget)
+        self._apply_surface_coherence_properties()
+
+    def _apply_surface_coherence_properties(self) -> None:
+        for attribute in (
+            "application_shell",
+            "left_dock",
+            "right_dock",
+            "monitor_dock",
+            "notification_dock",
+            "text_studio_dock",
+            "left_tabs",
+            "right_tabs",
+        ):
+            widget = getattr(self.owner, attribute, None)
+            if isinstance(widget, QWidget):
+                widget.setProperty("a121SurfaceFamily", "canvas")
+                widget.setProperty("a121ThemeSet", "System|Light|Dark")
+        for attribute in (
+            "queue_workspace",
+            "selected_row_panel",
+        ):
+            widget = getattr(self.owner, attribute, None)
+            if isinstance(widget, QWidget):
+                widget.setProperty("a121SurfaceFamily", "surface")
+                widget.setProperty("a121ThemeSet", "System|Light|Dark")
 
     def _apply_properties(self, widget: QWidget) -> None:
         widget.setProperty("a11ThemeMode", "dark" if self._is_dark else "light")
@@ -173,6 +222,69 @@ class ThemeAccessibilityModernizer(QObject):
         widget.setProperty("a11ContrastMode", "high" if self._high_contrast else "standard")
         widget.setProperty("a11FocusMode", "enhanced" if self._enhanced_focus else "standard")
         widget.setProperty("a11ReducedMotion", self._reduced_motion)
+
+
+
+def theme_surface_coherence_stylesheet(
+    *,
+    is_dark: bool,
+    concept_key: str = ACTIVE_CONCEPT,
+) -> str:
+    """Return the final A12.1 three-theme surface reconciliation overlay."""
+
+    palette = palette_for(is_dark=is_dark, concept_key=concept_key)
+    return f"""
+/* Roadmap 2 A12.1 — Three-Theme Surface Coherence */
+QWidget#applicationShell,
+QDockWidget#workspaceLeftDock,
+QDockWidget#workspaceRightDock,
+QDockWidget#generationMonitorDock,
+QDockWidget#notificationCenterDock,
+QDockWidget#textStudioDock,
+QTabWidget#leftWorkspaceTabs,
+QTabWidget#rightInspectorTabs,
+QScrollArea#providerScrollArea,
+QScrollArea#monitorScroll {{
+    background:{palette.canvas};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+QTabWidget#leftWorkspaceTabs::pane,
+QTabWidget#rightInspectorTabs::pane {{
+    background:{palette.canvas};
+    border-color:{palette.border};
+}}
+QScrollArea#providerScrollArea > QWidget > QWidget,
+QScrollArea#monitorScroll > QWidget > QWidget {{
+    background:{palette.canvas};
+    color:{palette.text_primary};
+}}
+QFrame#providerPanel {{
+    background:{palette.canvas};
+    color:{palette.text_primary};
+}}
+QFrame#providerSection,
+QFrame#collapsibleSection,
+QFrame#selectedRowCard,
+QGroupBox#selectedRowCard,
+QFrame#monitorHero,
+QFrame#monitorProgressCard,
+QFrame#monitorOutputCard,
+QFrame#monitorFailureCard {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+QWidget#monitorSectionPage {{
+    background:{palette.canvas};
+    color:{palette.text_primary};
+}}
+QFrame#integratedDockTitle {{
+    background:transparent;
+    color:{palette.text_secondary};
+    border:0;
+}}
+""".strip()
 
 
 def theme_accessibility_stylesheet(
@@ -241,4 +353,7 @@ QFrame#providerSection, QFrame#collapsibleSection, QFrame#selectedRowCard,
 QGroupBox#selectedRowCard, QDialog[a10Modernized="true"] QGroupBox[visualRole="formSection"] {{
     border-color:{boundary};
 }}
-""".strip()
+""".strip() + "\n" + theme_surface_coherence_stylesheet(
+        is_dark=is_dark,
+        concept_key=concept_key,
+    )
