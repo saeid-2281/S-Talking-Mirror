@@ -56,6 +56,7 @@ from app.services.pronunciation_assurance_service import PronunciationAssuranceS
 from app.services.pronunciation_audit_service import PronunciationAuditTrailService
 from app.services.pronunciation_readiness_service import PronunciationReadinessService
 from app.services.launch_assurance_service import LaunchAssuranceContextChanged, LaunchAssuranceService
+from app.services.intelligent_tts_execution_service import IntelligentTTSExecutionDrift, IntelligentTTSExecutionService
 from app.models.pronunciation_audit import PronunciationAuditDraft
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -196,7 +197,7 @@ class MainWindow(QMainWindow):
         self.audio_player_service=context.audio_player_service
         self.pronunciation_audit_service=PronunciationAuditTrailService()
         self.pronunciation_readiness_service=PronunciationReadinessService()
-        self.launch_assurance_service=LaunchAssuranceService(); self.last_launch_assurance=None
+        self.launch_assurance_service=LaunchAssuranceService(); self.last_launch_assurance=None; self.intelligent_tts_execution_service=IntelligentTTSExecutionService(); self.last_intelligent_tts_execution=None
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
         self.crash_recovery_service=context.crash_recovery_service; self.safe_mode=self.crash_recovery_service.safe_mode
@@ -3236,6 +3237,38 @@ class MainWindow(QMainWindow):
                 self.current_budget_reservation_id=None
             self.finish_execution_session('cancelled')
             self.reject_launch_context_change(exc)
+            return
+        generation_jobs=self.generation_controller.generation_jobs()
+        try:
+            execution_binding=self.intelligent_tts_execution_service.prepare(
+                generation_jobs,
+                s,
+                project.output_path,
+            )
+            self.intelligent_tts_execution_service.verify_unchanged(
+                execution_binding,
+                generation_jobs,
+                s,
+                project.output_path,
+            )
+            self.last_intelligent_tts_execution=execution_binding
+            self.log.appendPlainText(
+                f'Intelligent TTS execution binding: {execution_binding.manifest_digest[:16]} · {execution_binding.request_count} request(s)'
+            )
+        except IntelligentTTSExecutionDrift as exc:
+            if self.current_budget_reservation_id:
+                try:
+                    self.context.generation_budget_guard_service.release_reservation(
+                        self.current_budget_reservation_id,
+                        reason='intelligent_tts_execution_drift',
+                    )
+                except Exception as release_exc:
+                    self.log.appendPlainText(f'Budget reservation release failed: {release_exc}')
+                self.current_budget_reservation_id=None
+            self.finish_execution_session('cancelled')
+            self.generation_status_strip.set_generation_state('Ready','Execution context changed')
+            self.notifications.warning('Intelligent TTS execution',str(exc))
+            self.statusBar().showMessage('Generation was not started because the approved TTS request changed.',7000)
             return
         if not self.generation_controller.start(self,s,project.output_path,project.project_key):
             if self.current_budget_reservation_id:

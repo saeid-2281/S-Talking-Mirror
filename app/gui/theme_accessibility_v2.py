@@ -11,7 +11,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import QEvent, QObject
-from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QFontDialog, QWidget
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import (
+    QAbstractScrollArea,
+    QApplication,
+    QDialog,
+    QFileDialog,
+    QFontDialog,
+    QTabWidget,
+    QWidget,
+)
 
 from app.gui.visual_design_system_v2 import ACTIVE_CONCEPT, SemanticPalette, palette_for
 
@@ -192,6 +201,54 @@ class ThemeAccessibilityModernizer(QObject):
                 self._apply_properties(widget)
         self._apply_surface_coherence_properties()
 
+    def _set_surface_family(self, widget: QWidget, family: str) -> None:
+        """Apply one semantic surface family to a structural runtime root.
+
+        A12.1 originally tagged the dock roots but only styled a subset of
+        object names.  Real runtime screenshots showed that tab pages and
+        scroll-area viewports could therefore retain the legacy navy palette.
+        B2 makes the semantic property authoritative and repolishes only when
+        the family is first attached.
+        """
+
+        changed = widget.property("a121SurfaceFamily") != family
+        widget.setProperty("a121SurfaceFamily", family)
+        widget.setProperty("a121ThemeSet", "System|Light|Dark")
+
+        semantic = palette_for(is_dark=self._is_dark, concept_key=ACTIVE_CONCEPT)
+        background = semantic.canvas if family == "canvas" else semantic.surface
+        palette = widget.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(background))
+        if isinstance(widget, QAbstractScrollArea):
+            palette.setColor(QPalette.ColorRole.Base, QColor(background))
+        widget.setPalette(palette)
+        widget.setAutoFillBackground(True)
+
+        if changed:
+            style = widget.style()
+            if style is not None:
+                style.unpolish(widget)
+                style.polish(widget)
+        widget.update()
+
+    def _tag_tab_pages(self, tabs: QWidget | None) -> None:
+        if not isinstance(tabs, QTabWidget):
+            return
+        selected_row = getattr(self.owner, "selected_row_panel", None)
+        for index in range(tabs.count()):
+            page = tabs.widget(index)
+            if not isinstance(page, QWidget):
+                continue
+            family = "surface" if page is selected_row else "canvas"
+            self._set_surface_family(page, family)
+            if isinstance(page, QAbstractScrollArea):
+                viewport = page.viewport()
+                if isinstance(viewport, QWidget):
+                    self._set_surface_family(viewport, family)
+                content = page.widget() if hasattr(page, "widget") else None
+                if isinstance(content, QWidget):
+                    self._set_surface_family(content, family)
+
     def _apply_surface_coherence_properties(self) -> None:
         for attribute in (
             "application_shell",
@@ -202,19 +259,25 @@ class ThemeAccessibilityModernizer(QObject):
             "text_studio_dock",
             "left_tabs",
             "right_tabs",
+            "provider_panel",
+            "monitor_scroll",
         ):
             widget = getattr(self.owner, attribute, None)
             if isinstance(widget, QWidget):
-                widget.setProperty("a121SurfaceFamily", "canvas")
-                widget.setProperty("a121ThemeSet", "System|Light|Dark")
+                self._set_surface_family(widget, "canvas")
         for attribute in (
             "queue_workspace",
             "selected_row_panel",
         ):
             widget = getattr(self.owner, attribute, None)
             if isinstance(widget, QWidget):
-                widget.setProperty("a121SurfaceFamily", "surface")
-                widget.setProperty("a121ThemeSet", "System|Light|Dark")
+                self._set_surface_family(widget, "surface")
+
+        # The actual Provider workspace is a scroll-area page supplied by the
+        # extracted ProviderWorkspace widget, not necessarily owner.provider_scroll.
+        # Enumerating pages closes the gap that remained visible in Dark mode.
+        self._tag_tab_pages(getattr(self.owner, "left_tabs", None))
+        self._tag_tab_pages(getattr(self.owner, "right_tabs", None))
 
     def _apply_properties(self, widget: QWidget) -> None:
         widget.setProperty("a11ThemeMode", "dark" if self._is_dark else "light")
@@ -235,6 +298,17 @@ def theme_surface_coherence_stylesheet(
     palette = palette_for(is_dark=is_dark, concept_key=concept_key)
     return f"""
 /* Roadmap 2 A12.1 — Three-Theme Surface Coherence */
+/* Roadmap 2 B2 — Runtime structural roots use the semantic property itself. */
+*[a121SurfaceFamily="canvas"] {{
+    background:{palette.canvas};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+*[a121SurfaceFamily="surface"] {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
 QWidget#applicationShell,
 QDockWidget#workspaceLeftDock,
 QDockWidget#workspaceRightDock,

@@ -222,13 +222,47 @@ QFrame#metricPill[active="false"] {
 
         if self._monitor_tab_active() and dock.isVisible():
             try:
+                # B2 can repolish the dock while attaching semantic surface
+                # properties. Some Qt/Windows layouts then remember the
+                # historical 290px minimum as the actual dock width and ignore
+                # a single resizeDocks() request. Temporarily clamping the dock
+                # to the requested width gives QMainWindow's dock layout an
+                # unambiguous geometry request; the public minimum-width
+                # contract is restored immediately afterwards.
+                historical_minimum = 290
+                target_width = self.MONITOR_TARGET_WIDTH
+
+                dock.setMinimumWidth(target_width)
+                dock.setMaximumWidth(target_width)
+                dock.updateGeometry()
+                layout = self.owner.layout()
+                if layout is not None:
+                    layout.activate()
+
                 self.owner.resizeDocks(
                     [dock],
-                    [self.MONITOR_TARGET_WIDTH],
+                    [target_width],
                     Qt.Orientation.Horizontal,
                 )
-                dock.setProperty("visualFidelityRequestedWidth", self.MONITOR_TARGET_WIDTH)
+                dock.resize(target_width, dock.height())
+
+                dock.setMinimumWidth(historical_minimum)
+                dock.setMaximumWidth(target_width)
+                dock.updateGeometry()
+                self.owner.resizeDocks(
+                    [dock],
+                    [target_width],
+                    Qt.Orientation.Horizontal,
+                )
+                dock.resize(target_width, dock.height())
+                if layout is not None:
+                    layout.activate()
+
+                dock.setProperty("visualFidelityRequestedWidth", target_width)
             except (AttributeError, RuntimeError):
+                # The hardener is presentation-only. A deleted/closing Qt
+                # wrapper must not affect application shutdown or workflow
+                # authority.
                 pass
 
     def refresh_provider_overview(self) -> None:
