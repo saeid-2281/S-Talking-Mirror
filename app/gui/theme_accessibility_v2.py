@@ -444,6 +444,145 @@ QDockWidget#workspaceRightDock QToolButton#sectionHeader {{
 """.strip()
 
 
+
+DARK_THEME_LEGACY_SURFACE_COLORS = (
+    "#0B1220",
+    "#0F1B31",
+    "#1C2C46",
+    "#111827",
+    "#172033",
+    "#071326",
+    "#0A0F1C",
+)
+
+
+def dark_theme_completion_stylesheet(
+    *,
+    is_dark: bool,
+    concept_key: str = ACTIVE_CONCEPT,
+) -> str:
+    """Return the final dark-only Soft Professional surface completion layer.
+
+    A12.1/B2/B4 established semantic surface families, but real B5 runtime
+    evidence still showed broad legacy navy slabs in the Provider workspace,
+    queue command rows, selected-row inspector, and Generation Monitor.  This
+    last layer uses explicit high-specificity selectors for those structural
+    hosts.  Small semantic action/status accents remain palette-driven.
+    """
+
+    if not is_dark:
+        return ""
+
+    palette = palette_for(is_dark=True, concept_key=concept_key)
+    return f"""
+/* Roadmap 2 B6 Hotfix 2 — Dark Theme Completion / Legacy Navy Surface Removal */
+QWidget#applicationShell,
+QDockWidget#workspaceLeftDock,
+QDockWidget#workspaceRightDock,
+QDockWidget#generationMonitorDock,
+QDockWidget#notificationCenterDock,
+QDockWidget#textStudioDock,
+QTabWidget#leftWorkspaceTabs,
+QTabWidget#rightInspectorTabs,
+QScrollArea#providerScrollArea,
+QScrollArea#monitorScroll,
+QWidget#monitorSectionPage {{
+    background:{palette.canvas};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+QTabWidget#leftWorkspaceTabs::pane,
+QTabWidget#rightInspectorTabs::pane {{
+    background:{palette.canvas};
+    border:1px solid {palette.border};
+}}
+QTabWidget#leftWorkspaceTabs QTabBar::tab,
+QTabWidget#rightInspectorTabs QTabBar::tab {{
+    background:{palette.canvas};
+    color:{palette.text_secondary};
+    border-color:{palette.border};
+}}
+QTabWidget#leftWorkspaceTabs QTabBar::tab:selected,
+QTabWidget#rightInspectorTabs QTabBar::tab:selected {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border-color:{palette.border_strong};
+}}
+QFrame#providerPanel,
+QFrame#providerSection,
+QFrame#collapsibleSection,
+QFrame#selectedRowCard,
+QGroupBox#selectedRowCard,
+QFrame#monitorHero,
+QFrame#monitorProgressCard,
+QFrame#monitorOutputCard,
+QFrame#monitorFailureCard,
+QFrame#queueWorkspace,
+QFrame#sourcesWorkspacePanel {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+QFrame#queueWorkspaceHeading,
+QFrame#queueRangeBar,
+QFrame#queueCommandBar,
+QFrame#sourcesWorkspaceHeader,
+QFrame#sourcesActionBar,
+QFrame#projectContextStrip,
+QFrame#metricsStrip {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+QFrame#providerFieldRow,
+QWidget#sectionContent {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+QPushButton#connectionStatus {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border:1px solid {palette.border};
+}}
+QPushButton#connectionStatus:hover {{
+    background:{palette.surface};
+    border-color:{palette.border_strong};
+}}
+QDockWidget#workspaceLeftDock QToolButton#sectionHeader:checked,
+QDockWidget#workspaceRightDock QToolButton#sectionHeader:checked {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+QTableView,
+QTableWidget,
+QListView,
+QTreeView,
+QPlainTextEdit,
+QTextEdit {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+    selection-background-color:{palette.surface_secondary};
+    selection-color:{palette.text_primary};
+}}
+QAbstractItemView::item:selected {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border-left:2px solid {palette.border_strong};
+}}
+QLineEdit,
+QComboBox,
+QAbstractSpinBox {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+    selection-background-color:{palette.surface};
+    selection-color:{palette.text_primary};
+}}
+""".strip()
+
 def theme_accessibility_stylesheet(
     *,
     is_dark: bool,
@@ -511,6 +650,9 @@ QGroupBox#selectedRowCard, QDialog[a10Modernized="true"] QGroupBox[visualRole="f
     border-color:{boundary};
 }}
 """.strip() + "\n" + theme_surface_coherence_stylesheet(
+        is_dark=is_dark,
+        concept_key=concept_key,
+    ) + "\n" + dark_theme_completion_stylesheet(
         is_dark=is_dark,
         concept_key=concept_key,
     )
