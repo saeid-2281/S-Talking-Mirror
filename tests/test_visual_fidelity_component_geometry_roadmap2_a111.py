@@ -48,14 +48,14 @@ def test_a111_toolbar_forces_one_canonical_icon_source_and_size(qt_app, tmp_path
     window = _window(tmp_path)
     hardener = window.visual_fidelity_hardener
 
-    assert window.main_toolbar.iconSize() == QSize(20, 20)
+    assert window.main_toolbar.iconSize() == QSize(24, 24)
     assert window.main_toolbar.property("visualFidelityIcons") == "canonical"
     for action_name, icon_name in hardener.TOOLBAR_ICON_MAP.items():
         action = window.actions_by_name[action_name]
         assert not action.icon().isNull()
         assert action.property("visualFidelityIcon") == icon_name
-        assert action.icon().actualSize(QSize(20, 20)).width() <= 20
-        assert action.icon().actualSize(QSize(20, 20)).height() <= 20
+        assert action.icon().actualSize(QSize(24, 24)).width() <= 24
+        assert action.icon().actualSize(QSize(24, 24)).height() <= 24
     window.close()
 
 
@@ -64,7 +64,7 @@ def test_a111_toolbar_buttons_share_aligned_geometry(qt_app, tmp_path: Path) -> 
     buttons = window.main_toolbar.findChildren(QToolButton)
 
     assert buttons
-    assert all(button.iconSize() == QSize(20, 20) for button in buttons)
+    assert all(button.iconSize() == QSize(24, 24) for button in buttons)
     assert all(button.minimumHeight() >= 32 for button in buttons)
     assert all(button.maximumHeight() <= 34 for button in buttons)
     assert all(button.property("visualFidelityAlignment") == "toolbar" for button in buttons)

@@ -29,6 +29,7 @@ from app.bootstrap import create_application_context
 from app.config.runtime import RuntimeConfig
 from app.container import create_service_container
 from app.gui.main import MainWindow
+from app.gui.runtime_font_support import ensure_readable_runtime_font
 from app.gui.theme_accessibility_v2 import (
     assert_soft_professional_contrast_contract,
     soft_professional_contrast_audit,
@@ -131,7 +132,7 @@ def _metric_contract(window: MainWindow) -> tuple[bool, str]:
 
 def _toolbar_contract(window: MainWindow) -> tuple[bool, str]:
     hardener = window.visual_fidelity_hardener
-    if window.main_toolbar.iconSize() != QSize(20, 20):
+    if window.main_toolbar.iconSize() != QSize(24, 24):
         return False, f"toolbar iconSize={window.main_toolbar.iconSize()}"
     for action_name, icon_name in hardener.TOOLBAR_ICON_MAP.items():
         action = window.actions_by_name.get(action_name)
@@ -144,9 +145,9 @@ def _toolbar_contract(window: MainWindow) -> tuple[bool, str]:
     buttons = window.main_toolbar.findChildren(QToolButton)
     if not buttons:
         return False, "toolbar exposes no QToolButton controls"
-    if any(button.iconSize() != QSize(20, 20) for button in buttons):
+    if any(button.iconSize() != QSize(24, 24) for button in buttons):
         return False, "toolbar button icon sizes are not uniform"
-    return True, f"{len(hardener.TOOLBAR_ICON_MAP)} canonical actions at 20x20"
+    return True, f"{len(hardener.TOOLBAR_ICON_MAP)} canonical actions at 24x24"
 
 
 def _provider_overview_contract(window: MainWindow) -> tuple[bool, str]:
@@ -225,6 +226,17 @@ def certify_window(
     output_dir.mkdir(parents=True, exist_ok=True)
     checks: list[CertificationCheck] = []
     evidence: list[dict[str, Any]] = []
+
+    font_ok, font_family = ensure_readable_runtime_font(
+        application,
+        require_explicit_font=True,
+    )
+    _check(
+        checks,
+        "readable_runtime_font",
+        font_ok and bool(font_family),
+        f"family={font_family or 'unavailable'}",
+    )
 
     assert_soft_professional_contrast_contract()
     light_audit = soft_professional_contrast_audit(is_dark=False)

@@ -583,6 +583,237 @@ QAbstractSpinBox {{
 }}
 """.strip()
 
+
+def ux_reality_reconciliation_stylesheet(
+    *,
+    is_dark: bool,
+    concept_key: str = ACTIVE_CONCEPT,
+) -> str:
+    """Final Soft Professional shell layer used after real-screen review.
+
+    B6 Hotfix 2 removed known legacy navy literals, but manual review exposed
+    uncovered inspector/account surfaces plus brittle menu and toolbar states.
+    This layer is intentionally presentation-only and applies after every older
+    stylesheet so historical QSS cannot reintroduce large technical-blue slabs.
+    """
+
+    palette = palette_for(is_dark=is_dark, concept_key=concept_key)
+    common = f"""
+/* Roadmap 2 B6 Hotfix 3 — UX Reality Reconciliation / Soft Professional Shell */
+QMenuBar {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border:0;
+    border-bottom:1px solid {palette.border};
+    padding:3px 8px;
+}}
+QMenuBar::item {{
+    background:transparent;
+    color:{palette.text_primary};
+    border:1px solid transparent;
+    border-radius:7px;
+    margin:1px 2px;
+    padding:5px 10px;
+}}
+QMenuBar::item:selected {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+QMenuBar::item:pressed {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border-color:{palette.border_strong};
+}}
+QMenuBar::item:focus {{
+    border-color:transparent;
+}}
+QMenu {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border:1px solid {palette.border};
+    padding:5px;
+}}
+QMenu::item {{
+    background:transparent;
+    color:{palette.text_primary};
+    border:1px solid transparent;
+    border-radius:6px;
+    margin:1px 2px;
+    padding:6px 28px 6px 26px;
+}}
+QMenu::item:selected {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+QMenu::item:pressed, QMenu::item:checked {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+}}
+QToolBar#mainToolbar {{
+    background:{palette.surface};
+    border:0;
+    border-bottom:1px solid {palette.border};
+    spacing:6px;
+    padding:4px 10px;
+}}
+QToolBar#mainToolbar QToolButton {{
+    background:transparent;
+    color:{palette.text_primary};
+    border:1px solid transparent;
+    border-radius:8px;
+    min-height:32px;
+    padding:3px 9px;
+}}
+QToolBar#mainToolbar QToolButton:hover {{
+    background:{palette.surface_secondary};
+    border-color:{palette.border};
+}}
+QToolBar#mainToolbar QToolButton:pressed {{
+    background:{palette.surface_secondary};
+    border-color:{palette.border_strong};
+}}
+QToolButton#toolbarOverflowButton {{
+    min-width:36px;
+    min-height:32px;
+    padding:4px;
+}}
+QFrame#workspaceHero,
+QFrame#projectContextStrip,
+QFrame#metricsStrip,
+QFrame#queueWorkspace,
+QFrame#queueWorkspaceHeading,
+QFrame#queueRangeBar,
+QFrame#queueCommandBar,
+QFrame#queuePlanningRow,
+QFrame#queueWorkspaceFooter,
+QFrame#queueInspectorHeader,
+QFrame#queueInspectorCard,
+QFrame#queueInspectorActions,
+QFrame#providerPanel,
+QFrame#providerSection,
+QFrame#collapsibleSection,
+QFrame#monitorHero,
+QFrame#monitorProgressCard,
+QFrame#monitorOutputCard,
+QFrame#monitorFailureCard {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+QFrame#workspaceHero {{
+    border:1px solid {palette.border};
+    border-radius:12px;
+}}
+QFrame#queueInspectorCard,
+QFrame#providerSection,
+QFrame#collapsibleSection,
+QFrame#monitorProgressCard,
+QFrame#monitorOutputCard,
+QFrame#monitorFailureCard {{
+    border:1px solid {palette.border};
+    border-radius:10px;
+}}
+QPlainTextEdit#queueDetailsText,
+QPlainTextEdit#queueRetryHistory {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border:1px solid {palette.border};
+    border-radius:8px;
+}}
+QDialog#providerAccountsDialog,
+QDialog#providerAccountsDialog QWidget#qt_scrollarea_viewport,
+QScrollArea#providerAccountDetailsScroll,
+QWidget#providerAccountDetailsContent {{
+    background:{palette.canvas};
+    color:{palette.text_primary};
+}}
+QFrame#providerAccountsHeader,
+QFrame#providerAccountsToolbar,
+QFrame#providerAccountDetails {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border:1px solid {palette.border};
+}}
+QFrame#providerAccountsSummary,
+QFrame#providerAccountIdentity,
+QFrame#providerAccountQuotaCard,
+QFrame#providerAccountCatalogCard,
+QFrame#providerAccountMetadataCard {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border:1px solid {palette.border};
+}}
+QFrame#providerCatalogMetric {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border:1px solid {palette.border};
+}}
+QFrame#providerAccountDetailsActions {{
+    background:{palette.surface};
+    border:0;
+}}
+QLabel#accountStatus {{
+    background:{palette.surface};
+    color:{palette.text_secondary};
+    border:1px solid {palette.border};
+}}
+QFrame#projectPathNotice {{
+    background:{palette.warning_soft};
+    color:{palette.text_primary};
+    border:1px solid {palette.warning};
+    border-radius:10px;
+}}
+QLabel#projectPathNoticeTitle {{
+    color:{palette.text_primary};
+    font-weight:800;
+}}
+QLabel#projectPathNoticeMessage {{
+    color:{palette.text_secondary};
+}}
+QPushButton#projectPathNoticeAction,
+QPushButton#projectPathNoticeDismiss {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border:1px solid {palette.border};
+    border-radius:7px;
+}}
+QPushButton#projectPathNoticeAction:hover,
+QPushButton#projectPathNoticeDismiss:hover {{
+    background:{palette.surface_secondary};
+    border-color:{palette.border_strong};
+}}
+""".strip()
+
+    if not is_dark:
+        return common
+
+    dark_completion = f"""
+/* B6 Hotfix 3 manual Dark review: broad accent-soft surfaces stay neutral. */
+QTabWidget#leftWorkspaceTabs QTabBar::tab:selected,
+QTabWidget#rightInspectorTabs QTabBar::tab:selected,
+QAbstractItemView::item:selected {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border-color:{palette.border_strong};
+}}
+QLabel#workspaceStatusBadge[tone="neutral"] {{
+    background:{palette.surface_secondary};
+    color:{palette.text_secondary};
+    border-color:{palette.border};
+}}
+QToolButton#sectionHeader:checked,
+QPushButton#connectionStatus,
+QFrame#queueScopeSummary {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+""".strip()
+    return common + "\n" + dark_completion
+
+
 def theme_accessibility_stylesheet(
     *,
     is_dark: bool,
@@ -653,6 +884,9 @@ QGroupBox#selectedRowCard, QDialog[a10Modernized="true"] QGroupBox[visualRole="f
         is_dark=is_dark,
         concept_key=concept_key,
     ) + "\n" + dark_theme_completion_stylesheet(
+        is_dark=is_dark,
+        concept_key=concept_key,
+    ) + "\n" + ux_reality_reconciliation_stylesheet(
         is_dark=is_dark,
         concept_key=concept_key,
     )

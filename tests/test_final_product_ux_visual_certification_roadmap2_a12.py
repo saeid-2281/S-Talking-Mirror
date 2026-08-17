@@ -103,7 +103,7 @@ def test_a12_toolbar_and_metric_components_match_final_fidelity_contract(
     window = _window(tmp_path)
     hardener = window.visual_fidelity_hardener
 
-    assert window.main_toolbar.iconSize() == QSize(20, 20)
+    assert window.main_toolbar.iconSize() == QSize(24, 24)
     assert window.main_toolbar.property("visualFidelityIcons") == "canonical"
     for action_name, icon_name in hardener.TOOLBAR_ICON_MAP.items():
         action = window.actions_by_name[action_name]

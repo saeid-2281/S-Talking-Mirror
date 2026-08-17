@@ -3538,6 +3538,7 @@ def main() -> int:
         from app.bootstrap import create_application_context
         from app.container import create_service_container
         from app.gui.main import MainWindow
+        from app.gui.runtime_font_support import ensure_readable_runtime_font
         from app.services.crash_recovery_service import CrashRecoveryService
 
         runtime = RuntimeConfig.from_frozen() if getattr(sys, "frozen", False) else RuntimeConfig.from_root()
@@ -3548,6 +3549,7 @@ def main() -> int:
         crash_service.install_handlers()
         qt_argv = [argument for argument in sys.argv if argument != "--safe-mode"]
         qt_app = QApplication(qt_argv)
+        ensure_readable_runtime_font(qt_app)
         crash_service.install_qt_message_handler()
         container = create_service_container(runtime, crash_recovery_service=crash_service)
         window = MainWindow(create_application_context(container))

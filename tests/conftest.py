@@ -12,6 +12,7 @@ os.environ.setdefault("S_TALKING_TEST_FAST_PATH", "1")
 
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QSettings
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
 
@@ -40,6 +41,16 @@ def isolate_qsettings_between_tests(tmp_path):
     settings_root.mkdir(parents=True, exist_ok=True)
     QSettings.setDefaultFormat(QSettings.IniFormat)
     QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(settings_root))
+
+    # Visual certifiers intentionally install/register a readable runtime font.
+    # The QApplication is session-scoped, so preserve its incoming font and
+    # restore it after every test; otherwise typography metrics leak into later
+    # geometry tests and can make dock widths depend on test ordering.
+    application_before = QApplication.instance()
+    original_application_font = (
+        QFont(application_before.font()) if application_before is not None else None
+    )
+
     settings = QSettings("S Talking", "S Talking")
     settings.clear()
     settings.sync()
@@ -66,6 +77,8 @@ def isolate_qsettings_between_tests(tmp_path):
                 pass
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         app.processEvents()
+        if original_application_font is not None:
+            app.setFont(original_application_font)
         gc.collect()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         app.processEvents()

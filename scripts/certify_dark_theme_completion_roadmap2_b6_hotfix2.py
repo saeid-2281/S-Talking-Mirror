@@ -14,6 +14,7 @@ from app.bootstrap import create_application_context
 from app.config.runtime import RuntimeConfig
 from app.container import create_service_container
 from app.gui.main import MainWindow
+from app.gui.runtime_font_support import ensure_readable_runtime_font
 from app.gui.theme_accessibility_v2 import (
     DARK_THEME_LEGACY_SURFACE_COLORS,
     dark_theme_completion_stylesheet,
@@ -34,6 +35,7 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=True)
 
     application = QApplication.instance() or QApplication([])
+    font_ok, font_family = ensure_readable_runtime_font(application, require_explicit_font=True)
     context = create_application_context(
         create_service_container(RuntimeConfig.from_root(Path.cwd()))
     )
@@ -54,6 +56,7 @@ def main() -> int:
     )
 
     checks: dict[str, bool] = {
+        "runtime_font_available": font_ok and bool(font_family),
         "dark_only_layer_present": "Roadmap 2 B6 Hotfix 2" in completion,
         "completion_is_last_overlay": composite.rfind("Roadmap 2 B6 Hotfix 2")
         > composite.rfind("Roadmap 2 A12.1"),

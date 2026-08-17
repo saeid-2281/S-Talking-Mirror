@@ -21,7 +21,7 @@ from app.gui.icons import action_icon
 class VisualFidelityHardener(QObject):
     """Presentation-only repairs for the post-A11 Soft Professional review."""
 
-    TOOLBAR_ICON_SIZE = 20
+    TOOLBAR_ICON_SIZE = 24
     METRIC_RADIUS = 12
     MONITOR_MIN_WIDTH = 320
     MONITOR_TARGET_WIDTH = 340
@@ -184,11 +184,18 @@ QFrame#metricPill[active="false"] {
         if dock is None:
             return
 
-        # Preserve the historical 290px minimum-width API contract. A11.1
-        # improves usability by resizing the *actual* active dock width instead.
-        dock.setMinimumWidth(290)
-        dock.setMaximumWidth(self.MONITOR_TARGET_WIDTH)
+        # Preserve the historical public 290px minimum-width API contract.
+        # The active monitor may hold a stronger *internal* Qt layout constraint
+        # until the user leaves the Generation Monitor tab; MonitorDockWidget
+        # keeps minimumWidth() backward-compatible for callers/tests.
         dock.setProperty("visualFidelityMonitor", True)
+        monitor_active = self._monitor_tab_active() and dock.isVisible()
+        if not monitor_active:
+            dock.setProperty("visualFidelityRequestedWidth", None)
+            dock.setProperty("visualFidelityPresentationLocked", False)
+            dock.setMinimumWidth(290)
+            dock.setMaximumWidth(self.MONITOR_TARGET_WIDTH)
+            dock.updateGeometry()
 
         scroll = getattr(self.owner, "monitor_scroll", None)
         if scroll is not None:
@@ -220,35 +227,24 @@ QFrame#metricPill[active="false"] {
                 tab_widget.tabBar().setUsesScrollButtons(True)
                 tab_widget.tabBar().setElideMode(Qt.TextElideMode.ElideRight)
 
-        if self._monitor_tab_active() and dock.isVisible():
+        if monitor_active:
             try:
-                # B2 can repolish the dock while attaching semantic surface
-                # properties. Some Qt/Windows layouts then remember the
-                # historical 290px minimum as the actual dock width and ignore
-                # a single resizeDocks() request. Temporarily clamping the dock
-                # to the requested width gives QMainWindow's dock layout an
-                # unambiguous geometry request; the public minimum-width
-                # contract is restored immediately afterwards.
-                historical_minimum = 290
+                # QMainWindow may perform another dock relayout after
+                # ResponsiveWorkspaceCoordinator.refresh() returns.  A one-shot
+                # resize request is therefore not sufficient: keep the internal
+                # dock min/max pinned while Generation Monitor is active and
+                # release it in the inactive branch above.  The Python-level
+                # MonitorDockWidget.minimumWidth() compatibility API remains
+                # 290 px throughout.
                 target_width = self.MONITOR_TARGET_WIDTH
-
+                dock.setProperty("visualFidelityRequestedWidth", target_width)
+                dock.setProperty("visualFidelityPresentationLocked", True)
                 dock.setMinimumWidth(target_width)
                 dock.setMaximumWidth(target_width)
                 dock.updateGeometry()
                 layout = self.owner.layout()
                 if layout is not None:
                     layout.activate()
-
-                self.owner.resizeDocks(
-                    [dock],
-                    [target_width],
-                    Qt.Orientation.Horizontal,
-                )
-                dock.resize(target_width, dock.height())
-
-                dock.setMinimumWidth(historical_minimum)
-                dock.setMaximumWidth(target_width)
-                dock.updateGeometry()
                 self.owner.resizeDocks(
                     [dock],
                     [target_width],
@@ -257,8 +253,6 @@ QFrame#metricPill[active="false"] {
                 dock.resize(target_width, dock.height())
                 if layout is not None:
                     layout.activate()
-
-                dock.setProperty("visualFidelityRequestedWidth", target_width)
             except (AttributeError, RuntimeError):
                 # The hardener is presentation-only. A deleted/closing Qt
                 # wrapper must not affect application shutdown or workflow

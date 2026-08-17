@@ -11,16 +11,19 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFormLayout,
+    QGridLayout,
     QHeaderView,
     QHBoxLayout,
     QInputDialog,
     QLabel,
     QProgressBar,
+    QScrollArea,
     QLineEdit,
     QMenu,
     QMessageBox,
     QPushButton,
     QStackedWidget,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
     QTabWidget,
@@ -285,7 +288,7 @@ class ProviderAccountsDialog(QDialog):
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.table.setMinimumWidth(600)
+        self.table.setMinimumWidth(560)
         self.table.setMinimumHeight(300)
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(False)
@@ -296,11 +299,13 @@ class ProviderAccountsDialog(QDialog):
 
         self.details_panel = QFrame()
         self.details_panel.setObjectName("providerAccountDetails")
-        self.details_panel.setMinimumWidth(270)
-        self.details_panel.setMaximumWidth(360)
+        self.details_panel.setMinimumWidth(340)
+        self.details_panel.setMaximumWidth(460)
+        self.details_panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         details = QVBoxLayout(self.details_panel)
-        details.setContentsMargins(14, 14, 14, 14)
-        details.setSpacing(10)
+        details.setContentsMargins(12, 12, 12, 12)
+        details.setSpacing(8)
+
         details_title = QLabel("Account details")
         details_title.setObjectName("sectionTitle")
         details.addWidget(details_title)
@@ -308,6 +313,20 @@ class ProviderAccountsDialog(QDialog):
         details_hint.setObjectName("dialogSubtitle")
         details_hint.setWordWrap(True)
         details.addWidget(details_hint)
+
+        self.details_scroll = QScrollArea()
+        self.details_scroll.setObjectName("providerAccountDetailsScroll")
+        self.details_scroll.setWidgetResizable(True)
+        self.details_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.details_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.details_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        details_content = QWidget()
+        self.details_content = details_content
+        details_content.setObjectName("providerAccountDetailsContent")
+        detail_content_layout = QVBoxLayout(details_content)
+        detail_content_layout.setContentsMargins(0, 2, 0, 2)
+        detail_content_layout.setSpacing(10)
+
         identity = QFrame()
         identity.setObjectName("providerAccountIdentity")
         identity_layout = QVBoxLayout(identity)
@@ -341,7 +360,7 @@ class ProviderAccountsDialog(QDialog):
         self.sync_progress.hide()
         identity_layout.addWidget(self.sync_status)
         identity_layout.addWidget(self.sync_progress)
-        details.addWidget(identity)
+        detail_content_layout.addWidget(identity)
 
         quota_card = QFrame()
         quota_card.setObjectName("providerAccountQuotaCard")
@@ -365,7 +384,7 @@ class ProviderAccountsDialog(QDialog):
         self.quota_progress.setTextVisible(False)
         self.quota_progress.setFixedHeight(8)
         quota_layout.addWidget(self.quota_progress)
-        details.addWidget(quota_card)
+        detail_content_layout.addWidget(quota_card)
 
         catalog_card = QFrame()
         catalog_card.setObjectName("providerAccountCatalogCard")
@@ -390,7 +409,7 @@ class ProviderAccountsDialog(QDialog):
         catalog_stats.addWidget(self._metric_widget("Voices", self.details_voices))
         catalog_stats.addWidget(self._metric_widget("TTS models", self.details_models))
         catalog_layout.addLayout(catalog_stats)
-        details.addWidget(catalog_card)
+        detail_content_layout.addWidget(catalog_card)
 
         account_card = QFrame()
         account_card.setObjectName("providerAccountMetadataCard")
@@ -401,6 +420,8 @@ class ProviderAccountsDialog(QDialog):
         account_title.setObjectName("cardTitle")
         account_layout.addWidget(account_title)
         self.details_form = QFormLayout()
+        self.details_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        self.details_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.details_form.setHorizontalSpacing(12)
         self.details_form.setVerticalSpacing(8)
         self.details_tier = QLabel("—")
@@ -413,6 +434,7 @@ class ProviderAccountsDialog(QDialog):
         for label in [self.details_tier, self.details_health, self.details_provider, self.details_last_checked, self.details_catalog_saved, self.details_key, self.details_configuration]:
             label.setTextInteractionFlags(Qt.TextSelectableByMouse)
             label.setWordWrap(True)
+            label.setMinimumWidth(0)
         self.details_form.addRow("Provider", self.details_provider)
         self.details_form.addRow("Tier", self.details_tier)
         self.details_form.addRow("Health", self.details_health)
@@ -421,9 +443,19 @@ class ProviderAccountsDialog(QDialog):
         self.details_form.addRow("Credential", self.details_key)
         self.details_form.addRow("Provider settings", self.details_configuration)
         account_layout.addLayout(self.details_form)
-        details.addWidget(account_card)
-        details.addStretch()
-        detail_actions = QHBoxLayout()
+        detail_content_layout.addWidget(account_card)
+        detail_content_layout.addStretch(1)
+
+        self.details_scroll.setWidget(details_content)
+        details.addWidget(self.details_scroll, 1)
+
+        detail_actions_host = QFrame()
+        self.details_actions_host = detail_actions_host
+        detail_actions_host.setObjectName("providerAccountDetailsActions")
+        detail_actions = QGridLayout(detail_actions_host)
+        detail_actions.setContentsMargins(0, 2, 0, 0)
+        detail_actions.setHorizontalSpacing(8)
+        detail_actions.setVerticalSpacing(8)
         self.details_test = QPushButton("Test")
         self.details_test.setIcon(action_icon("provider.test_connection"))
         self.details_test.clicked.connect(self.test_selected)
@@ -437,15 +469,23 @@ class ProviderAccountsDialog(QDialog):
         self.details_cancel_sync.setIcon(action_icon("generation.stop"))
         self.details_cancel_sync.setEnabled(False)
         self.details_cancel_sync.clicked.connect(self.cancel_selected_sync)
-        detail_actions.addWidget(self.details_test)
-        detail_actions.addWidget(self.details_refresh)
-        detail_actions.addWidget(self.details_cancel_sync)
-        detail_actions.addWidget(self.details_activate)
-        details.addLayout(detail_actions)
+        for index, button in enumerate(
+            (
+                self.details_test,
+                self.details_refresh,
+                self.details_cancel_sync,
+                self.details_activate,
+            )
+        ):
+            button.setMinimumHeight(34)
+            button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            detail_actions.addWidget(button, index // 2, index % 2)
+        details.addWidget(detail_actions_host)
+
         self.account_splitter.addWidget(self.details_panel)
-        self.account_splitter.setStretchFactor(0, 1)
-        self.account_splitter.setStretchFactor(1, 0)
-        self.account_splitter.setSizes([700, 300])
+        self.account_splitter.setStretchFactor(0, 3)
+        self.account_splitter.setStretchFactor(1, 2)
+        self.account_splitter.setSizes([650, 420])
         accounts_layout.addWidget(self.account_splitter, 1)
         self.tabs.addTab(accounts_page, action_icon("provider.accounts"), "Accounts")
 

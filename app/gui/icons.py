@@ -137,7 +137,15 @@ ACTION_ICONS: dict[str, str] = {
 
 
 _ICON_METADATA: dict[int, tuple[str, int, str | None]] = {}
-_ICON_CACHE: dict[tuple[str, int, str, bool], QIcon] = {}
+_ICON_CACHE: dict[tuple[str, int, str, bool, float], QIcon] = {}
+
+
+def _device_pixel_ratio() -> float:
+    app = QApplication.instance()
+    if app is None:
+        return 1.0
+    ratios = [float(screen.devicePixelRatio()) for screen in app.screens()]
+    return max([1.0, *ratios])
 
 
 def _render_icon(name: str, *, size: int, color: str | None = None) -> QIcon:
@@ -147,7 +155,8 @@ def _render_icon(name: str, *, size: int, color: str | None = None) -> QIcon:
     resolved = name if name in ICON_REGISTRY else ALIASES.get(name, "project")
     path = ICON_REGISTRY.get(resolved, ICON_REGISTRY["project"])
     stroke = color or app.palette().buttonText().color().name()
-    cache_key = (resolved, int(size), stroke.casefold(), color is not None)
+    device_ratio = _device_pixel_ratio()
+    cache_key = (resolved, int(size), stroke.casefold(), color is not None, device_ratio)
     cached = _ICON_CACHE.get(cache_key)
     if cached is not None:
         result = QIcon(cached)
@@ -160,12 +169,14 @@ def _render_icon(name: str, *, size: int, color: str | None = None) -> QIcon:
         f'<path d="{path}" fill="{fill}" stroke="{stroke}" stroke-width="1.9" '
         f'stroke-linecap="round" stroke-linejoin="round"/></svg>'
     )
-    pixmap = QPixmap(size, size)
+    physical_size = max(int(size), int(round(size * device_ratio)))
+    pixmap = QPixmap(physical_size, physical_size)
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     QSvgRenderer(QByteArray(svg.encode("utf-8"))).render(painter)
     painter.end()
+    pixmap.setDevicePixelRatio(device_ratio)
     result = QIcon(pixmap)
     _ICON_CACHE[cache_key] = QIcon(result)
     _ICON_METADATA[result.cacheKey()] = (resolved, size, color)

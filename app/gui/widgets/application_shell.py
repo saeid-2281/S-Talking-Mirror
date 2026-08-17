@@ -575,6 +575,96 @@ class GenerationStatusStrip(QFrame):
         self.preflight_button.setToolTip(full_text)
 
 
+class ProjectPathNotice(QFrame):
+    """Non-modal recovery banner for projects whose saved paths moved."""
+
+    locate_source_requested = Signal()
+    choose_output_requested = Signal()
+    dismissed = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("projectPathNotice")
+        self.setProperty("tone", "warning")
+        self._signature: tuple[str, ...] = ()
+        self._dismissed_signature: tuple[str, ...] = ()
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(10)
+
+        icon_label = QLabel()
+        icon_label.setObjectName("projectPathNoticeIcon")
+        icon_label.setPixmap(action_icon("general.warning", size=20).pixmap(20, 20))
+        icon_label.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        layout.addWidget(icon_label)
+
+        text_column = QVBoxLayout()
+        text_column.setContentsMargins(0, 0, 0, 0)
+        text_column.setSpacing(2)
+        self.title = QLabel("Project needs attention")
+        self.title.setObjectName("projectPathNoticeTitle")
+        self.message = QLabel("")
+        self.message.setObjectName("projectPathNoticeMessage")
+        self.message.setWordWrap(True)
+        self.message.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        text_column.addWidget(self.title)
+        text_column.addWidget(self.message)
+        layout.addLayout(text_column, 1)
+
+        self.locate_source_button = QPushButton("Locate source")
+        self.locate_source_button.setObjectName("projectPathNoticeAction")
+        self.locate_source_button.clicked.connect(self.locate_source_requested.emit)
+        self.choose_output_button = QPushButton("Choose output")
+        self.choose_output_button.setObjectName("projectPathNoticeAction")
+        self.choose_output_button.clicked.connect(self.choose_output_requested.emit)
+        self.dismiss_button = QPushButton("Dismiss")
+        self.dismiss_button.setObjectName("projectPathNoticeDismiss")
+        self.dismiss_button.clicked.connect(self._dismiss)
+
+        for button in (
+            self.locate_source_button,
+            self.choose_output_button,
+            self.dismiss_button,
+        ):
+            button.setMinimumHeight(32)
+            layout.addWidget(button)
+
+        self.hide()
+
+    def show_validation(
+        self,
+        messages: list[str] | tuple[str, ...],
+        *,
+        missing_csv: bool,
+        missing_output: bool,
+    ) -> None:
+        signature = tuple(str(message).strip() for message in messages if str(message).strip())
+        if not signature:
+            self.clear()
+            return
+        if signature != self._signature:
+            self._dismissed_signature = ()
+        self._signature = signature
+        self.message.setText(" · ".join(signature))
+        self.locate_source_button.setVisible(bool(missing_csv))
+        self.choose_output_button.setVisible(bool(missing_output))
+        self.setAccessibleName("Project paths need attention")
+        self.setAccessibleDescription(self.message.text())
+        self.setVisible(signature != self._dismissed_signature)
+
+    def clear(self) -> None:
+        self._signature = ()
+        self._dismissed_signature = ()
+        self.message.clear()
+        self.hide()
+
+    def _dismiss(self) -> None:
+        self._dismissed_signature = self._signature
+        self.hide()
+        self.dismissed.emit()
+
+
 class ApplicationShell(QWidget):
     """Top-level central widget. MainWindow orchestrates; the shell owns layout."""
 
@@ -586,6 +676,7 @@ class ApplicationShell(QWidget):
         self.root_layout.setSpacing(8)
         self.header_context: QWidget | None = None
         self.header_metrics: QWidget | None = None
+        self.notice: QWidget | None = None
         self.workspace: QWidget | None = None
         self.activity: QWidget | None = None
         self.status: QWidget | None = None
@@ -595,6 +686,10 @@ class ApplicationShell(QWidget):
         self.header_metrics = metrics
         self.root_layout.addWidget(context)
         self.root_layout.addWidget(metrics)
+
+    def add_notice(self, notice: QWidget) -> None:
+        self.notice = notice
+        self.root_layout.addWidget(notice)
 
     def add_workspace(self, workspace: QWidget) -> None:
         self.workspace = workspace
@@ -620,7 +715,7 @@ class ApplicationShell(QWidget):
             vertical_margin,
         )
         self.root_layout.setSpacing(metrics.section_gap)
-        for widget in (self.header_context, self.header_metrics, self.status):
+        for widget in (self.header_context, self.header_metrics, self.notice, self.status):
             handler = getattr(widget, "apply_density", None)
             if callable(handler):
                 handler(density)
@@ -637,7 +732,7 @@ class ApplicationShell(QWidget):
     def set_responsive_mode(self, mode: object) -> None:
         value = str(getattr(mode, "value", mode) or "standard").casefold()
         self.setProperty("responsiveMode", value)
-        for widget in (self.header_context, self.header_metrics, self.status):
+        for widget in (self.header_context, self.header_metrics, self.notice, self.status):
             handler = getattr(widget, "set_responsive_mode", None)
             if callable(handler):
                 handler(value)

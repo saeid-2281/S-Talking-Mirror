@@ -27,6 +27,7 @@ from app.gui.interface_preferences import (
     InterfacePreferences,
 )
 from app.gui.icons import action_icon, icon, refresh_icons
+from app.gui.runtime_font_support import ensure_readable_runtime_font
 from app.gui.responsive_workspace import (
     ResponsiveWorkspaceCoordinator,
     ResponsiveWorkspaceState,
@@ -68,6 +69,7 @@ from app.gui.widgets.application_shell import (
     GenerationStatusStrip,
     MetricsStrip,
     ProjectContextBar,
+    ProjectPathNotice,
 )
 from app.gui.widgets.provider_workspace import ProviderWorkspaceBuilder
 from app.gui.widgets.queue_workspace import QueueSelectionStats, QueueStatusDelegate, QueueWorkspace, configure_queue_table
@@ -254,16 +256,27 @@ class MainWindow(QMainWindow):
         if self._test_fast_path:
             self.startup_recovery_state=None; self.session_restore_state=None
         else:
-            self.run_startup_recovery()
-            self.inspect_intelligent_tts_recovery_continuity()
-            if not self.safe_mode:
-                self.restore_previous_session(); QTimer.singleShot(0,self.offer_generation_recovery); QTimer.singleShot(5000,self.check_updates_on_startup)
+            # Startup recovery/session restoration is intentionally deferred until
+            # the Qt event loop starts.  The shell can paint first, so a moved CSV
+            # or output folder can never hide the entire application behind a
+            # pre-window modal warning.
+            QTimer.singleShot(50,self._finish_deferred_startup)
         self.update_window_title(); self.update_status_bar()
-        if not self._test_fast_path:
-            QTimer.singleShot(0,self.refresh_provider_intelligence)
-            QTimer.singleShot(0,self.refresh_smart_provider_routing)
-            QTimer.singleShot(0,self.mark_performance_startup_ready)
-            if self.crash_recovery_service.session_id: QTimer.singleShot(1200,self.announce_crash_recovery_state)
+    def _finish_deferred_startup(self):
+        if self._test_fast_path:
+            return
+        self.run_startup_recovery()
+        self.inspect_intelligent_tts_recovery_continuity()
+        if not self.safe_mode:
+            self.restore_previous_session()
+            QTimer.singleShot(0,self.offer_generation_recovery)
+            QTimer.singleShot(5000,self.check_updates_on_startup)
+        QTimer.singleShot(0,self.refresh_provider_intelligence)
+        QTimer.singleShot(0,self.refresh_smart_provider_routing)
+        QTimer.singleShot(0,self.mark_performance_startup_ready)
+        if self.crash_recovery_service.session_id:
+            QTimer.singleShot(1200,self.announce_crash_recovery_state)
+
     def set_initial_geometry(self):
         screen=QApplication.primaryScreen(); available=screen.availableGeometry() if screen else None
         if not available:
@@ -335,6 +348,11 @@ class MainWindow(QMainWindow):
         self.reloadb=self.project_context_widget.reload_button
         self.metrics_strip=MetricsStrip(self.metric_filter_clicked); self.cards=self.metrics_strip.cards
         self.application_shell.add_header(self.project_context_widget,self.metrics_strip)
+        self.project_path_notice=ProjectPathNotice(self.application_shell)
+        self.project_path_notice.locate_source_requested.connect(self.pick_csv)
+        self.project_path_notice.choose_output_requested.connect(self.pick_out)
+        self.project_path_notice.dismissed.connect(lambda:self.statusBar().showMessage('Project path warning dismissed. Missing paths remain unchanged.',4000))
+        self.application_shell.add_notice(self.project_path_notice)
         split=QSplitter(Qt.Horizontal); self.main_splitter=split; self.application_shell.add_workspace(split)
         provider_workspace = ProviderWorkspaceBuilder(self).build()
         self.left_tabs=DockTabWidget(); self.left_tabs.setObjectName('leftWorkspaceTabs')
@@ -471,7 +489,7 @@ class MainWindow(QMainWindow):
         for name,shortcut in [('New Project','Ctrl+N'),('Open Project','Ctrl+O'),('Add source files','Ctrl+Shift+O'),('Add text source','Ctrl+Shift+T'),('Save','Ctrl+S')]:
             self.actions_by_name[name].setShortcut(QKeySequence(shortcut))
     def build_main_toolbar(self):
-        self.main_toolbar=QToolBar('Main Toolbar',self); self.main_toolbar.setObjectName('mainToolbar'); self.main_toolbar.setMovable(False); self.main_toolbar.setFloatable(False); self.main_toolbar.setIconSize(QSize(20,20)); self.main_toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon); self.main_toolbar.setMaximumHeight(42); self.main_toolbar.setMinimumHeight(38); self.addToolBar(Qt.TopToolBarArea,self.main_toolbar)
+        self.main_toolbar=QToolBar('Main Toolbar',self); self.main_toolbar.setObjectName('mainToolbar'); self.main_toolbar.setMovable(False); self.main_toolbar.setFloatable(False); self.main_toolbar.setIconSize(QSize(24,24)); self.main_toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon); self.main_toolbar.setMaximumHeight(42); self.main_toolbar.setMinimumHeight(38); self.addToolBar(Qt.TopToolBarArea,self.main_toolbar)
         short_labels={'New Project':'New','Open Project':'Open','Add source files':'Sources','Start Generation':'Start','Pause/Resume':'Pause','Stop Generation':'Stop','Run Preflight':'Preflight','Voice Browser':'Voices'}
         for name,ic in [('New Project','project.new'),('Open Project','project.open'),('Save','project.save'),('Add source files','project.add_sources'),('Start Generation','generation.start'),('Pause/Resume','generation.pause'),('Stop Generation','generation.stop'),('Run Preflight','generation.preflight'),('Voice Browser','provider.browse_voices')]:
             action=self.actions_by_name.get(name)
@@ -643,16 +661,37 @@ class MainWindow(QMainWindow):
         self.left_dock.setMaximumWidth(320 if mode is WorkspaceBreakpoint.COMPACT else (340 if mode is WorkspaceBreakpoint.STANDARD else 360))
         self.right_dock.setMinimumWidth(MONITOR_MIN_WIDTH)
         self.right_dock.setMaximumWidth(340)
+        requested_monitor_width=None
         if hasattr(self,'monitor_dock'):
             self.monitor_dock.setMinimumWidth(MONITOR_MIN_WIDTH)
             self.monitor_dock.setMaximumWidth(340)
+            monitor_active=(
+                hasattr(self,'right_tabs')
+                and hasattr(self,'monitor_scroll')
+                and self.right_tabs.currentWidget() is self.monitor_scroll
+            )
+            requested=self.monitor_dock.property('visualFidelityRequestedWidth')
+            if monitor_active and requested not in (None,''):
+                try:
+                    requested_monitor_width=self.safe_monitor_width(int(requested))
+                except (TypeError,ValueError):
+                    requested_monitor_width=None
 
         if getattr(self,'_last_responsive_mode',None)!=mode_value:
             visible_docks=[]; widths=[]
             if self.left_dock.isVisible(): visible_docks.append(self.left_dock); widths.append(state.left_dock_width)
-            if self.right_dock.isVisible(): visible_docks.append(self.right_dock); widths.append(state.right_dock_width)
+            if self.right_dock.isVisible():
+                visible_docks.append(self.right_dock)
+                widths.append(requested_monitor_width if requested_monitor_width is not None else state.right_dock_width)
             if visible_docks: self.resizeDocks(visible_docks,widths,Qt.Horizontal)
             self._last_responsive_mode=mode_value
+        # Responsive breakpoint geometry and A11.1 visual-fidelity geometry
+        # share the same physical right dock.  When Generation Monitor is the
+        # active tab, the explicit visual-fidelity target is the presentation
+        # authority; a delayed/debounced responsive refresh must not silently
+        # replace it with the generic inspector width (290/310/330px).
+        if requested_monitor_width is not None:
+            self.clamp_monitor_width()
 
         self.reflow_source_actions(state.source_action_columns)
         self.queue_details.set_responsive_mode(mode)
@@ -1829,8 +1868,40 @@ class MainWindow(QMainWindow):
         main_width=max(self.width(),900); maximum=min(340,max(MONITOR_MIN_WIDTH,int(main_width*MONITOR_MAX_FRACTION))); preferred=requested or MONITOR_DEFAULT_WIDTH
         return max(MONITOR_MIN_WIDTH,min(preferred,maximum))
     def clamp_monitor_width(self):
-        if not hasattr(self,'monitor_dock'): return
-        width=self.safe_monitor_width(self.monitor_dock.width()); self.monitor_dock.setMaximumWidth(self.safe_monitor_width(10_000)); self.resizeDocks([self.monitor_dock],[width],Qt.Horizontal)
+        if not hasattr(self,'monitor_dock'):
+            return
+        requested = self.monitor_dock.property('visualFidelityRequestedWidth')
+        monitor_active = (
+            hasattr(self,'right_tabs')
+            and hasattr(self,'monitor_scroll')
+            and self.right_tabs.currentWidget() is self.monitor_scroll
+        )
+        try:
+            requested_width = int(requested) if monitor_active and requested not in (None,'') else self.monitor_dock.width()
+        except (TypeError, ValueError):
+            requested_width = self.monitor_dock.width()
+        width = self.safe_monitor_width(requested_width)
+        maximum = self.safe_monitor_width(10_000)
+        if monitor_active and requested not in (None,''):
+            # Keep the *internal* Qt dock constraint pinned for as long as the
+            # Generation Monitor owns the right dock.  Merely issuing
+            # resizeDocks() and immediately restoring the 290 px C++ minimum
+            # lets a later QMainWindow relayout collapse the dock again.
+            # MonitorDockWidget.minimumWidth() intentionally preserves the
+            # historical public 290 px API contract while this presentation
+            # constraint remains active internally.
+            self.monitor_dock.setMinimumWidth(width)
+            self.monitor_dock.setMaximumWidth(width)
+            self.monitor_dock.setProperty('visualFidelityPresentationLocked',True)
+            self.monitor_dock.updateGeometry()
+            self.resizeDocks([self.monitor_dock],[width],Qt.Horizontal)
+            self.monitor_dock.resize(width,self.monitor_dock.height())
+            return
+        self.monitor_dock.setProperty('visualFidelityPresentationLocked',False)
+        self.monitor_dock.setMinimumWidth(MONITOR_MIN_WIDTH)
+        self.monitor_dock.setMaximumWidth(maximum)
+        self.resizeDocks([self.monitor_dock],[width],Qt.Horizontal)
+        self.monitor_dock.resize(width,self.monitor_dock.height())
     def monitor_compact_mode(self):
         return self.width()<=MONITOR_COMPACT_THRESHOLD or (hasattr(self,'monitor_dock') and self.monitor_dock.width()<=MONITOR_MIN_WIDTH+20)
     def apply_monitor_compact_mode(self):
@@ -2651,10 +2722,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage('No model catalog is available yet. Refresh this provider in Voice & Model Catalog.',7000)
     def pick_csv(self):
         p,_=QFileDialog.getOpenFileName(self,'CSV',str(self.project_controller.last_csv_dir),'CSV (*.csv)')
-        if p: self.csv.setText(p); self.project_controller.update_csv_path(Path(p)); self.update_window_title(); self.invalidate_preflight(); self.load_csv(); self.update_status_bar()
+        if p: self.csv.setText(p); self.project_controller.update_csv_path(Path(p)); self.update_window_title(); self.invalidate_preflight(); self.load_csv(); self.show_path_warnings(); self.update_status_bar()
     def pick_out(self):
         p=QFileDialog.getExistingDirectory(self,'Output',str(self.project_controller.last_output_dir))
-        if p: self.out.setText(p); self.project_controller.update_output_path(Path(p)); self.update_window_title(); self.invalidate_preflight(); self.update_status_bar()
+        if p: self.out.setText(p); self.project_controller.update_output_path(Path(p)); self.update_window_title(); self.invalidate_preflight(); self.show_path_warnings(); self.update_status_bar()
     def pick_piper(self):
         p,_=QFileDialog.getOpenFileName(self,'Piper model','','ONNX (*.onnx)')
         if p: self.piper.setText(p)
@@ -2870,8 +2941,24 @@ class MainWindow(QMainWindow):
         self.project_path=s.project_file
     def refresh_project_title(self): self.update_window_title()
     def show_path_warnings(self):
-        v=self.project_controller.validate_current_paths()
-        if v.has_missing_paths: self.notifications.warning('Project paths','\n'.join(v.messages()))
+        validation=self.project_controller.validate_current_paths()
+        if hasattr(self,'project_path_notice'):
+            if validation.has_missing_paths:
+                messages=validation.messages()
+                self.project_path_notice.show_validation(
+                    messages,
+                    missing_csv=validation.missing_csv,
+                    missing_output=validation.missing_output,
+                )
+                signature=tuple(messages)
+                if getattr(self,'_last_project_path_warning',None)!=signature:
+                    self.log.appendPlainText('Project paths need attention: '+'; '.join(messages))
+                    self._last_project_path_warning=signature
+                self.statusBar().showMessage('Project opened with missing paths. Use the recovery banner to repair them.',7000)
+            else:
+                self.project_path_notice.clear()
+                self._last_project_path_warning=()
+        return validation
     def new_project(self):
         d=NewProjectDialog(self,self.project_controller.last_csv_dir,self.project_controller.last_output_dir)
         if d.exec()!=QDialog.Accepted: return
@@ -4949,6 +5036,6 @@ class MainWindow(QMainWindow):
 def main():
     runtime=RuntimeConfig.from_root(); runtime.ensure_directories(); crash_service=CrashRecoveryService(runtime)
     safe_mode=crash_service.safe_mode_requested(sys.argv); crash_service.begin_session(argv=sys.argv,safe_mode=safe_mode); crash_service.install_handlers()
-    qt_argv=[argument for argument in sys.argv if argument!='--safe-mode']; qt_app=QApplication(qt_argv); crash_service.install_qt_message_handler()
+    qt_argv=[argument for argument in sys.argv if argument!='--safe-mode']; qt_app=QApplication(qt_argv); ensure_readable_runtime_font(qt_app); crash_service.install_qt_message_handler()
     container=create_service_container(runtime,crash_recovery_service=crash_service); win=MainWindow(create_application_context(container)); win.show(); sys.exit(qt_app.exec())
 if __name__=='__main__':main()

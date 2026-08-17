@@ -19,6 +19,7 @@ from app.bootstrap import create_application_context
 from app.config.runtime import RuntimeConfig
 from app.container import create_service_container
 from app.gui.main import MainWindow
+from app.gui.runtime_font_support import ensure_readable_runtime_font
 from app.gui.theme_accessibility_v2 import (
     THEME_SURFACE_COHERENCE_THEMES,
     theme_surface_coherence_stylesheet,
@@ -216,6 +217,14 @@ def run_isolated(output: Path) -> dict[str, Any]:
         owns_application = application is None
         if application is None:
             application = QApplication(["s-talking-a12.1-certification"])
+        font_ok, font_family = ensure_readable_runtime_font(
+            application,
+            require_explicit_font=True,
+        )
+        if not font_ok or not font_family:
+            raise RuntimeError(
+                "Readable UI font is unavailable; screenshot certification cannot continue."
+            )
         application.setQuitOnLastWindowClosed(False)
 
         window = MainWindow(
