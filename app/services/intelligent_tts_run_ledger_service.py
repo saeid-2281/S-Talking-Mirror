@@ -344,6 +344,7 @@ class IntelligentTTSRunLedgerService:
         execution_session_path: str | Path | None = None,
         execution_receipt_path: str | Path | None = None,
         report_path: str | Path | None = None,
+        artifact_receipt_path: str | Path | None = None,
         finished_at: datetime | None = None,
     ) -> IntelligentTTSRunLedger:
         normalized_result = str(result).strip().casefold()
@@ -367,6 +368,7 @@ class IntelligentTTSRunLedgerService:
             "execution_session_path": _optional_path(execution_session_path),
             "execution_receipt_path": _optional_path(execution_receipt_path),
             "report_path": _optional_path(report_path),
+            "artifact_receipt_path": _optional_path(artifact_receipt_path),
         }
         payload = ledger.to_dict()
         payload.pop("ledger_digest", None)

@@ -59,6 +59,7 @@ from app.services.launch_assurance_service import LaunchAssuranceContextChanged,
 from app.services.intelligent_tts_execution_service import IntelligentTTSExecutionDrift, IntelligentTTSExecutionService
 from app.services.intelligent_tts_run_ledger_service import IntelligentTTSRunLedgerService
 from app.services.intelligent_tts_recovery_continuity_service import IntelligentTTSRecoveryContinuityService
+from app.services.intelligent_tts_artifact_provenance_service import IntelligentTTSArtifactProvenanceService
 from app.models.pronunciation_audit import PronunciationAuditDraft
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -199,7 +200,7 @@ class MainWindow(QMainWindow):
         self.audio_player_service=context.audio_player_service
         self.pronunciation_audit_service=PronunciationAuditTrailService()
         self.pronunciation_readiness_service=PronunciationReadinessService()
-        self.launch_assurance_service=LaunchAssuranceService(); self.last_launch_assurance=None; self.intelligent_tts_execution_service=IntelligentTTSExecutionService(); self.last_intelligent_tts_execution=None; self.intelligent_tts_run_ledger_service=IntelligentTTSRunLedgerService(); self.intelligent_tts_recovery_continuity_service=IntelligentTTSRecoveryContinuityService(self.intelligent_tts_run_ledger_service); self.current_intelligent_tts_ledger=None; self.last_intelligent_tts_ledger=None; self.last_intelligent_tts_recovery_assessment=None; self.interrupted_intelligent_tts_ledgers=()
+        self.launch_assurance_service=LaunchAssuranceService(); self.last_launch_assurance=None; self.intelligent_tts_execution_service=IntelligentTTSExecutionService(); self.last_intelligent_tts_execution=None; self.intelligent_tts_run_ledger_service=IntelligentTTSRunLedgerService(); self.intelligent_tts_recovery_continuity_service=IntelligentTTSRecoveryContinuityService(self.intelligent_tts_run_ledger_service); self.intelligent_tts_artifact_provenance_service=IntelligentTTSArtifactProvenanceService(); self.current_intelligent_tts_ledger=None; self.last_intelligent_tts_ledger=None; self.last_intelligent_tts_recovery_assessment=None; self.interrupted_intelligent_tts_ledgers=(); self.current_intelligent_tts_artifact_plan=None; self.last_intelligent_tts_artifact_plan=None; self.last_intelligent_tts_artifact_receipt=None
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
         self.crash_recovery_service=context.crash_recovery_service; self.safe_mode=self.crash_recovery_service.safe_mode
@@ -2936,7 +2937,7 @@ class MainWindow(QMainWindow):
                 if path.exists(): self.context.desktop_service.open_path(path)
         except Exception as e: self.notifications.error('Project continuity',str(e))
     def close_project(self):
-        self.project_controller.close_project(); self.project_path=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.current_intelligent_tts_ledger=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
+        self.project_controller.close_project(); self.project_path=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.current_intelligent_tts_ledger=None; self.current_intelligent_tts_artifact_plan=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
     def autosave(self):
         try:
             if self.project_controller.autosave_if_needed(generation_active=self.generation_controller.is_active): self.log.appendPlainText('Project auto-saved.'); self.update_window_title(); self.update_status_bar()
@@ -3276,6 +3277,14 @@ class MainWindow(QMainWindow):
                 project.project_key,
                 pending_resume=pending_resume,
             )
+            self.begin_intelligent_tts_artifact_plan(
+                execution_binding,
+                generation_jobs,
+                s,
+                project.output_path,
+                run_id,
+                project.project_key,
+            )
         except IntelligentTTSExecutionDrift as exc:
             if self.current_budget_reservation_id:
                 try:
@@ -3323,6 +3332,47 @@ class MainWindow(QMainWindow):
         self.sync_execution_session('running')
         self.monitor_service.start_run(self.generation_controller.generation_jobs(),provider=s.provider,output_dir=project.output_path,settings=s,project_key=project.project_key); self.set_generation_controls(active=True); self.generation_status_strip.set_generation_state('Running',f'{len(self.generation_controller.generation_jobs()):,} jobs queued · {run_id}'); self.update_status_bar()
         self.context.product_activity_service.activity('generation','Generation started',f'{len(self.generation_controller.generation_jobs()):,} job(s) queued · {run_id}.',project_id=current.project_id if current else None,metadata={'run_id':run_id,'launch_receipt':str(receipt or ''),'launch_assurance':launch_assurance.preflight_context_fingerprint[:16]})
+    def begin_intelligent_tts_artifact_plan(self,binding,jobs,settings,output_dir,run_id,project_key):
+        try:
+            evidence_root=Path(self.context.container.runtime.reports_dir)/'intelligent-tts-artifacts'
+            plan=self.intelligent_tts_artifact_provenance_service.prepare_plan(
+                binding,
+                jobs,
+                settings,
+                output_dir,
+                run_id=run_id,
+                project_key=project_key,
+                evidence_root=evidence_root,
+            )
+            self.current_intelligent_tts_artifact_plan=plan.path
+            self.last_intelligent_tts_artifact_plan=plan.path
+            self.log.appendPlainText(f'Intelligent TTS artifact plan: {plan.plan_digest[:16]} · {len(plan.entries)} request(s)')
+            return plan
+        except Exception as exc:
+            self.current_intelligent_tts_artifact_plan=None
+            self.log.appendPlainText(f'Intelligent TTS artifact plan failed: {exc}')
+            return None
+    def finalize_intelligent_tts_artifacts(self,result,receipt=None,report_path=None):
+        if not self.current_intelligent_tts_artifact_plan: return None
+        plan_path=self.current_intelligent_tts_artifact_plan
+        try:
+            artifact_receipt=self.intelligent_tts_artifact_provenance_service.finalize(
+                plan_path,
+                self.generation_controller.generation_jobs(),
+                result=result,
+                execution_receipt=receipt,
+                report_path=report_path,
+            )
+            self.last_intelligent_tts_artifact_receipt=artifact_receipt.path
+            self.log.appendPlainText(
+                f'Intelligent TTS artifact receipt: {artifact_receipt.status} · {artifact_receipt.verified_files} verified file(s) · {artifact_receipt.issue_count} issue(s)'
+            )
+            return artifact_receipt
+        except Exception as exc:
+            self.log.appendPlainText(f'Intelligent TTS artifact finalization failed: {exc}')
+            return None
+        finally:
+            self.current_intelligent_tts_artifact_plan=None
     def begin_intelligent_tts_run_ledger(self,binding,run_id,project_key,pending_resume=None):
         try:
             ledger_root=Path(self.context.container.runtime.reports_dir)/'intelligent-tts-run-ledger'
@@ -3365,7 +3415,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.log.appendPlainText(f'Intelligent TTS run ledger update failed: {exc}')
             return None
-    def finalize_intelligent_tts_run_ledger(self,result,summary=None,session=None,receipt=None,report_path=None):
+    def finalize_intelligent_tts_run_ledger(self,result,summary=None,session=None,receipt=None,report_path=None,artifact_receipt=None):
         if not self.current_intelligent_tts_ledger: return None
         ledger_path=self.current_intelligent_tts_ledger
         try:
@@ -3376,6 +3426,7 @@ class MainWindow(QMainWindow):
                 execution_session_path=getattr(session,'path',self.current_execution_session),
                 execution_receipt_path=getattr(receipt,'path',self.current_execution_receipt),
                 report_path=report_path,
+                artifact_receipt_path=getattr(artifact_receipt,'path',None),
             )
             self.last_intelligent_tts_ledger=ledger.path
             self.log.appendPlainText(f'Intelligent TTS run ledger finalized: {ledger.run_id} · {ledger.status} · {ledger.ledger_digest[:16]}')
@@ -3464,20 +3515,31 @@ class MainWindow(QMainWindow):
                 except Exception as exc:
                     self.log.appendPlainText(f'Resume receipt finalization failed: {exc}')
             self.log.appendPlainText(f'Execution session finalized: {session.run_id} · {session.status}')
+            artifact_receipt=self.finalize_intelligent_tts_artifacts(
+                result,
+                receipt=receipt,
+                report_path=report_path,
+            )
             self.finalize_intelligent_tts_run_ledger(
                 result,
                 summary=summary,
                 session=session,
                 receipt=receipt,
                 report_path=report_path,
+                artifact_receipt=artifact_receipt,
             )
             return session
         except Exception as exc:
             self.log.appendPlainText(f'Execution session finalization failed: {exc}')
+            artifact_receipt=self.finalize_intelligent_tts_artifacts(
+                result,
+                report_path=report_path,
+            )
             self.finalize_intelligent_tts_run_ledger(
                 result,
                 summary=summary,
                 report_path=report_path,
+                artifact_receipt=artifact_receipt,
             )
             return None
     def generation_failover(self,payload):
