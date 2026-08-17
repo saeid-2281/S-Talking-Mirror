@@ -60,6 +60,7 @@ from app.services.intelligent_tts_execution_service import IntelligentTTSExecuti
 from app.services.intelligent_tts_run_ledger_service import IntelligentTTSRunLedgerService
 from app.services.intelligent_tts_recovery_continuity_service import IntelligentTTSRecoveryContinuityService
 from app.services.intelligent_tts_artifact_provenance_service import IntelligentTTSArtifactProvenanceService
+from app.services.intelligent_tts_operations_intelligence_service import IntelligentTTSOperationsIntelligenceService
 from app.models.pronunciation_audit import PronunciationAuditDraft
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -200,7 +201,7 @@ class MainWindow(QMainWindow):
         self.audio_player_service=context.audio_player_service
         self.pronunciation_audit_service=PronunciationAuditTrailService()
         self.pronunciation_readiness_service=PronunciationReadinessService()
-        self.launch_assurance_service=LaunchAssuranceService(); self.last_launch_assurance=None; self.intelligent_tts_execution_service=IntelligentTTSExecutionService(); self.last_intelligent_tts_execution=None; self.intelligent_tts_run_ledger_service=IntelligentTTSRunLedgerService(); self.intelligent_tts_recovery_continuity_service=IntelligentTTSRecoveryContinuityService(self.intelligent_tts_run_ledger_service); self.intelligent_tts_artifact_provenance_service=IntelligentTTSArtifactProvenanceService(); self.current_intelligent_tts_ledger=None; self.last_intelligent_tts_ledger=None; self.last_intelligent_tts_recovery_assessment=None; self.interrupted_intelligent_tts_ledgers=(); self.current_intelligent_tts_artifact_plan=None; self.last_intelligent_tts_artifact_plan=None; self.last_intelligent_tts_artifact_receipt=None
+        self.launch_assurance_service=LaunchAssuranceService(); self.last_launch_assurance=None; self.intelligent_tts_execution_service=IntelligentTTSExecutionService(); self.current_intelligent_tts_execution=None; self.last_intelligent_tts_execution=None; self.intelligent_tts_run_ledger_service=IntelligentTTSRunLedgerService(); self.intelligent_tts_recovery_continuity_service=IntelligentTTSRecoveryContinuityService(self.intelligent_tts_run_ledger_service); self.intelligent_tts_artifact_provenance_service=IntelligentTTSArtifactProvenanceService(); self.intelligent_tts_operations_intelligence_service=IntelligentTTSOperationsIntelligenceService(); self.current_intelligent_tts_ledger=None; self.last_intelligent_tts_ledger=None; self.current_intelligent_tts_recovery_assessment=None; self.last_intelligent_tts_recovery_assessment=None; self.interrupted_intelligent_tts_ledgers=(); self.current_intelligent_tts_artifact_plan=None; self.last_intelligent_tts_artifact_plan=None; self.last_intelligent_tts_artifact_receipt=None; self.last_intelligent_tts_operations_snapshot=None; self.last_intelligent_tts_operations_rollup=None
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
         self.crash_recovery_service=context.crash_recovery_service; self.safe_mode=self.crash_recovery_service.safe_mode
@@ -2937,7 +2938,7 @@ class MainWindow(QMainWindow):
                 if path.exists(): self.context.desktop_service.open_path(path)
         except Exception as e: self.notifications.error('Project continuity',str(e))
     def close_project(self):
-        self.project_controller.close_project(); self.project_path=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.current_intelligent_tts_ledger=None; self.current_intelligent_tts_artifact_plan=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
+        self.project_controller.close_project(); self.project_path=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.current_intelligent_tts_ledger=None; self.current_intelligent_tts_execution=None; self.current_intelligent_tts_recovery_assessment=None; self.current_intelligent_tts_artifact_plan=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
     def autosave(self):
         try:
             if self.project_controller.autosave_if_needed(generation_active=self.generation_controller.is_active): self.log.appendPlainText('Project auto-saved.'); self.update_window_title(); self.update_status_bar()
@@ -3267,6 +3268,7 @@ class MainWindow(QMainWindow):
                 s,
                 project.output_path,
             )
+            self.current_intelligent_tts_execution=execution_binding
             self.last_intelligent_tts_execution=execution_binding
             self.log.appendPlainText(
                 f'Intelligent TTS execution binding: {execution_binding.manifest_digest[:16]} · {execution_binding.request_count} request(s)'
@@ -3373,7 +3375,42 @@ class MainWindow(QMainWindow):
             return None
         finally:
             self.current_intelligent_tts_artifact_plan=None
+    def finalize_intelligent_tts_operations(self,result,summary=None,metrics=None,receipt=None,artifact_receipt=None):
+        binding=self.current_intelligent_tts_execution
+        if binding is None or not self.current_run_id: return None
+        try:
+            project=self.project_controller.generation_context(self.out.text())
+            evidence_root=Path(self.context.container.runtime.reports_dir)/'intelligent-tts-operations'
+            snapshot=self.intelligent_tts_operations_intelligence_service.observe_run(
+                binding,
+                run_id=self.current_run_id,
+                project_key=project.project_key,
+                result=result,
+                summary=summary,
+                monitor_metrics=metrics,
+                artifact_receipt=artifact_receipt,
+                execution_receipt=receipt,
+                recovery_assessment=self.current_intelligent_tts_recovery_assessment,
+                evidence_root=evidence_root,
+            )
+            rollup=self.intelligent_tts_operations_intelligence_service.rollup_project(
+                evidence_root,
+                project.project_key,
+            )
+            self.last_intelligent_tts_operations_snapshot=snapshot.path
+            self.last_intelligent_tts_operations_rollup=rollup.path
+            self.log.appendPlainText(
+                f'Intelligent TTS operations: {snapshot.health} · {snapshot.completed}/{snapshot.request_count} completed · {snapshot.artifact_issue_count} artifact issue(s) · {snapshot.retry_events} retry event(s)'
+            )
+            self.log.appendPlainText(
+                f'Production rollup: {rollup.total_runs} run(s) · {rollup.completion_rate:.1%} completion · {rollup.health}'
+            )
+            return snapshot
+        except Exception as exc:
+            self.log.appendPlainText(f'Intelligent TTS operations intelligence failed: {exc}')
+            return None
     def begin_intelligent_tts_run_ledger(self,binding,run_id,project_key,pending_resume=None):
+        self.current_intelligent_tts_recovery_assessment=None
         try:
             ledger_root=Path(self.context.container.runtime.reports_dir)/'intelligent-tts-run-ledger'
             ledger=self.intelligent_tts_run_ledger_service.begin(
@@ -3391,6 +3428,7 @@ class MainWindow(QMainWindow):
                     resume_receipt_id=getattr(pending_resume,'resume_id',None),
                     resume_receipt_path=getattr(pending_resume,'path',None),
                 )
+                self.current_intelligent_tts_recovery_assessment=assessment
                 self.last_intelligent_tts_recovery_assessment=assessment
                 ledger=self.intelligent_tts_recovery_continuity_service.attach_child(ledger.path,assessment)
                 self.log.appendPlainText(f'Intelligent TTS recovery lineage: {assessment.continuity_status} · parent {assessment.parent_run_id or "unknown"} · resume {assessment.resume_receipt_id or "unknown"}')
@@ -3415,8 +3453,11 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.log.appendPlainText(f'Intelligent TTS run ledger update failed: {exc}')
             return None
-    def finalize_intelligent_tts_run_ledger(self,result,summary=None,session=None,receipt=None,report_path=None,artifact_receipt=None):
-        if not self.current_intelligent_tts_ledger: return None
+    def finalize_intelligent_tts_run_ledger(self,result,summary=None,session=None,receipt=None,report_path=None,artifact_receipt=None,operations_snapshot=None):
+        if not self.current_intelligent_tts_ledger:
+            self.current_intelligent_tts_execution=None
+            self.current_intelligent_tts_recovery_assessment=None
+            return None
         ledger_path=self.current_intelligent_tts_ledger
         try:
             ledger=self.intelligent_tts_run_ledger_service.finalize(
@@ -3427,6 +3468,7 @@ class MainWindow(QMainWindow):
                 execution_receipt_path=getattr(receipt,'path',self.current_execution_receipt),
                 report_path=report_path,
                 artifact_receipt_path=getattr(artifact_receipt,'path',None),
+                operations_snapshot_path=getattr(operations_snapshot,'path',None),
             )
             self.last_intelligent_tts_ledger=ledger.path
             self.log.appendPlainText(f'Intelligent TTS run ledger finalized: {ledger.run_id} · {ledger.status} · {ledger.ledger_digest[:16]}')
@@ -3436,6 +3478,8 @@ class MainWindow(QMainWindow):
             return None
         finally:
             self.current_intelligent_tts_ledger=None
+            self.current_intelligent_tts_execution=None
+            self.current_intelligent_tts_recovery_assessment=None
     def sync_execution_session(self,status=None):
         if not self.current_run_id: return None
         try:
@@ -3520,6 +3564,13 @@ class MainWindow(QMainWindow):
                 receipt=receipt,
                 report_path=report_path,
             )
+            operations_snapshot=self.finalize_intelligent_tts_operations(
+                result,
+                summary=summary,
+                metrics=metrics,
+                receipt=receipt,
+                artifact_receipt=artifact_receipt,
+            )
             self.finalize_intelligent_tts_run_ledger(
                 result,
                 summary=summary,
@@ -3527,6 +3578,7 @@ class MainWindow(QMainWindow):
                 receipt=receipt,
                 report_path=report_path,
                 artifact_receipt=artifact_receipt,
+                operations_snapshot=operations_snapshot,
             )
             return session
         except Exception as exc:
@@ -3535,11 +3587,18 @@ class MainWindow(QMainWindow):
                 result,
                 report_path=report_path,
             )
+            operations_snapshot=self.finalize_intelligent_tts_operations(
+                result,
+                summary=summary,
+                metrics=self.monitor_service.report_metrics(),
+                artifact_receipt=artifact_receipt,
+            )
             self.finalize_intelligent_tts_run_ledger(
                 result,
                 summary=summary,
                 report_path=report_path,
                 artifact_receipt=artifact_receipt,
+                operations_snapshot=operations_snapshot,
             )
             return None
     def generation_failover(self,payload):
