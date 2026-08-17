@@ -814,6 +814,336 @@ QFrame#queueScopeSummary {{
     return common + "\n" + dark_completion
 
 
+
+
+def manual_visual_acceptance_stylesheet(
+    *,
+    is_dark: bool,
+    concept_key: str = ACTIVE_CONCEPT,
+) -> str:
+    """Final pixel-level reconciliation after B6 Hotfix 3 manual screenshot review.
+
+    The legacy theme still assigns a background to every QWidget. Child labels
+    and the Provider Accounts table therefore retained exact legacy navy/base
+    colors even when their structural parents had already moved to the
+    Soft Professional semantic palette. This layer is deliberately last and
+    uses object-specific selectors so passive text becomes transparent while
+    real controls, statuses and selections retain semantic surfaces.
+    """
+
+    palette = palette_for(is_dark=is_dark, concept_key=concept_key)
+    return f"""
+/* Roadmap 2 B6 Hotfix 3 Hotfix 6 — Manual Visual Acceptance Reconciliation */
+QFrame#workspaceHero QLabel,
+QFrame#projectContextStrip QLabel,
+QFrame#metricsStrip QLabel,
+QFrame#queueWorkspaceHeading QLabel,
+QFrame#queueRangeBar QLabel,
+QFrame#queueCommandBar QLabel,
+QFrame#queueScopeSummary QLabel,
+QFrame#generationActionBar QLabel,
+QFrame#queueWorkspaceFooter QLabel,
+QFrame#queueInspectorHeader QLabel,
+QFrame#queueInspectorCard QLabel,
+QFrame#queueInspectorActions QLabel {{
+    background:transparent;
+}}
+
+QDialog#providerAccountsDialog QLabel {{
+    background:transparent;
+}}
+QDialog#providerAccountsDialog QWidget#providerAccountsAccountsPage,
+QDialog#providerAccountsDialog QStackedWidget#providerAccountsTableStack,
+QDialog#providerAccountsDialog QWidget#providerAccountsEmptyState {{
+    background:{palette.canvas};
+    color:{palette.text_primary};
+}}
+QFrame#providerAccountsCenterSummary {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border:1px solid {palette.border};
+    border-radius:8px;
+}}
+QTabWidget#providerAccountsTabs::pane {{
+    background:{palette.canvas};
+    border:1px solid {palette.border};
+}}
+QTabWidget#providerAccountsTabs QTabBar {{
+    background:{palette.canvas};
+}}
+QTabWidget#providerAccountsTabs QTabBar::tab {{
+    background:{palette.surface};
+    color:{palette.text_secondary};
+    border:1px solid {palette.border};
+    padding:7px 10px;
+}}
+QTabWidget#providerAccountsTabs QTabBar::tab:selected {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border-color:{palette.border_strong};
+}}
+QSplitter#providerAccountsSplitter {{
+    background:{palette.canvas};
+}}
+QSplitter#providerAccountsSplitter::handle {{
+    background:{palette.border};
+}}
+QTableWidget#providerProfilesTable {{
+    background:{palette.surface};
+    alternate-background-color:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border:1px solid {palette.border};
+    border-radius:8px;
+    gridline-color:transparent;
+    selection-background-color:{palette.surface_secondary};
+    selection-color:{palette.text_primary};
+}}
+QTableWidget#providerProfilesTable QWidget#qt_scrollarea_viewport {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+}}
+QTableWidget#providerProfilesTable::item {{
+    background:transparent;
+    color:{palette.text_primary};
+    border-bottom:1px solid {palette.border};
+}}
+QTableWidget#providerProfilesTable::item:selected {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border-left:2px solid {palette.primary};
+}}
+QHeaderView#providerProfilesHeader::section {{
+    background:{palette.surface_secondary};
+    color:{palette.text_secondary};
+    border:0;
+    border-bottom:1px solid {palette.border_strong};
+    padding:5px 7px;
+    font-weight:700;
+}}
+QDialog#providerAccountsDialog QScrollBar:horizontal,
+QDialog#providerAccountsDialog QScrollBar:vertical {{
+    background:{palette.canvas};
+    border:0;
+}}
+QDialog#providerAccountsDialog QScrollBar::handle:horizontal,
+QDialog#providerAccountsDialog QScrollBar::handle:vertical {{
+    background:{palette.border_strong};
+    border:0;
+    border-radius:5px;
+    min-width:34px;
+    min-height:34px;
+}}
+QDialog#providerAccountsDialog QScrollBar::add-line,
+QDialog#providerAccountsDialog QScrollBar::sub-line {{
+    width:0;
+    height:0;
+}}
+
+QDialog#providerAccountsDialog QLabel#accountStatus {{
+    background:{palette.surface};
+    color:{palette.text_secondary};
+    border:1px solid {palette.border};
+    border-radius:8px;
+}}
+QDialog#providerAccountsDialog QLabel#accountStatusBadge {{
+    background:{palette.surface};
+    color:{palette.text_secondary};
+    border:1px solid {palette.border};
+}}
+QDialog#providerAccountsDialog QLabel#accountStatusBadge[status="active"],
+QDialog#providerAccountsDialog QLabel#accountStatusBadge[status="success"] {{
+    background:{palette.success_soft};
+    color:{palette.success};
+    border-color:{palette.success};
+}}
+QDialog#providerAccountsDialog QLabel#accountStatusBadge[status="error"] {{
+    background:{palette.danger_soft};
+    color:{palette.danger};
+    border-color:{palette.danger};
+}}
+QDialog#providerAccountsDialog QLabel#accountStatusBadge[status="info"] {{
+    background:{palette.info_soft};
+    color:{palette.info};
+    border-color:{palette.info};
+}}
+
+QPushButton[primary="true"],
+QPushButton#primaryButton,
+QPushButton#startGenerationButton,
+QPushButton#generationPrimaryAction,
+QPushButton#professionalEmptyStatePrimary {{
+    background:{palette.primary};
+    color:{palette.text_inverse};
+    border-color:{palette.primary};
+}}
+QPushButton[primary="true"]:hover,
+QPushButton#primaryButton:hover,
+QPushButton#startGenerationButton:hover,
+QPushButton#generationPrimaryAction:hover,
+QPushButton#professionalEmptyStatePrimary:hover {{
+    background:{palette.primary_hover};
+    color:{palette.text_inverse};
+    border-color:{palette.primary_hover};
+}}
+
+QLabel#workspaceStatusBadge[tone="info"],
+QLabel#generationStateBadge[tone="info"] {{
+    background:{palette.info_soft};
+    color:{palette.info};
+    border-color:{palette.info};
+}}
+QLabel#workspaceStatusBadge[tone="success"],
+QLabel#generationStateBadge[tone="success"] {{
+    background:{palette.success_soft};
+    color:{palette.success};
+    border-color:{palette.success};
+}}
+QLabel#workspaceStatusBadge[tone="warning"],
+QLabel#generationStateBadge[tone="warning"] {{
+    background:{palette.warning_soft};
+    color:{palette.warning};
+    border-color:{palette.warning};
+}}
+QLabel#workspaceStatusBadge[tone="error"],
+QLabel#generationStateBadge[tone="error"] {{
+    background:{palette.danger_soft};
+    color:{palette.danger};
+    border-color:{palette.danger};
+}}
+
+/* Roadmap 2 B6 Hotfix 3 Hotfix 7 — Main Shell Legacy Surface Drain */
+QWidget#applicationShell,
+QWidget#activityWorkspace,
+QTabWidget#activityWorkspace {{
+    background:{palette.canvas};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+QFrame#workspaceHero,
+QFrame#projectContextStrip,
+QFrame#generationActionBar,
+QFrame#providerPanelHeader,
+QFrame#providerOverviewCard,
+QFrame#providerIntelligenceCard,
+QFrame#queueWorkspaceHeading,
+QFrame#queueRangeBar,
+QFrame#queueCommandBar,
+QFrame#queuePlanningRow,
+QFrame#queueWorkspaceFooter,
+QFrame#queueInspectorHeader,
+QFrame#queueInspectorCard,
+QFrame#queueInspectorActions {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+QFrame#metricPill,
+QFrame#queueScopeSummary,
+QWidget#generationJourney,
+QWidget#generationJourneySteps {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+QFrame#metricPill[active="true"] {{
+    background:{palette.primary_soft};
+    color:{palette.text_primary};
+    border-color:{palette.primary};
+}}
+QFrame#providerPanelHeader QLabel,
+QFrame#providerOverviewCard QLabel,
+QFrame#providerIntelligenceCard QLabel,
+QFrame#generationActionBar QLabel,
+QFrame#metricPill QLabel {{
+    background:transparent;
+}}
+QLabel#providerOverviewIcon,
+QLabel#providerCapabilityBadge,
+QLabel#providerReadinessBadge,
+QLabel#providerNextStep {{
+    background:{palette.surface_secondary};
+    color:{palette.text_secondary};
+    border-color:{palette.border};
+}}
+QLabel#providerReadinessBadge[tone="success"] {{
+    background:{palette.success_soft};
+    color:{palette.success};
+    border-color:{palette.success};
+}}
+QLabel#providerReadinessBadge[tone="warning"] {{
+    background:{palette.warning_soft};
+    color:{palette.warning};
+    border-color:{palette.warning};
+}}
+QLabel#providerReadinessBadge[tone="error"] {{
+    background:{palette.danger_soft};
+    color:{palette.danger};
+    border-color:{palette.danger};
+}}
+QLabel#providerReadinessBadge[tone="running"] {{
+    background:{palette.info_soft};
+    color:{palette.info};
+    border-color:{palette.info};
+}}
+QTabWidget#activityTabs::pane,
+QTabWidget#activityWorkspace::pane {{
+    background:{palette.canvas};
+    border:1px solid {palette.border};
+}}
+QTabWidget#activityTabs QTabBar::tab,
+QTabWidget#activityWorkspace QTabBar::tab {{
+    background:{palette.canvas};
+    color:{palette.text_secondary};
+    border-color:{palette.border};
+}}
+QTabWidget#activityTabs QTabBar::tab:selected,
+QTabWidget#activityWorkspace QTabBar::tab:selected {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border-color:{palette.border_strong};
+}}
+QStatusBar {{
+    background:{palette.surface};
+    color:{palette.text_secondary};
+    border-top:1px solid {palette.border};
+}}
+QStatusBar QLabel,
+QStatusBar QPushButton {{
+    background:transparent;
+}}
+
+/* Explicitly outrank historical ID/property selectors that still paint #2563EB. */
+QPushButton#queuePrimaryAction,
+QPushButton#queueInspectorAction[primary="true"],
+QPushButton#monitorPrimaryAction,
+QPushButton#sourcesActionButton[primary="true"],
+QPushButton#dialogPrimaryAction,
+QPushButton#historyOpenReportButton,
+QPushButton#historyExportButton,
+QPushButton#reportPrimaryAction,
+QPushButton#audioPrimaryAction,
+QPushButton#outputFileAction[primary="true"] {{
+    background:{palette.primary};
+    color:{palette.text_inverse};
+    border-color:{palette.primary};
+}}
+QPushButton#queuePrimaryAction:hover,
+QPushButton#queueInspectorAction[primary="true"]:hover,
+QPushButton#monitorPrimaryAction:hover,
+QPushButton#sourcesActionButton[primary="true"]:hover,
+QPushButton#dialogPrimaryAction:hover,
+QPushButton#historyOpenReportButton:hover,
+QPushButton#historyExportButton:hover,
+QPushButton#reportPrimaryAction:hover,
+QPushButton#audioPrimaryAction:hover,
+QPushButton#outputFileAction[primary="true"]:hover {{
+    background:{palette.primary_hover};
+    color:{palette.text_inverse};
+    border-color:{palette.primary_hover};
+}}
+""".strip()
+
+
 def theme_accessibility_stylesheet(
     *,
     is_dark: bool,
@@ -887,6 +1217,9 @@ QGroupBox#selectedRowCard, QDialog[a10Modernized="true"] QGroupBox[visualRole="f
         is_dark=is_dark,
         concept_key=concept_key,
     ) + "\n" + ux_reality_reconciliation_stylesheet(
+        is_dark=is_dark,
+        concept_key=concept_key,
+    ) + "\n" + manual_visual_acceptance_stylesheet(
         is_dark=is_dark,
         concept_key=concept_key,
     )

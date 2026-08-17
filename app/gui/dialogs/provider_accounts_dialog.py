@@ -138,6 +138,7 @@ class ProviderAccountsDialog(QDialog):
         root.addWidget(self.tabs, 1)
 
         accounts_page = QWidget()
+        accounts_page.setObjectName("providerAccountsAccountsPage")
         accounts_layout = QVBoxLayout(accounts_page)
         accounts_layout.setContentsMargins(0, 8, 0, 0)
         accounts_layout.setSpacing(8)
@@ -246,7 +247,9 @@ class ProviderAccountsDialog(QDialog):
         self.account_splitter.setChildrenCollapsible(False)
 
         self.stack = QStackedWidget()
+        self.stack.setObjectName("providerAccountsTableStack")
         self.empty_state = QWidget()
+        self.empty_state.setObjectName("providerAccountsEmptyState")
         empty_layout = QVBoxLayout(self.empty_state)
         empty_layout.setContentsMargins(24, 24, 24, 24)
         empty_layout.addStretch()
@@ -285,6 +288,7 @@ class ProviderAccountsDialog(QDialog):
         self.table.setAlternatingRowColors(True)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.table.setVerticalScrollMode(QTableWidget.ScrollPerPixel)
+        self.table.horizontalHeader().setObjectName("providerProfilesHeader")
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)

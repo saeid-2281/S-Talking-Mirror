@@ -114,7 +114,9 @@ def test_a11_runtime_dark_theme_preserves_qpalette_authority_and_resolves_dark_m
     window.apply_theme("Dark")
     qt_app.processEvents()
 
-    expected = window.theme_manager.tokens("Dark")["app"].lower()
+    historical = window.theme_manager.tokens("Dark")["app"].lower()
+    expected = palette_for(is_dark=True, concept_key=ACTIVE_CONCEPT).canvas.lower()
+    assert window.theme_manager.palette("Dark").color(QPalette.Window).name().lower() == historical
     assert QWidget.palette(window).color(QPalette.Window).name().lower() == expected
     assert window.property("a11ThemeMode") == "dark"
     assert window.application_shell.property("a11ThemeMode") == "dark"

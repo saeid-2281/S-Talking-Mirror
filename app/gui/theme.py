@@ -6,6 +6,8 @@ from PySide6.QtCore import QSettings
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
+from app.gui.visual_design_system_v2 import ACTIVE_CONCEPT, palette_for
+
 
 @dataclass(frozen=True)
 class Theme:
@@ -390,6 +392,47 @@ LIGHT_STYLE = _stylesheet(LIGHT_TOKENS)
 GRAPHITE_STYLE = _stylesheet(GRAPHITE_TOKENS)
 
 
+def _soft_professional_dark_style_projection(style: str) -> str:
+    """Project the legacy Dark QSS onto the selected semantic surface family.
+
+    The public ``DARK_TOKENS`` and ``ThemeManager.palette()`` contracts are
+    historical compatibility APIs and intentionally remain unchanged.  The
+    stylesheet, however, still contains broad hard-coded navy surfaces and
+    ``palette(...)`` background roles from that older system.  Real screenshot
+    evidence showed those values leaking through unnamed containers, splitter
+    gutters and secondary controls after all later visual overlays had run.
+
+    This presentation-only bridge remaps only legacy *surface/background* and
+    border roles when Dark is rendered.  Light/Graphite, semantic status colors,
+    provider/generation authority, and the public QPalette contract are not
+    changed.  A8+ overlays still run after this base stylesheet and therefore
+    remain the final component-level authority.
+    """
+
+    semantic = palette_for(is_dark=True, concept_key=ACTIVE_CONCEPT)
+    replacements = (
+        (DARK_TOKENS["app"], semantic.canvas),
+        (DARK_TOKENS["canvas"], semantic.canvas),
+        (DARK_TOKENS["surface"], semantic.surface),
+        (DARK_TOKENS["surface_raised"], semantic.surface_secondary),
+        (DARK_TOKENS["surface_soft"], semantic.surface_secondary),
+        (DARK_TOKENS["input"], semantic.surface_secondary),
+        (DARK_TOKENS["secondary_hover"], semantic.surface_secondary),
+        (DARK_TOKENS["border_subtle"], semantic.border),
+        (DARK_TOKENS["border"], semantic.border),
+        (DARK_TOKENS["border_strong"], semantic.border_strong),
+        ("palette(window)", semantic.canvas),
+        ("palette(base)", semantic.surface),
+        ("palette(alternate-base)", semantic.surface_secondary),
+        ("palette(button)", semantic.surface_secondary),
+        ("palette(midlight)", semantic.border),
+    )
+    projected = style
+    for legacy, replacement in replacements:
+        projected = projected.replace(legacy, replacement)
+    return projected
+
+
 class ThemeManager:
     def __init__(self) -> None:
         self.settings = QSettings("S Talking", "S Talking")
@@ -417,11 +460,14 @@ class ThemeManager:
 
     def stylesheet(self, name: str | None = None) -> str:
         selected = self.effective_name(name or self.current())
-        return {
+        style = {
             "Dark": DARK_STYLE,
             "Graphite": GRAPHITE_STYLE,
             "Light": LIGHT_STYLE,
         }[selected]
+        if selected == "Dark":
+            return _soft_professional_dark_style_projection(style)
+        return style
 
     @staticmethod
     def effective_name(name: str) -> str:

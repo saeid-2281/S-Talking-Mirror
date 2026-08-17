@@ -59,6 +59,28 @@ def _capture(widget: QWidget, path: Path) -> dict[str, Any]:
     }
 
 
+def _runtime_window_palette_expectation(
+    window: MainWindow,
+    theme_name: str,
+    qpalette: QPalette,
+    semantic: Any,
+) -> tuple[str, str, str]:
+    """Return rendered, API, and effective theme window colors.
+
+    Hotfix 8 intentionally preserves the historical ThemeManager/QPalette API
+    while projecting the rendered Dark stylesheet onto the selected Soft
+    Professional semantic canvas. Qt therefore reports the stylesheet-polished
+    color from ``QWidget.palette(window)`` for an effective Dark theme. Light
+    remains palette-authoritative, and System follows whichever effective theme
+    the platform resolves.
+    """
+
+    api_window = qpalette.color(QPalette.ColorRole.Window).name().lower()
+    effective = window.theme_manager.effective_name(theme_name)
+    rendered_expected = semantic.canvas.lower() if effective == "Dark" else api_window
+    return rendered_expected, api_window, effective
+
+
 def certify_window(window: MainWindow, output: Path) -> dict[str, Any]:
     application = QApplication.instance()
     if application is None:
@@ -136,13 +158,18 @@ def certify_window(window: MainWindow, output: Path) -> dict[str, Any]:
                 "detail": str(window.property("a11ThemeMode")),
             }
         )
-        expected_window = qpalette.color(QPalette.ColorRole.Window).name().lower()
+        expected_window, api_window, effective_theme = _runtime_window_palette_expectation(
+            window, theme_name, qpalette, semantic
+        )
         actual_window = QWidget.palette(window).color(QPalette.ColorRole.Window).name().lower()
         checks.append(
             {
                 "name": f"{theme_name.lower()}_qpalette_authority",
                 "passed": actual_window == expected_window,
-                "detail": f"actual={actual_window};expected={expected_window}",
+                "detail": (
+                    f"actual={actual_window};rendered_expected={expected_window};"
+                    f"api={api_window};effective={effective_theme}"
+                ),
             }
         )
         checks.append(

@@ -10,6 +10,7 @@ from app.config.runtime import RuntimeConfig
 from app.container import create_service_container
 from app.gui.main import MainWindow
 from app.gui.theme import ThemeManager
+from app.gui.visual_design_system_v2 import ACTIVE_CONCEPT, palette_for
 
 
 def _window(tmp_path: Path) -> MainWindow:
@@ -36,7 +37,13 @@ def test_phase25_main_window_applies_palette_when_theme_changes(qt_app, tmp_path
     qt_app.processEvents()
 
     window.apply_theme("Dark")
-    assert QWidget.palette(window).color(QPalette.Window).name().lower() == window.theme_manager.tokens("Dark")["app"].lower()
+    # Roadmap 2 B6 H8 projects the *rendered* Dark stylesheet onto the
+    # selected Soft Professional canvas. ThemeManager.palette()/tokens() stay
+    # historical compatibility APIs, while QWidget.palette() reflects the
+    # final Qt stylesheet polish applied to the live window.
+    projected_dark = palette_for(is_dark=True, concept_key=ACTIVE_CONCEPT).canvas.lower()
+    assert QWidget.palette(window).color(QPalette.Window).name().lower() == projected_dark
+    assert window.theme_manager.palette("Dark").color(QPalette.Window).name().lower() == window.theme_manager.tokens("Dark")["app"].lower()
 
     window.apply_theme("Light")
     assert QWidget.palette(window).color(QPalette.Window).name().lower() == window.theme_manager.tokens("Light")["app"].lower()

@@ -131,9 +131,16 @@ def test_a121_preserves_qpalette_and_three_theme_authority(qt_app, tmp_path: Pat
     for theme_name in EXPECTED_THEMES:
         window.apply_theme(theme_name)
         qt_app.processEvents()
-        expected = window.theme_manager.palette(theme_name).color(QPalette.ColorRole.Window)
+        api_palette = window.theme_manager.palette(theme_name)
+        api_expected = window.theme_manager.tokens(theme_name)["app"].lower()
+        assert api_palette.color(QPalette.ColorRole.Window).name().lower() == api_expected
+
+        effective = window.theme_manager.effective_name(theme_name)
+        expected_name = api_expected
+        if effective == "Dark":
+            expected_name = palette_for(is_dark=True, concept_key=ACTIVE_CONCEPT).canvas.lower()
         actual = QWidget.palette(window).color(QPalette.ColorRole.Window)
-        assert actual.name().lower() == expected.name().lower()
+        assert actual.name().lower() == expected_name
         assert window.property("a11ResolvedTheme") == theme_name
     window.close()
 
