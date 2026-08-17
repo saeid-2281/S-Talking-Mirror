@@ -15,10 +15,17 @@ from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QApplication,
+    QAbstractSpinBox,
+    QComboBox,
     QDialog,
     QFileDialog,
     QFontDialog,
+    QFrame,
+    QGroupBox,
+    QLineEdit,
+    QPlainTextEdit,
     QTabWidget,
+    QTextEdit,
     QWidget,
 )
 
@@ -38,6 +45,19 @@ THEME_SURFACE_CANVAS_OBJECTS = (
     "providerScrollArea",
     "monitorScroll",
 )
+THEME_NESTED_SURFACE_OBJECTS = (
+    "collapsibleSection",
+    "sectionContent",
+    "providerFieldRow",
+    "providerSection",
+    "selectedRowCard",
+    "monitorHero",
+    "monitorProgressCard",
+    "monitorOutputCard",
+    "monitorFailureCard",
+)
+
+
 THEME_SURFACE_RAISED_OBJECTS = (
     "providerSection",
     "collapsibleSection",
@@ -278,6 +298,49 @@ class ThemeAccessibilityModernizer(QObject):
         # Enumerating pages closes the gap that remained visible in Dark mode.
         self._tag_tab_pages(getattr(self.owner, "left_tabs", None))
         self._tag_tab_pages(getattr(self.owner, "right_tabs", None))
+        self._tag_nested_dock_surfaces(getattr(self.owner, "left_tabs", None))
+        self._tag_nested_dock_surfaces(getattr(self.owner, "right_tabs", None))
+
+    def _set_control_surface(self, widget: QWidget) -> None:
+        changed = widget.property("a124ControlSurface") is not True
+        widget.setProperty("a124ControlSurface", True)
+        semantic = palette_for(is_dark=self._is_dark, concept_key=ACTIVE_CONCEPT)
+        palette = widget.palette()
+        palette.setColor(QPalette.ColorRole.Base, QColor(semantic.surface_secondary))
+        palette.setColor(QPalette.ColorRole.Window, QColor(semantic.surface_secondary))
+        palette.setColor(QPalette.ColorRole.Text, QColor(semantic.text_primary))
+        widget.setPalette(palette)
+        if changed:
+            style = widget.style()
+            if style is not None:
+                style.unpolish(widget)
+                style.polish(widget)
+        widget.update()
+
+    def _tag_nested_dock_surfaces(self, root: QWidget | None) -> None:
+        if not isinstance(root, QWidget):
+            return
+        for child in root.findChildren(QWidget):
+            object_name = child.objectName()
+            preserve_canvas = (
+                isinstance(child, QAbstractScrollArea)
+                or child.property("a121SurfaceFamily") == "canvas"
+            )
+            if not preserve_canvas:
+                if object_name in THEME_NESTED_SURFACE_OBJECTS:
+                    child.setProperty("a124NestedSurface", True)
+                    self._set_surface_family(child, "surface")
+                if (
+                    isinstance(child, (QFrame, QGroupBox))
+                    and object_name != "integratedDockTitle"
+                ):
+                    child.setProperty("a124NestedSurface", True)
+                    self._set_surface_family(child, "surface")
+            if isinstance(
+                child,
+                (QLineEdit, QComboBox, QAbstractSpinBox, QPlainTextEdit, QTextEdit),
+            ):
+                self._set_control_surface(child)
 
     def _apply_properties(self, widget: QWidget) -> None:
         widget.setProperty("a11ThemeMode", "dark" if self._is_dark else "light")
@@ -357,6 +420,26 @@ QFrame#integratedDockTitle {{
     background:transparent;
     color:{palette.text_secondary};
     border:0;
+}}
+QDockWidget#workspaceLeftDock *[a124NestedSurface="true"],
+QDockWidget#workspaceRightDock *[a124NestedSurface="true"] {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+}}
+QDockWidget#workspaceLeftDock *[a124ControlSurface="true"],
+QDockWidget#workspaceRightDock *[a124ControlSurface="true"] {{
+    background:{palette.surface_secondary};
+    color:{palette.text_primary};
+    border-color:{palette.border};
+    selection-background-color:{palette.primary_soft};
+    selection-color:{palette.text_primary};
+}}
+QDockWidget#workspaceLeftDock QToolButton#sectionHeader,
+QDockWidget#workspaceRightDock QToolButton#sectionHeader {{
+    background:{palette.surface};
+    color:{palette.text_primary};
+    border-color:{palette.border};
 }}
 """.strip()
 

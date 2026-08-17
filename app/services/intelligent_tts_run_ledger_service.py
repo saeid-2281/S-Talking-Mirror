@@ -160,10 +160,11 @@ class IntelligentTTSRunLedgerService:
         if not normalized_run_id:
             raise IntelligentTTSRunLedgerError("run_id is required")
 
-        root = Path(evidence_root)
-        project_dir = root / _safe_component(project_key, "project")
-        filename = _safe_component(normalized_run_id, "run") + ".intelligent-tts-ledger.json"
-        path = project_dir / filename
+        path = self.path_for(
+            evidence_root,
+            project_key,
+            normalized_run_id,
+        )
 
         if path.exists():
             existing = self.load(path)
@@ -217,6 +218,81 @@ class IntelligentTTSRunLedgerService:
         payload = self._with_ledger_digest(base)
         self._write(path, payload)
         return self.load(path)
+
+    @staticmethod
+    def path_for(
+        evidence_root: Path,
+        project_key: str,
+        run_id: str,
+    ) -> Path:
+        root = Path(evidence_root)
+        project_dir = root / _safe_component(project_key, "project")
+        filename = _safe_component(str(run_id), "run") + ".intelligent-tts-ledger.json"
+        return project_dir / filename
+
+    def discover_open(
+        self,
+        evidence_root: Path,
+    ) -> tuple[IntelligentTTSRunLedger, ...]:
+        root = Path(evidence_root)
+        if not root.exists():
+            return ()
+        ledgers: list[IntelligentTTSRunLedger] = []
+        for path in sorted(root.rglob("*.intelligent-tts-ledger.json")):
+            try:
+                ledger = self.load(path)
+            except IntelligentTTSRunLedgerIntegrityError:
+                continue
+            if ledger.status not in TERMINAL_STATUSES:
+                ledgers.append(ledger)
+        return tuple(sorted(ledgers, key=lambda item: (item.started_at, str(item.path))))
+
+    def record_recovery_lineage(
+        self,
+        ledger_path: Path,
+        lineage: Mapping[str, Any],
+        *,
+        timestamp: datetime | None = None,
+    ) -> IntelligentTTSRunLedger:
+        ledger = self.load(Path(ledger_path))
+        if ledger.status in TERMINAL_STATUSES:
+            raise IntelligentTTSRunLedgerTransitionError(
+                f"Run ledger is already terminal: {ledger.status}"
+            )
+        allowed = (
+            "continuity_status",
+            "parent_run_id",
+            "parent_ledger_path",
+            "parent_ledger_digest",
+            "parent_status",
+            "resume_receipt_id",
+            "resume_receipt_path",
+        )
+        safe_lineage = {
+            key: None if lineage.get(key) is None else str(lineage.get(key))
+            for key in allowed
+        }
+        for event in ledger.events:
+            if event.event_type != "recovery_lineage":
+                continue
+            if dict(event.payload) == safe_lineage:
+                return ledger
+            raise IntelligentTTSRunLedgerTransitionError(
+                "Run ledger already contains different recovery lineage"
+            )
+        payload = ledger.to_dict()
+        payload.pop("ledger_digest", None)
+        event = self._event(
+            index=len(ledger.events) + 1,
+            event_type="recovery_lineage",
+            timestamp=_utc_iso(timestamp),
+            previous_digest=ledger.events[-1].event_digest,
+            payload=safe_lineage,
+        )
+        payload["events"].append(event.to_dict())
+        payload = self._with_ledger_digest(payload)
+        self._write(ledger.path, payload)
+        return self.load(ledger.path)
 
     def record_status(
         self,

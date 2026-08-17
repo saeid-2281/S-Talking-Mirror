@@ -58,6 +58,7 @@ from app.services.pronunciation_readiness_service import PronunciationReadinessS
 from app.services.launch_assurance_service import LaunchAssuranceContextChanged, LaunchAssuranceService
 from app.services.intelligent_tts_execution_service import IntelligentTTSExecutionDrift, IntelligentTTSExecutionService
 from app.services.intelligent_tts_run_ledger_service import IntelligentTTSRunLedgerService
+from app.services.intelligent_tts_recovery_continuity_service import IntelligentTTSRecoveryContinuityService
 from app.models.pronunciation_audit import PronunciationAuditDraft
 from app.gui.widgets.application_shell import (
     ActivityCenter,
@@ -198,7 +199,7 @@ class MainWindow(QMainWindow):
         self.audio_player_service=context.audio_player_service
         self.pronunciation_audit_service=PronunciationAuditTrailService()
         self.pronunciation_readiness_service=PronunciationReadinessService()
-        self.launch_assurance_service=LaunchAssuranceService(); self.last_launch_assurance=None; self.intelligent_tts_execution_service=IntelligentTTSExecutionService(); self.last_intelligent_tts_execution=None; self.intelligent_tts_run_ledger_service=IntelligentTTSRunLedgerService(); self.current_intelligent_tts_ledger=None; self.last_intelligent_tts_ledger=None
+        self.launch_assurance_service=LaunchAssuranceService(); self.last_launch_assurance=None; self.intelligent_tts_execution_service=IntelligentTTSExecutionService(); self.last_intelligent_tts_execution=None; self.intelligent_tts_run_ledger_service=IntelligentTTSRunLedgerService(); self.intelligent_tts_recovery_continuity_service=IntelligentTTSRecoveryContinuityService(self.intelligent_tts_run_ledger_service); self.current_intelligent_tts_ledger=None; self.last_intelligent_tts_ledger=None; self.last_intelligent_tts_recovery_assessment=None; self.interrupted_intelligent_tts_ledgers=()
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
         self.crash_recovery_service=context.crash_recovery_service; self.safe_mode=self.crash_recovery_service.safe_mode
@@ -252,6 +253,7 @@ class MainWindow(QMainWindow):
             self.startup_recovery_state=None; self.session_restore_state=None
         else:
             self.run_startup_recovery()
+            self.inspect_intelligent_tts_recovery_continuity()
             if not self.safe_mode:
                 self.restore_previous_session(); QTimer.singleShot(0,self.offer_generation_recovery); QTimer.singleShot(5000,self.check_updates_on_startup)
         self.update_window_title(); self.update_status_bar()
@@ -1971,6 +1973,18 @@ class MainWindow(QMainWindow):
             if state.action_taken: self.log.appendPlainText('Startup recovery:\n'+state.summary())
         except Exception as e:
             self.log.appendPlainText(f'Startup recovery failed: {e}')
+    def inspect_intelligent_tts_recovery_continuity(self):
+        ledger_root=Path(self.context.container.runtime.reports_dir)/'intelligent-tts-run-ledger'
+        try:
+            ledgers=self.intelligent_tts_recovery_continuity_service.discover_interrupted(ledger_root)
+            self.interrupted_intelligent_tts_ledgers=tuple(ledgers)
+            if ledgers:
+                self.log.appendPlainText(f'Intelligent TTS recovery continuity: {len(ledgers)} non-terminal ledger(s) detected. Existing recovery remains user-controlled.')
+            return self.interrupted_intelligent_tts_ledgers
+        except Exception as exc:
+            self.interrupted_intelligent_tts_ledgers=()
+            self.log.appendPlainText(f'Intelligent TTS recovery continuity scan failed: {exc}')
+            return ()
     def restore_previous_session(self):
         session=self.context.session_restore_service.load(); self.session_restore_state=session
         if not session.auto_restore_enabled or not session.last_project_path or not session.last_project_path.exists(): return
@@ -3260,6 +3274,7 @@ class MainWindow(QMainWindow):
                 execution_binding,
                 run_id,
                 project.project_key,
+                pending_resume=pending_resume,
             )
         except IntelligentTTSExecutionDrift as exc:
             if self.current_budget_reservation_id:
@@ -3308,7 +3323,7 @@ class MainWindow(QMainWindow):
         self.sync_execution_session('running')
         self.monitor_service.start_run(self.generation_controller.generation_jobs(),provider=s.provider,output_dir=project.output_path,settings=s,project_key=project.project_key); self.set_generation_controls(active=True); self.generation_status_strip.set_generation_state('Running',f'{len(self.generation_controller.generation_jobs()):,} jobs queued · {run_id}'); self.update_status_bar()
         self.context.product_activity_service.activity('generation','Generation started',f'{len(self.generation_controller.generation_jobs()):,} job(s) queued · {run_id}.',project_id=current.project_id if current else None,metadata={'run_id':run_id,'launch_receipt':str(receipt or ''),'launch_assurance':launch_assurance.preflight_context_fingerprint[:16]})
-    def begin_intelligent_tts_run_ledger(self,binding,run_id,project_key):
+    def begin_intelligent_tts_run_ledger(self,binding,run_id,project_key,pending_resume=None):
         try:
             ledger_root=Path(self.context.container.runtime.reports_dir)/'intelligent-tts-run-ledger'
             ledger=self.intelligent_tts_run_ledger_service.begin(
@@ -3318,6 +3333,17 @@ class MainWindow(QMainWindow):
                 evidence_root=ledger_root,
                 started_at=self.generation_started_at,
             )
+            if pending_resume is not None:
+                assessment=self.intelligent_tts_recovery_continuity_service.assess_resume(
+                    evidence_root=ledger_root,
+                    project_key=project_key,
+                    parent_run_id=getattr(pending_resume,'parent_run_id',''),
+                    resume_receipt_id=getattr(pending_resume,'resume_id',None),
+                    resume_receipt_path=getattr(pending_resume,'path',None),
+                )
+                self.last_intelligent_tts_recovery_assessment=assessment
+                ledger=self.intelligent_tts_recovery_continuity_service.attach_child(ledger.path,assessment)
+                self.log.appendPlainText(f'Intelligent TTS recovery lineage: {assessment.continuity_status} · parent {assessment.parent_run_id or "unknown"} · resume {assessment.resume_receipt_id or "unknown"}')
             self.current_intelligent_tts_ledger=ledger.path
             self.last_intelligent_tts_ledger=ledger.path
             self.log.appendPlainText(f'Intelligent TTS run ledger: {ledger.run_id} · {ledger.path}')
