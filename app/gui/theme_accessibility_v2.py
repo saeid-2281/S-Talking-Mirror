@@ -29,7 +29,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.gui.visual_design_system_v2 import ACTIVE_CONCEPT, SemanticPalette, palette_for
+from app.gui.visual_design_system_v2 import (
+    ACTIVE_CONCEPT,
+    COMPONENTS,
+    TYPOGRAPHY,
+    SemanticPalette,
+    palette_for,
+)
 
 
 THEME_SURFACE_COHERENCE_THEMES = ("System", "Light", "Dark")
@@ -1144,6 +1150,124 @@ QPushButton#outputFileAction[primary="true"]:hover {{
 """.strip()
 
 
+
+def soft_professional_vertical_rhythm_stylesheet(
+    *,
+    is_dark: bool,
+    concept_key: str = ACTIVE_CONCEPT,
+) -> str:
+    """Final B6 portable-acceptance typography and control-rhythm layer.
+
+    The A8 concept defines one compact desktop type scale (11/12/13/14/18)
+    and 34px compact controls. Historical component styles accumulated 9, 10,
+    11, 12 and 13px body/control text plus 26/30/32/34px controls.  That drift
+    reads as visual noise on a large monitor even when every individual widget
+    remains usable.  This layer normalizes the real main shell without touching
+    dialogs, generation authority or density semantics.
+    """
+
+    palette = palette_for(is_dark=is_dark, concept_key=concept_key)
+    t = TYPOGRAPHY
+    control = COMPONENTS.control_compact_height
+    return f"""
+/* Roadmap 2 B6 Hotfix 3 Hotfix 9 — Vertical Rhythm & Typography Unification */
+QMenuBar,
+QToolBar#mainToolbar QToolButton,
+QFrame#generationActionBar QPushButton,
+QWidget#queueWorkspace QPushButton,
+QWidget#queueWorkspace QToolButton,
+QWidget#queueWorkspace QLineEdit,
+QWidget#queueWorkspace QComboBox,
+QDockWidget#workspaceLeftDock QPushButton,
+QDockWidget#workspaceLeftDock QToolButton,
+QDockWidget#workspaceLeftDock QLineEdit,
+QDockWidget#workspaceLeftDock QComboBox,
+QDockWidget#workspaceLeftDock QAbstractSpinBox,
+QDockWidget#workspaceRightDock QPushButton,
+QDockWidget#workspaceRightDock QToolButton,
+QDockWidget#workspaceRightDock QLineEdit,
+QDockWidget#workspaceRightDock QComboBox,
+QDockWidget#workspaceRightDock QAbstractSpinBox {{
+    font-family:{t.family};
+    font-size:{t.body}px;
+}}
+QTabWidget#leftWorkspaceTabs QTabBar::tab,
+QTabWidget#rightInspectorTabs QTabBar::tab,
+QTabWidget#activityTabs QTabBar::tab {{
+    font-family:{t.family};
+    font-size:{t.body}px;
+    font-weight:{t.medium_weight};
+}}
+QLabel#workspaceProjectTitle {{
+    font-family:{t.family};
+    font-size:{t.title}px;
+    font-weight:{t.bold_weight};
+}}
+QLabel#queueWorkspaceTitle,
+QLabel#panelTitle {{
+    font-family:{t.family};
+    font-size:{t.section}px;
+    font-weight:{t.bold_weight};
+}}
+QLabel#workspaceProjectSubtitle,
+QLabel#queueWorkspaceSubtitle,
+QLabel#panelSubtitle,
+QLabel#generationProgressLabel,
+QLabel#metricCaption,
+QLabel#cardCaption,
+QLabel#queueCommandSectionLabel,
+QLabel#formLabel {{
+    font-family:{t.family};
+    font-size:{t.caption}px;
+    font-weight:{t.regular_weight};
+}}
+QLabel#metricValue,
+QLabel#cardValue,
+QLabel#queueVisibleSummary,
+QLabel#queueSelectedSummary,
+QLabel#queueActiveScope,
+QLabel#generationStateBadge,
+QStatusBar {{
+    font-family:{t.family};
+    font-size:{t.label}px;
+}}
+QFrame#generationActionBar QPushButton,
+QWidget#queueWorkspace QPushButton,
+QWidget#queueWorkspace QToolButton,
+QWidget#queueWorkspace QLineEdit,
+QWidget#queueWorkspace QComboBox {{
+    min-height:{control}px;
+    max-height:{control}px;
+    padding-top:0;
+    padding-bottom:0;
+}}
+QFrame#generationActionBar QPushButton,
+QWidget#queueWorkspace QPushButton,
+QWidget#queueWorkspace QToolButton {{
+    font-weight:{t.medium_weight};
+}}
+QFrame#generationActionBar QPushButton[primary="true"],
+QPushButton#queuePrimaryAction,
+QWidget#emptyState QPushButton[primary="true"] {{
+    font-weight:{t.semibold_weight};
+}}
+QLabel#generationStateBadge {{
+    min-height:{control}px;
+    max-height:{control}px;
+    padding:0 9px;
+    border-radius:8px;
+    font-weight:{t.semibold_weight};
+}}
+QToolButton#queueActionMenu {{
+    min-width:{control}px;
+    padding-left:7px;
+    padding-right:7px;
+}}
+QFrame#queueCommandBar {{
+    background:{palette.surface_secondary};
+}}
+""".strip()
+
 def theme_accessibility_stylesheet(
     *,
     is_dark: bool,
@@ -1220,6 +1344,9 @@ QGroupBox#selectedRowCard, QDialog[a10Modernized="true"] QGroupBox[visualRole="f
         is_dark=is_dark,
         concept_key=concept_key,
     ) + "\n" + manual_visual_acceptance_stylesheet(
+        is_dark=is_dark,
+        concept_key=concept_key,
+    ) + "\n" + soft_professional_vertical_rhythm_stylesheet(
         is_dark=is_dark,
         concept_key=concept_key,
     )

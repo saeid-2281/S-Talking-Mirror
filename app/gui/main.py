@@ -933,6 +933,8 @@ class MainWindow(QMainWindow):
             self.generation_journey.set_compact_mode(compact)
         if hasattr(self,'queue_batch_operations'):
             self.queue_batch_operations.set_compact_mode(compact)
+        if hasattr(self,'main_workspace_modernizer'):
+            self.main_workspace_modernizer.sync_queue_disclosure_layout_from_widgets()
     def apply_workspace_preset(self,name,save=False):
         if not hasattr(self,'main_splitter'): return
         profile=self.workspace_profiles.select(name) if save else self.workspace_profiles.get(name)

@@ -1,7 +1,18 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QPushButton,
+    QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from app.models.queue_batch_operations import QueueBatchSnapshot
 
@@ -17,6 +28,8 @@ class QueueBatchOperationsWidget(QFrame):
         super().__init__(parent)
         self.setObjectName("queueScopeSummary")
         self._compact = False
+        self._presentation_visible = True
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 5, 10, 5)
         layout.setSpacing(8)
@@ -126,13 +139,28 @@ class QueueBatchOperationsWidget(QFrame):
         if quota_index >= 0:
             self.lens.model().item(quota_index).setEnabled(snapshot.quota_jobs > 0)
 
+    def set_presentation_visible(self, visible: bool) -> None:
+        """Persist the A9 Batch-plan disclosure request across resize passes."""
+
+        self._presentation_visible = bool(visible)
+        self.setMaximumHeight(44 if self._presentation_visible else 0)
+        # Explicit Batch-plan disclosure remains immediately actionable even if
+        # invoked from a compact preset; a later compact sync may suppress it.
+        self.setVisible(self._presentation_visible)
+
     def set_compact_mode(self, compact: bool) -> None:
         self._compact = bool(compact)
-        self.setVisible(not self._compact)
-        self.setMaximumHeight(44 if not self._compact else 0)
+        if self._compact:
+            self.setVisible(False)
+            self.setMaximumHeight(0)
+        else:
+            self.setVisible(self._presentation_visible)
+            self.setMaximumHeight(44 if self._presentation_visible else 0)
 
     def focus_lens(self) -> None:
         if self._compact:
+            # Historical Phase 92 contract: keyboard/command focus can surface
+            # the batch lens on demand even while the compact preset is active.
             self.setVisible(True)
             self.setMaximumHeight(44)
         self.lens.setFocus(Qt.ShortcutFocusReason)

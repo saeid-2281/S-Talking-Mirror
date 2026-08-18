@@ -94,11 +94,18 @@ def test_a91_runtime_applies_calm_geometry_without_breaking_a9_contracts(qt_app,
     assert window.provider_panel.property("visualAlignment") == "soft-professional"
     assert window.selected_row_panel.property("visualAlignment") == "soft-professional"
 
+    # H9 deliberately tightens the A9.1 heading band for the certified
+    # <=220px launch-to-summary envelope. Preserve the Soft Professional
+    # horizontal insets while accepting the newer 5px vertical / 6px spacing
+    # authority instead of restoring the pre-H9 8px values.
     margins = window.queue_workspace.heading.layout().contentsMargins()
-    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (12, 8, 10, 8)
-    assert window.queue_workspace.heading.layout().spacing() == 8
+    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (12, 5, 10, 5)
+    assert window.queue_workspace.heading.layout().spacing() == 6
     assert window.queue_workspace.command_layout.spacing() == 6
-    assert window.generation_status_strip.layout().spacing() == 8
+    # H9 also tightens the primary launch strip to the same 6px horizontal
+    # rhythm used by the queue command rows. The historical A9.1 8px literal
+    # is superseded by the certified H9 launch-to-summary geometry.
+    assert window.generation_status_strip.layout().spacing() == 6
 
     assert window.empty_state.maximumWidth() == 680
     assert window.empty_state.minimumHeight() >= 240
@@ -109,17 +116,17 @@ def test_a91_runtime_applies_calm_geometry_without_breaking_a9_contracts(qt_app,
     # The integration hook must restore the Soft Professional geometry.
     window.apply_density("compact")
     margins = window.queue_workspace.heading.layout().contentsMargins()
-    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (12, 8, 10, 8)
+    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (12, 5, 10, 5)
     window.apply_density("comfortable")
     margins = window.queue_workspace.heading.layout().contentsMargins()
-    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (12, 8, 10, 8)
+    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (12, 5, 10, 5)
 
     for mode in ("compact", "standard", "wide"):
         window.main_workspace_modernizer.apply_responsive_mode(mode)
         assert 270 <= window.left_dock.minimumWidth() <= 300
         assert window.left_dock.maximumWidth() <= 300
         margins = window.queue_workspace.heading.layout().contentsMargins()
-        assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (12, 8, 10, 8)
+        assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (12, 5, 10, 5)
     window.close()
 
 

@@ -36,6 +36,7 @@ class GenerationJourneyWidget(QFrame):
         self.setAccessibleName("Generation workflow")
         self._state: GenerationJourneyState | None = None
         self._compact = False
+        self._presentation_visible = True
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 7, 10, 7)
@@ -131,19 +132,39 @@ class GenerationJourneyWidget(QFrame):
             action_icon("generation.start" if state.ready_to_start else "generation.preflight")
         )
 
-    def set_compact_mode(self, compact: bool) -> None:
-        """Yield all vertical space to the queue in compact/focus presets.
+    def set_presentation_visible(self, visible: bool) -> None:
+        """Persist the A9 disclosure request across responsive overlay resyncs."""
 
-        The journey remains available on demand through the Generation Workflow
-        action/shortcut.  Hiding the whole strip here preserves the established
-        compact-workspace contract that the loaded queue dominates short screens.
+        self._presentation_visible = bool(visible)
+        if self._presentation_visible:
+            self.setMaximumHeight(52 if self._compact else 104)
+        else:
+            self.setMaximumHeight(0)
+        # An explicit disclosure request is authoritative at the moment it is
+        # made. A later compact-mode sync may suppress it, but leaving compact
+        # mode restores this remembered request instead of blindly reopening it.
+        self.setVisible(self._presentation_visible)
+
+    def set_compact_mode(self, compact: bool) -> None:
+        """Yield vertical space without losing the disclosure visibility request.
+
+        The historical implementation called ``setVisible(not compact)``. That
+        meant every delayed responsive recalculation to non-compact mode reopened
+        a workflow strip that A9 had deliberately collapsed. Preserve the
+        requested presentation state and only restore that state when compact
+        suppression ends.
         """
+
         self._compact = bool(compact)
         self.steps_host.setVisible(not self._compact)
         self.summary.setVisible(not self._compact)
-        self.setMaximumHeight(52 if self._compact else 104)
         self.setMinimumHeight(0)
-        self.setVisible(not self._compact)
+        if self._compact:
+            self.setMaximumHeight(52)
+            self.setVisible(False)
+        else:
+            self.setMaximumHeight(104 if self._presentation_visible else 0)
+            self.setVisible(self._presentation_visible)
 
     def focus_primary_action(self) -> None:
         self.primary_action.setFocus(Qt.ShortcutFocusReason)

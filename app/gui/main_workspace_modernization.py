@@ -8,9 +8,9 @@ preflight, provider-selection, routing, or source-mutation paths.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QLabel, QToolButton, QWidget
+from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QToolButton, QWidget
 
-from app.gui.visual_design_system_v2 import ACTIVE_CONCEPT, palette_for
+from app.gui.visual_design_system_v2 import ACTIVE_CONCEPT, COMPONENTS, palette_for
 
 
 class MainWorkspaceModernizer:
@@ -49,27 +49,76 @@ class MainWorkspaceModernizer:
 
         self._apply_soft_professional_geometry()
 
+    @staticmethod
+    def _lock_vertical(widget: QWidget, height: int) -> None:
+        """Keep toolbar-like rows from absorbing queue viewport height."""
+
+        widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        widget.setMinimumHeight(height)
+        widget.setMaximumHeight(height)
+
     def _apply_soft_professional_geometry(self) -> None:
-        """Apply calm spacing without changing compatibility-sensitive heights."""
+        """Apply the selected concept's compact vertical rhythm.
+
+        B6H3 portable acceptance exposed a desktop-only layout defect: header and
+        command frames used ``Preferred`` vertical policies, so QBoxLayout could
+        donate spare height to them before the queue viewport.  The A8 concept
+        uses fixed control bands and gives the remaining height to the working
+        surface.  Keep that rule explicit here.
+        """
 
         owner = self.owner
         shell = owner.application_shell
-        self._tune_layout(shell.root_layout, (10, 8, 10, 8), 8)
-        self._tune_layout(owner.queue_workspace.layout(), (0, 0, 0, 0), 8)
-        self._tune_layout(owner.queue_workspace.heading.layout(), (12, 8, 10, 8), 8)
-        owner.queue_workspace.heading.setMinimumHeight(46)
-        owner.queue_workspace.heading.setMaximumHeight(56)
-        owner.queue_workspace.title_label.setMaximumHeight(24)
-        owner.queue_workspace.subtitle_label.setMaximumHeight(22)
+        control_height = COMPONENTS.control_compact_height
+        command_rows = 3 if self._responsive_mode == "compact" else 2
+        command_height = (command_rows * control_height) + ((command_rows - 1) * 4) + 8
+
+        self._tune_layout(shell.root_layout, (10, 6, 10, 6), 6)
+        self._tune_layout(owner.queue_workspace.layout(), (0, 0, 0, 0), 4)
+        self._tune_layout(owner.queue_workspace.root_layout, (0, 0, 0, 0), 4)
+        self._tune_layout(owner.queue_workspace.heading.layout(), (12, 5, 10, 5), 6)
+        self._lock_vertical(owner.queue_workspace.heading, 46)
+        owner.queue_workspace.title_label.setMaximumHeight(22)
+        owner.queue_workspace.subtitle_label.setMaximumHeight(20)
         if hasattr(owner, "queue_focus_badge"):
-            owner.queue_focus_badge.setMaximumHeight(30)
+            owner.queue_focus_badge.setMaximumHeight(min(control_height, 30))
             owner.queue_focus_badge.setAlignment(Qt.AlignCenter)
-        owner.queue_workspace.command_host.setMaximumHeight(112)
-        owner.queue_workspace.range_host.setMaximumHeight(56)
-        self._tune_layout(owner.queue_workspace.command_layout, (10, 6, 10, 6), 6)
-        self._tune_layout(owner.queue_workspace.range_layout, (10, 6, 10, 6), 6)
-        self._tune_layout(owner.queue_workspace.body_layout, (0, 0, 0, 0), 6)
-        self._tune_layout(owner.generation_status_strip.layout(), (10, 4, 10, 4), 8)
+
+        # Command rows own only the height needed by their controls. Inner
+        # layouts carry no duplicate vertical margins; the host owns that inset.
+        self._tune_layout(owner.queue_workspace.command_root_layout, (8, 4, 8, 4), 4)
+        self._tune_layout(owner.queue_workspace.command_layout, (0, 0, 0, 0), 6)
+        self._tune_layout(owner.queue_workspace.action_layout, (0, 0, 0, 0), 6)
+        self._tune_layout(owner.queue_workspace.planning_layout, (0, 0, 0, 0), 6)
+        self._lock_vertical(owner.queue_workspace.command_host, command_height)
+        self._tune_layout(owner.queue_workspace.range_layout, (8, 4, 8, 4), 6)
+        self.sync_queue_disclosure_layout_from_widgets()
+        self._tune_layout(owner.queue_workspace.body_layout, (0, 0, 0, 0), 4)
+        owner.queue_workspace.summary.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        owner.queue_workspace.summary.setMinimumHeight(30)
+        owner.queue_workspace.summary.setMaximumHeight(32)
+        owner.queue_workspace.sync_chrome_height()
+
+        for name, widget in owner.queue_workspace._command_widgets.items():
+            if name in {"filter_label", "planning_label", "action_label"}:
+                continue
+            widget.setMinimumHeight(control_height)
+            widget.setMaximumHeight(control_height)
+
+        for button in (
+            owner.generation_status_strip.start_button,
+            owner.generation_status_strip.preflight_button,
+            owner.generation_status_strip.pause_button,
+            owner.generation_status_strip.stop_button,
+        ):
+            button.setMinimumHeight(control_height)
+            button.setMaximumHeight(control_height)
+        owner.generation_status_strip.state_badge.setMinimumHeight(control_height)
+        owner.generation_status_strip.state_badge.setMaximumHeight(control_height)
+        owner.generation_status_strip.setMinimumHeight(COMPONENTS.generation_action_bar_height)
+        owner.generation_status_strip.setMaximumHeight(COMPONENTS.generation_action_bar_height)
+        self._tune_layout(owner.generation_status_strip.layout(), (8, 4, 8, 4), 6)
+
         self._tune_layout(owner.provider_panel.layout(), (8, 8, 8, 10), 8)
         self._tune_layout(owner.selected_row_panel.layout(), (10, 10, 10, 10), 8)
         owner.application_shell.setProperty("visualAlignment", "soft-professional")
@@ -173,7 +222,20 @@ class MainWorkspaceModernizer:
 
     @staticmethod
     def _set_visible(widget: QWidget | None, visible: bool) -> None:
-        if widget is not None:
+        """Apply disclosure visibility without fighting responsive compact state.
+
+        GenerationJourneyWidget and QueueBatchOperationsWidget keep a persistent
+        presentation request so a later MainWindow compact-overlay sync cannot
+        accidentally reopen a disclosure that the A9 workspace modernizer closed.
+        Other widgets retain the historical direct setVisible behavior.
+        """
+
+        if widget is None:
+            return
+        setter = getattr(widget, "set_presentation_visible", None)
+        if callable(setter):
+            setter(bool(visible))
+        else:
             widget.setVisible(bool(visible))
 
     def reveal_provider_insights(self, expanded: bool = True) -> None:
@@ -192,13 +254,151 @@ class MainWorkspaceModernizer:
 
     def reveal_workflow(self, expanded: bool = True) -> None:
         self._workflow_expanded = bool(expanded)
-        self._set_visible(getattr(self.owner, "generation_journey", None), expanded)
+        journey = getattr(self.owner, "generation_journey", None)
+        self._set_visible(journey, expanded)
+        batch = getattr(self.owner, "queue_batch_operations", None)
+        self._sync_queue_disclosure_layout(
+            workflow_visible=bool(expanded),
+            batch_visible=bool(
+                self._batch_expanded
+                and batch is not None
+                and not batch.isHidden()
+            ),
+        )
         self._sync_toggle(self.workflow_toggle, expanded)
+
+    def _sync_batch_range_host_geometry(self, expanded: bool | None = None) -> None:
+        """Give the optional range row layout authority only while it is open.
+
+        H9 Hotfix 1/2 proved that hidden/zero-height state is not enough for
+        optional queue chrome on the Windows Qt layout path.  Keep the range
+        frame structural: no layout item while closed; exactly one compact row
+        immediately before the command host while explicitly open.
+        """
+
+        queue = self.owner.queue_workspace
+        host = queue.range_host
+        root = queue.root_layout
+        if expanded is None:
+            expanded = self._batch_expanded and self._responsive_mode != "compact"
+        expanded = bool(expanded)
+        host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        if expanded:
+            command_index = root.indexOf(queue.command_host)
+            if root.indexOf(host) < 0:
+                root.insertWidget(max(1, command_index), host)
+            height = COMPONENTS.control_compact_height + 8
+            host.setMinimumHeight(height)
+            host.setMaximumHeight(height)
+            host.show()
+        else:
+            if root.indexOf(host) >= 0:
+                root.removeWidget(host)
+            host.setMinimumHeight(0)
+            host.setMaximumHeight(0)
+            host.hide()
+
+        root.invalidate()
+        queue.sync_chrome_height()
+
+    def _sync_queue_disclosure_layout(
+        self,
+        *,
+        workflow_visible: bool | None = None,
+        batch_visible: bool | None = None,
+    ) -> None:
+        """Structurally compose optional queue chrome around the command band.
+
+        Qt can retain layout-item extent for hidden presentation widgets across
+        delayed polish/resize passes on the frozen Windows path.  Visibility is
+        therefore not the layout authority.  Collapsed Workflow and Batch plan
+        widgets are detached from ``queue.root_layout``; explicit disclosures are
+        inserted contiguously immediately before the command host.
+        """
+
+        owner = self.owner
+        queue = owner.queue_workspace
+        root = queue.root_layout
+        journey = getattr(owner, "generation_journey", None)
+        batch = getattr(owner, "queue_batch_operations", None)
+
+        if workflow_visible is None:
+            workflow_visible = bool(
+                self._workflow_expanded
+                and journey is not None
+                and not journey.isHidden()
+            )
+        if batch_visible is None:
+            batch_visible = bool(
+                self._batch_expanded
+                and batch is not None
+                and not batch.isHidden()
+            )
+
+        # Canonical composition authority: remove every optional queue row,
+        # including a stale range row, before rebuilding the explicit order.
+        # H9 H5 proved the fixed chrome host solved surplus cell growth, but a
+        # surviving range QWidgetItem could still precede Batch and shift it to
+        # index 2.  Logical disclosure state, not raw QWidget visibility, owns
+        # whether a row may return.
+        for widget in (journey, batch, queue.range_host):
+            if widget is not None and root.indexOf(widget) >= 0:
+                root.removeWidget(widget)
+
+        if journey is not None:
+            if workflow_visible:
+                command_index = root.indexOf(queue.command_host)
+                root.insertWidget(max(1, command_index), journey)
+                journey.show()
+            else:
+                journey.hide()
+
+        if batch is not None:
+            if batch_visible:
+                command_index = root.indexOf(queue.command_host)
+                root.insertWidget(max(1, command_index), batch)
+                batch.show()
+            else:
+                batch.hide()
+
+        self._sync_batch_range_host_geometry(expanded=bool(batch_visible))
+        root.invalidate()
+        root.activate()
+        queue.sync_chrome_height()
+
+    def sync_queue_disclosure_layout_from_widgets(self) -> None:
+        """Reconcile structural layout membership with current widget visibility."""
+
+        owner = self.owner
+        journey = getattr(owner, "generation_journey", None)
+        batch = getattr(owner, "queue_batch_operations", None)
+        self._sync_queue_disclosure_layout(
+            workflow_visible=bool(
+                self._workflow_expanded
+                and journey is not None
+                and not journey.isHidden()
+            ),
+            batch_visible=bool(
+                self._batch_expanded
+                and batch is not None
+                and not batch.isHidden()
+            ),
+        )
 
     def reveal_batch_planning(self, expanded: bool = True) -> None:
         self._batch_expanded = bool(expanded)
-        self._set_visible(getattr(self.owner, "queue_batch_operations", None), expanded)
-        self._set_visible(getattr(self.owner.queue_workspace, "range_host", None), expanded)
+        batch = getattr(self.owner, "queue_batch_operations", None)
+        self._set_visible(batch, expanded)
+        journey = getattr(self.owner, "generation_journey", None)
+        self._sync_queue_disclosure_layout(
+            workflow_visible=bool(
+                self._workflow_expanded
+                and journey is not None
+                and not journey.isHidden()
+            ),
+            batch_visible=bool(expanded),
+        )
         self._sync_toggle(self.batch_toggle, expanded)
 
     @staticmethod
@@ -272,7 +472,7 @@ class MainWorkspaceModernizer:
         else:
             self._set_visible(owner.generation_journey, self._workflow_expanded)
             self._set_visible(owner.queue_batch_operations, self._batch_expanded)
-            self._set_visible(owner.queue_workspace.range_host, self._batch_expanded)
+        self.sync_queue_disclosure_layout_from_widgets()
         self._apply_metric_priority()
         self._simplify_queue_commands()
         owner.project_context_widget.context_label.hide()

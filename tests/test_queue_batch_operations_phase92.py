@@ -132,8 +132,17 @@ def test_phase92_mainwindow_hosts_batch_lens(qt_app, tmp_path: Path) -> None:
     runtime = RuntimeConfig.from_root(tmp_path)
     runtime.ensure_directories()
     window = MainWindow(create_application_context(create_service_container(runtime)))
-    assert window.queue_workspace.root_layout.indexOf(window.queue_batch_operations) == 2
+    # A9 progressive disclosure keeps the Phase92 batch lens alive but removes
+    # its vertical layout slot until the explicit Batch plan action is requested.
+    assert window.queue_workspace.root_layout.indexOf(window.queue_batch_operations) == -1
+    assert window.queue_batch_operations.isHidden()
     assert window.actions_by_name["Queue Batch Operations"].shortcut().toString() == "Ctrl+Alt+Q"
+
+    window.focus_queue_batch_operations()
+    qt_app.processEvents()
+    assert window.queue_workspace.root_layout.indexOf(window.queue_batch_operations) == 1
+    assert window.queue_workspace.root_layout.indexOf(window.queue_workspace.range_host) == 2
+    assert not window.queue_batch_operations.isHidden()
     window.close()
 
 

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyleOptionViewItem,
     QStyledItemDelegate,
+    QSizePolicy,
     QTableWidget,
     QToolButton,
     QVBoxLayout,
@@ -317,7 +318,24 @@ class QueueWorkspace(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("queueWorkspace")
-        self.root_layout = QVBoxLayout(self)
+
+        # H9 Hotfix 5: isolate fixed queue chrome from the expanding work surface.
+        #
+        # H1-H4 proved that optional QWidgetItems could all be absent while the
+        # heading/command geometry still contained 24-50 px of dead vertical space.
+        # The root cause is that the same expanding QVBoxLayout owned both fixed
+        # chrome and the stretchable body.  Qt may give fixed-height children
+        # larger layout cells and center them inside those cells.  Keep the
+        # historical ``root_layout`` API for queue chrome, but host it inside a
+        # vertically Fixed widget.  The outer shell owns the stretchable body.
+        self.shell_layout = QVBoxLayout(self)
+        self.shell_layout.setContentsMargins(0, 0, 0, 0)
+        self.shell_layout.setSpacing(6)
+
+        self.chrome_host = QWidget(self)
+        self.chrome_host.setObjectName("queueChromeHost")
+        self.chrome_host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.root_layout = QVBoxLayout(self.chrome_host)
         self.root_layout.setContentsMargins(0, 0, 0, 0)
         self.root_layout.setSpacing(6)
         root = self.root_layout
@@ -375,15 +393,31 @@ class QueueWorkspace(QFrame):
         self.summary = QueueScopeSummary()
         root.addWidget(self.summary)
 
-        self.body_layout = QVBoxLayout()
+        # The chrome host is fixed to its content; all spare desktop height is
+        # donated to a real expanding body widget below. H6 Hotfix 2 proved the
+        # chrome itself was internally compact while its *outer shell cell* could
+        # still place the first chrome row roughly 70 px below the queue top on
+        # the Windows Qt path. A concrete expanding body widget, explicit stretch
+        # ownership and top alignment make that surplus allocation deterministic.
+        self.shell_layout.addWidget(self.chrome_host, 0, Qt.AlignTop)
+
+        self.body_host = QWidget(self)
+        self.body_host.setObjectName("queueBodyHost")
+        self.body_host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.body_layout = QVBoxLayout(self.body_host)
         self.body_layout.setContentsMargins(0, 0, 0, 0)
         self.body_layout.setSpacing(4)
-        root.addLayout(self.body_layout, 1)
+        self.shell_layout.addWidget(self.body_host, 1)
 
         self.footer = QLabel("No jobs loaded")
         self.footer.setObjectName("queueWorkspaceFooter")
         self.footer.setMinimumHeight(26)
-        root.addWidget(self.footer)
+        self.footer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.shell_layout.addWidget(self.footer, 0)
+        self.shell_layout.setStretch(0, 0)
+        self.shell_layout.setStretch(1, 1)
+        self.shell_layout.setStretch(2, 0)
+        self.shell_layout.setAlignment(self.chrome_host, Qt.AlignTop)
 
         self.column_controller: QueueColumnController | None = None
         self.bound_table = None
@@ -391,6 +425,71 @@ class QueueWorkspace(QFrame):
         self._command_widgets: dict[str, QWidget] = {}
         self._range_summary: QWidget | None = None
         self._quota_summary: QWidget | None = None
+
+    def chrome_content_height(self) -> int:
+        """Return the bounded visible height of queue chrome.
+
+        ``QBoxLayout.sizeHint()`` is not a safe authority after the chrome host
+        has previously been fixed to a taller disclosure composition.  On the
+        Windows Qt path it can retain that historical envelope even after
+        Workflow/Batch/Range rows are structurally removed.  Measure the
+        currently attached visible widget items instead and clamp every hint to
+        the widget's explicit minimum/maximum height contract.
+        """
+
+        margins = self.root_layout.contentsMargins()
+        heights: list[int] = []
+        for index in range(self.root_layout.count()):
+            item = self.root_layout.itemAt(index)
+            widget = item.widget()
+            if widget is None or widget.isHidden():
+                continue
+            hinted = widget.sizeHint().height()
+            if hinted < 0:
+                hinted = widget.minimumSizeHint().height()
+            if hinted < 0:
+                hinted = widget.height()
+            bounded = max(widget.minimumHeight(), int(hinted))
+            bounded = min(bounded, widget.maximumHeight())
+            heights.append(max(0, bounded))
+
+        spacing = max(0, self.root_layout.spacing())
+        inter_item = spacing * max(0, len(heights) - 1)
+        return max(0, margins.top() + margins.bottom() + sum(heights) + inter_item)
+
+    def sync_chrome_height(self) -> int:
+        """Lock queue chrome to the exact current bounded content height.
+
+        The fixed host is deliberately released before measurement so a previous
+        expanded disclosure cannot ratchet the next collapsed pass upward.  The
+        final authority is :meth:`chrome_content_height`, not a historical Qt
+        layout size hint.
+        """
+
+        self.chrome_host.setMinimumHeight(0)
+        self.chrome_host.setMaximumHeight(16777215)
+        self.root_layout.invalidate()
+        self.root_layout.activate()
+        height = self.chrome_content_height()
+        self.chrome_host.setFixedHeight(height)
+        self.chrome_host.updateGeometry()
+
+        # Reassert shell ownership after every disclosure/density pass. A bare
+        # child layout is intentionally avoided: on the frozen Windows Qt path
+        # it allowed the zero-stretch chrome item to inherit surplus layout-cell
+        # extent before the body. The body widget is the only expanding vertical
+        # item and the chrome remains anchored to the shell top.
+        self.shell_layout.setStretch(0, 0)
+        self.shell_layout.setStretch(1, 1)
+        self.shell_layout.setStretch(2, 0)
+        self.shell_layout.setAlignment(self.chrome_host, Qt.AlignTop)
+        self.body_host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.footer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.shell_layout.invalidate()
+        self.shell_layout.activate()
+        self.body_host.updateGeometry()
+        self.updateGeometry()
+        return height
 
     def set_compact_mode(self, compact: bool) -> None:
         """Prioritize the table on short desktop screens.
@@ -407,9 +506,10 @@ class QueueWorkspace(QFrame):
         self.heading.setMaximumHeight(36 if compact else 16777215)
         self.heading.setMinimumHeight(32 if compact else 0)
         self.root_layout.setSpacing(4 if compact else 6)
+        self.shell_layout.setSpacing(4 if compact else 6)
         self.style().unpolish(self)
         self.style().polish(self)
-        self.updateGeometry()
+        self.sync_chrome_height()
 
     def add_range_widget(self, widget: QWidget, stretch: int = 0) -> None:
         self.range_layout.addWidget(widget, stretch)
@@ -595,6 +695,7 @@ class QueueWorkspace(QFrame):
         metrics = density_metrics(density)
         compact = normalize_density(density).value == "compact"
         self.root_layout.setSpacing(4 if compact else 6)
+        self.shell_layout.setSpacing(4 if compact else 6)
         self.heading.layout().setContentsMargins(
             8 if compact else 10,
             4 if compact else 6,
@@ -626,6 +727,7 @@ class QueueWorkspace(QFrame):
             vertical_header = table.verticalHeader()
             vertical_header.setMinimumSectionSize(max(24, metrics.row_height - 4))
             vertical_header.setDefaultSectionSize(metrics.row_height)
+        self.sync_chrome_height()
 
     def update_footer(self, stats: QueueSelectionStats) -> None:
         selected = f" · {stats.selected_jobs:,} selected" if stats.selected_jobs else ""
