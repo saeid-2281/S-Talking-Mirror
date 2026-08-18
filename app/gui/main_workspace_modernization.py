@@ -26,6 +26,7 @@ class MainWorkspaceModernizer:
         self._provider_insights_expanded = False
         self._workflow_expanded = False
         self._batch_expanded = False
+        self._range_expanded = False
         self._responsive_mode = "standard"
 
     def install(self) -> None:
@@ -190,6 +191,12 @@ class MainWorkspaceModernizer:
     def _install_queue_disclosures(self) -> None:
         owner = self.owner
         heading_layout = owner.queue_workspace.heading.layout()
+        self.range_toggle = self._queue_disclosure(
+            "Range", "queueRangeDisclosure", self.reveal_range_controls
+        )
+        self.range_toggle.setToolTip(
+            "Show From/To controls for original source rows or current displayed queue rows"
+        )
         self.workflow_toggle = self._queue_disclosure(
             "Workflow", "queueWorkflowDisclosure", self.reveal_workflow
         )
@@ -203,8 +210,10 @@ class MainWorkspaceModernizer:
         self.focus_badge.setAccessibleName("Queue-first workspace")
         insert_at = max(0, heading_layout.count() - 1)
         heading_layout.insertWidget(insert_at, self.focus_badge)
-        heading_layout.insertWidget(insert_at + 1, self.workflow_toggle)
-        heading_layout.insertWidget(insert_at + 2, self.batch_toggle)
+        heading_layout.insertWidget(insert_at + 1, self.range_toggle)
+        heading_layout.insertWidget(insert_at + 2, self.workflow_toggle)
+        heading_layout.insertWidget(insert_at + 3, self.batch_toggle)
+        owner.queue_range_toggle = self.range_toggle
         owner.queue_workflow_toggle = self.workflow_toggle
         owner.queue_batch_toggle = self.batch_toggle
         owner.queue_focus_badge = self.focus_badge
@@ -362,7 +371,11 @@ class MainWorkspaceModernizer:
             else:
                 batch.hide()
 
-        self._sync_batch_range_host_geometry(expanded=bool(batch_visible))
+        range_visible = bool(
+            batch_visible
+            or (self._range_expanded and self._responsive_mode != "compact")
+        )
+        self._sync_batch_range_host_geometry(expanded=range_visible)
         root.invalidate()
         root.activate()
         queue.sync_chrome_height()
@@ -385,6 +398,33 @@ class MainWorkspaceModernizer:
                 and not batch.isHidden()
             ),
         )
+
+    def reveal_range_controls(self, expanded: bool = True) -> None:
+        """Expose explicit row-range controls without requiring Batch plan.
+
+        The range host remains structurally collapsed by default so H9's compact
+        queue chrome is preserved.  This disclosure restores the earlier direct
+        From/To workflow for either original source rows or current displayed
+        queue positions.  Batch plan continues to surface the same range row for
+        historical compatibility.
+        """
+
+        self._range_expanded = bool(expanded)
+        journey = getattr(self.owner, "generation_journey", None)
+        batch = getattr(self.owner, "queue_batch_operations", None)
+        self._sync_queue_disclosure_layout(
+            workflow_visible=bool(
+                self._workflow_expanded
+                and journey is not None
+                and not journey.isHidden()
+            ),
+            batch_visible=bool(
+                self._batch_expanded
+                and batch is not None
+                and not batch.isHidden()
+            ),
+        )
+        self._sync_toggle(self.range_toggle, expanded)
 
     def reveal_batch_planning(self, expanded: bool = True) -> None:
         self._batch_expanded = bool(expanded)
@@ -462,6 +502,7 @@ class MainWorkspaceModernizer:
         owner.left_dock.setMaximumWidth(300)
         owner.right_dock.setMinimumWidth(290 if compact else 300)
         owner.right_dock.setMaximumWidth(320 if compact else 328)
+        self.range_toggle.setVisible(not compact)
         self.workflow_toggle.setVisible(not compact)
         self.batch_toggle.setVisible(not compact)
         self.focus_badge.setVisible(not compact)

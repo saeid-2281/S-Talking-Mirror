@@ -753,7 +753,10 @@ def configure_queue_table(table: QTableWidget) -> None:
     table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
     table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
     table.setSortingEnabled(False)  # MainWindow resolves stable, identity-safe sorting.
-    table.verticalHeader().setVisible(False)
+    table.verticalHeader().setVisible(True)
+    table.verticalHeader().setFixedWidth(46)
+    table.verticalHeader().setDefaultAlignment(Qt.AlignCenter)
+    table.verticalHeader().setToolTip("Queue row · current displayed position")
     table.verticalHeader().setDefaultSectionSize(32)
     table.verticalHeader().setMinimumSectionSize(28)
 

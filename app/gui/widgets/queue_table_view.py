@@ -44,7 +44,10 @@ class QueueTableView(QTableView):
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.setSortingEnabled(False)
-        self.verticalHeader().setVisible(False)
+        self.verticalHeader().setVisible(True)
+        self.verticalHeader().setFixedWidth(46)
+        self.verticalHeader().setDefaultAlignment(Qt.AlignCenter)
+        self.verticalHeader().setToolTip("Queue row · current displayed position")
         self.verticalHeader().setDefaultSectionSize(32)
         self.verticalHeader().setMinimumSectionSize(28)
 

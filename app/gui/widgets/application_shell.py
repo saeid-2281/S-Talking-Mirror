@@ -458,7 +458,7 @@ class GenerationStatusStrip(QFrame):
         self.state_badge.setObjectName("generationStateBadge")
         layout.addWidget(self.state_badge)
 
-        self.start_button = QPushButton("Start generation")
+        self.start_button = QPushButton("Start")
         self.start_button.setObjectName("generationPrimaryAction")
         self.start_button.setIcon(icon("start"))
         self.start_button.setAccessibleName("Start generation")
@@ -551,7 +551,7 @@ class GenerationStatusStrip(QFrame):
         compact = value == "compact"
         self._responsive_mode = value
         self.setProperty("responsiveMode", value)
-        self.start_button.setText("Start" if compact else "Start generation")
+        self.start_button.setText("Start")
         if compact:
             self.progress_bar.setMinimumWidth(100)
             self.progress_bar.setMaximumWidth(190)

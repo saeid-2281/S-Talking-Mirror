@@ -1171,6 +1171,22 @@ def soft_professional_vertical_rhythm_stylesheet(
     control = COMPONENTS.control_compact_height
     return f"""
 /* Roadmap 2 B6 Hotfix 3 Hotfix 9 — Vertical Rhythm & Typography Unification */
+QToolBar#mainToolbar {{
+    padding:4px 8px 5px 8px;
+    spacing:4px;
+}}
+QToolBar#mainToolbar QToolButton {{
+    min-height:32px;
+    max-height:32px;
+    padding:0 9px;
+    margin:0;
+}}
+QToolButton#toolbarOverflowButton {{
+    min-height:32px;
+    max-height:32px;
+    padding:0 8px;
+    margin:0;
+}}
 QMenuBar,
 QToolBar#mainToolbar QToolButton,
 QFrame#generationActionBar QPushButton,

@@ -489,7 +489,7 @@ class MainWindow(QMainWindow):
         for name,shortcut in [('New Project','Ctrl+N'),('Open Project','Ctrl+O'),('Add source files','Ctrl+Shift+O'),('Add text source','Ctrl+Shift+T'),('Save','Ctrl+S')]:
             self.actions_by_name[name].setShortcut(QKeySequence(shortcut))
     def build_main_toolbar(self):
-        self.main_toolbar=QToolBar('Main Toolbar',self); self.main_toolbar.setObjectName('mainToolbar'); self.main_toolbar.setMovable(False); self.main_toolbar.setFloatable(False); self.main_toolbar.setIconSize(QSize(24,24)); self.main_toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon); self.main_toolbar.setMaximumHeight(42); self.main_toolbar.setMinimumHeight(38); self.addToolBar(Qt.TopToolBarArea,self.main_toolbar)
+        self.main_toolbar=QToolBar('Main Toolbar',self); self.main_toolbar.setObjectName('mainToolbar'); self.main_toolbar.setMovable(False); self.main_toolbar.setFloatable(False); self.main_toolbar.setIconSize(QSize(24,24)); self.main_toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon); self.main_toolbar.setFixedHeight(42); self.addToolBar(Qt.TopToolBarArea,self.main_toolbar)
         short_labels={'New Project':'New','Open Project':'Open','Add source files':'Sources','Start Generation':'Start','Pause/Resume':'Pause','Stop Generation':'Stop','Run Preflight':'Preflight','Voice Browser':'Voices'}
         for name,ic in [('New Project','project.new'),('Open Project','project.open'),('Save','project.save'),('Add source files','project.add_sources'),('Start Generation','generation.start'),('Pause/Resume','generation.pause'),('Stop Generation','generation.stop'),('Run Preflight','generation.preflight'),('Voice Browser','provider.browse_voices')]:
             action=self.actions_by_name.get(name)
