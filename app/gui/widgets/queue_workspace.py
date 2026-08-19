@@ -308,6 +308,147 @@ class QueueColumnController:
         self.rebuild_menu()
 
 
+
+class QueueAccordionSection(QFrame):
+    """One compact B7 queue-tool section with persistent disclosure state."""
+
+    toggled = Signal(bool)
+
+    def __init__(self, title: str, subtitle: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("queueAccordionSection")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        self.header = QToolButton(self)
+        self.header.setObjectName("queueAccordionHeader")
+        self.header.setText(title if not subtitle else f"{title}  ·  {subtitle}")
+        self.header.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.header.setCheckable(True)
+        self.header.setChecked(False)
+        self.header.setArrowType(Qt.RightArrow)
+        self._compact = False
+        self.header.setMinimumHeight(28)
+        self.header.setMaximumHeight(30)
+        self.header.toggled.connect(self._on_toggled)
+        root.addWidget(self.header)
+        self.content = QFrame(self)
+        self.content.setObjectName("queueAccordionContent")
+        self.content_layout = QVBoxLayout(self.content)
+        self.content_layout.setContentsMargins(8, 5, 8, 6)
+        self.content_layout.setSpacing(5)
+        self.content.hide()
+        root.addWidget(self.content)
+
+    def add_widget(self, widget: QWidget, stretch: int = 0) -> None:
+        self.content_layout.addWidget(widget, stretch)
+
+    def add_layout(self, layout) -> None:  # noqa: ANN001
+        self.content_layout.addLayout(layout)
+
+    def set_expanded(self, expanded: bool) -> None:
+        expanded = bool(expanded)
+        if self.header.isChecked() != expanded:
+            self.header.blockSignals(True)
+            self.header.setChecked(expanded)
+            self.header.blockSignals(False)
+        self.header.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
+        self.content.setVisible(expanded)
+        self._sync_height()
+
+    def _on_toggled(self, expanded: bool) -> None:
+        self.header.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
+        self.content.setVisible(bool(expanded))
+        self._sync_height()
+        self.toggled.emit(bool(expanded))
+
+    def set_compact_mode(self, compact: bool) -> None:
+        self._compact = bool(compact)
+        header_min = 22 if self._compact else 28
+        header_max = 24 if self._compact else 30
+        self.header.setMinimumHeight(header_min)
+        self.header.setMaximumHeight(header_max)
+        self.content_layout.setContentsMargins(
+            6 if self._compact else 8,
+            3 if self._compact else 5,
+            6 if self._compact else 8,
+            4 if self._compact else 6,
+        )
+        self.content_layout.setSpacing(4 if self._compact else 5)
+        self._sync_height()
+
+    def _sync_height(self) -> None:
+        header_min = 22 if self._compact else 28
+        header_max = 24 if self._compact else 30
+        self.setMinimumHeight(header_min)
+        self.setMaximumHeight(16777215 if self.content.isVisible() else header_max)
+        self.updateGeometry()
+
+
+class QueueAccordionStack(QFrame):
+    """Stacked advanced queue controls placed below the queue work surface."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("queueAccordionStack")
+        self.setProperty("workspaceRole", "secondary-queue-tools")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.sections: dict[str, QueueAccordionSection] = {}
+        self._syncing = False
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+    def add_section(self, key: str, title: str, subtitle: str = "") -> QueueAccordionSection:
+        section = QueueAccordionSection(title, subtitle, self)
+        section.toggled.connect(lambda expanded, name=key: self._section_toggled(name, expanded))
+        self.layout().addWidget(section)
+        self.sections[key] = section
+        return section
+
+    def set_expanded(self, key: str, expanded: bool = True) -> None:
+        section = self.sections.get(key)
+        if section is None:
+            return
+        if expanded:
+            self._collapse_others(key)
+        section.set_expanded(expanded)
+
+    def is_expanded(self, key: str) -> bool:
+        section = self.sections.get(key)
+        # Expansion is logical disclosure state, not effective top-level visibility.
+        # Historical focus paths can open an accordion before MainWindow.show();
+        # QWidget.isVisible() is False while an ancestor is hidden even though the
+        # section was explicitly expanded.  The checkable header is the state
+        # authority and remains correct both before and after the window is shown.
+        return bool(section and section.header.isChecked())
+
+    def collapse_all(self) -> None:
+        for section in self.sections.values():
+            section.set_expanded(False)
+
+    def set_compact_mode(self, compact: bool) -> None:
+        self.layout().setSpacing(1 if compact else 2)
+        for section in self.sections.values():
+            section.set_compact_mode(compact)
+        self.updateGeometry()
+
+    def _section_toggled(self, key: str, expanded: bool) -> None:
+        if self._syncing or not expanded:
+            return
+        self._collapse_others(key)
+
+    def _collapse_others(self, keep: str) -> None:
+        self._syncing = True
+        try:
+            for key, section in self.sections.items():
+                if key != keep:
+                    section.set_expanded(False)
+        finally:
+            self._syncing = False
+
+
 class QueueWorkspace(QFrame):
     """Self-contained visual shell for the queue workspace.
 
@@ -422,9 +563,124 @@ class QueueWorkspace(QFrame):
         self.column_controller: QueueColumnController | None = None
         self.bound_table = None
         self._responsive_mode = "wide"
+        self._compact_presentation = False
         self._command_widgets: dict[str, QWidget] = {}
         self._range_summary: QWidget | None = None
         self._quota_summary: QWidget | None = None
+        self.minimal_accordion_active = False
+        self.queue_accordion: QueueAccordionStack | None = None
+
+    def install_minimal_accordion(
+        self,
+        *,
+        generation_journey: QWidget,
+        queue_batch_operations: QWidget,
+        range_host: QWidget,
+        filters: tuple[QWidget, ...],
+        planning: tuple[QWidget, ...],
+        actions: tuple[QWidget, ...],
+    ) -> QueueAccordionStack:
+        """Recompose advanced queue tooling below the table without new commands.
+
+        Every control is the existing MainWindow-owned widget.  B7 changes only
+        layout ownership: the queue table remains the dominant work surface and
+        advanced controls live in one-at-a-time stacked accordion sections.
+        """
+
+        if self.queue_accordion is not None:
+            return self.queue_accordion
+
+        self.minimal_accordion_active = True
+        root = self.root_layout
+        for widget in (generation_journey, queue_batch_operations, range_host, self.command_host):
+            if root.indexOf(widget) >= 0:
+                root.removeWidget(widget)
+
+        # The legacy command host remains a compatibility handle but no longer
+        # consumes queue viewport height in the B7 presentation.
+        self.command_host.hide()
+        self.command_host.setMinimumHeight(0)
+        self.command_host.setMaximumHeight(0)
+        for label_name in ("filter_label", "planning_label", "action_label"):
+            label = self._command_widgets.get(label_name)
+            if label is not None:
+                for layout in (self.command_layout, self.planning_layout, self.action_layout):
+                    layout.removeWidget(label)
+                label.setParent(self.command_host)
+                label.hide()
+        range_host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        range_host.setMinimumHeight(0)
+        range_host.setMaximumHeight(0)
+        range_host.hide()
+
+        accordion = QueueAccordionStack(self.body_host)
+        queue_actions = accordion.add_section(
+            "queue-actions", "Queue actions", "retry, skip, reset and output tools"
+        )
+        actions_row = QHBoxLayout()
+        actions_row.setContentsMargins(0, 0, 0, 0)
+        actions_row.setSpacing(6)
+        for widget in actions:
+            actions_row.addWidget(widget)
+            widget.show()
+        actions_row.addStretch(1)
+        queue_actions.add_layout(actions_row)
+
+        filters_section = accordion.add_section(
+            "filters", "Filters", "search, status and source"
+        )
+        filters_row = QHBoxLayout()
+        filters_row.setContentsMargins(0, 0, 0, 0)
+        filters_row.setSpacing(6)
+        for index, widget in enumerate(filters):
+            filters_row.addWidget(widget, 1 if index == 0 else 0)
+            widget.show()
+        filters_section.add_layout(filters_row)
+
+        batch_section = accordion.add_section(
+            "batch", "Batch plan", "scope, order, range and planning lens"
+        )
+        planning_row = QHBoxLayout()
+        planning_row.setContentsMargins(0, 0, 0, 0)
+        planning_row.setSpacing(6)
+        for widget in planning:
+            planning_row.addWidget(widget)
+            widget.show()
+        planning_row.addStretch(1)
+        batch_section.add_layout(planning_row)
+        batch_section.add_widget(queue_batch_operations)
+        batch_section.add_widget(range_host)
+        queue_batch_operations.show()
+        range_host.hide()
+
+        workflow_section = accordion.add_section(
+            "workflow", "Workflow", "source-to-launch readiness"
+        )
+        workflow_section.add_widget(generation_journey)
+        generation_journey.show()
+
+        columns_section = accordion.add_section(
+            "columns", "Columns", "choose the visible queue fields"
+        )
+        columns_row = QHBoxLayout()
+        columns_row.setContentsMargins(0, 0, 0, 0)
+        columns_row.addWidget(self.columns_button)
+        columns_row.addStretch(1)
+        columns_section.add_layout(columns_row)
+        self.columns_button.show()
+
+        accordion.collapse_all()
+        self.body_layout.addWidget(accordion, 0)
+        self.queue_accordion = accordion
+        accordion.set_compact_mode(self._compact_presentation or self._responsive_mode == "compact")
+        self.summary.setVisible(True)
+        self.footer.hide()
+        self.sync_chrome_height()
+        return accordion
+
+    def set_minimal_accordion_section(self, key: str, expanded: bool = True) -> None:
+        if self.queue_accordion is not None:
+            self.queue_accordion.set_expanded(key, expanded)
 
     def chrome_content_height(self) -> int:
         """Return the bounded visible height of queue chrome.
@@ -499,6 +755,7 @@ class QueueWorkspace(QFrame):
         summary and footer gives the table enough vertical space at 1366×768
         without imposing an ineffective hard minimum height.
         """
+        self._compact_presentation = bool(compact)
         self.setProperty("compact", compact)
         self.subtitle_label.setVisible(not compact)
         self.summary.setVisible(not compact)
@@ -507,6 +764,11 @@ class QueueWorkspace(QFrame):
         self.heading.setMinimumHeight(32 if compact else 0)
         self.root_layout.setSpacing(4 if compact else 6)
         self.shell_layout.setSpacing(4 if compact else 6)
+        if self.queue_accordion is not None:
+            effective_compact = bool(compact or self._responsive_mode == "compact")
+            self.queue_accordion.set_compact_mode(effective_compact)
+            if effective_compact:
+                self.queue_accordion.collapse_all()
         self.style().unpolish(self)
         self.style().polish(self)
         self.sync_chrome_height()
@@ -604,6 +866,23 @@ class QueueWorkspace(QFrame):
         self._responsive_mode = value
         self.setProperty("responsiveMode", value)
         self.subtitle_label.setVisible(value != "compact")
+        if self.minimal_accordion_active:
+            if self._range_summary is not None:
+                self._range_summary.setVisible(True)
+            if self._quota_summary is not None:
+                self._quota_summary.setVisible(True)
+            self.command_host.hide()
+            self.command_host.setMinimumHeight(0)
+            self.command_host.setMaximumHeight(0)
+            if self.queue_accordion is not None:
+                effective_compact = bool(value == "compact" or self._compact_presentation)
+                self.queue_accordion.set_compact_mode(effective_compact)
+                if effective_compact:
+                    self.queue_accordion.collapse_all()
+            self.sync_chrome_height()
+            self.style().unpolish(self)
+            self.style().polish(self)
+            return
         if self._range_summary is not None:
             self._range_summary.setVisible(value != "compact")
         if self._quota_summary is not None:

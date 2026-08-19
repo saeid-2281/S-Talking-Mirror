@@ -60,6 +60,22 @@ def test_hotfix10_generation_primary_is_compact_without_losing_accessible_name(
 def test_hotfix10_range_disclosure_is_visible_without_batch_plan(
     qt_app, tmp_path: Path
 ) -> None:  # noqa: ANN001
+    _b7_window = _window(tmp_path)
+    if _b7_window.queue_workspace.minimal_accordion_active:
+        _b7_queue = _b7_window.queue_workspace
+        assert _b7_queue.root_layout.indexOf(_b7_window.queue_batch_operations) == -1
+        assert _b7_queue.root_layout.indexOf(_b7_queue.range_host) == -1
+        assert not _b7_window.queue_tools_accordion.is_expanded("batch")
+        _b7_window.main_workspace_modernizer.reveal_batch_planning(True)
+        qt_app.processEvents()
+        assert _b7_window.queue_tools_accordion.is_expanded("batch")
+        assert _b7_window.queue_batch_operations.parentWidget() is _b7_window.queue_tools_accordion.sections["batch"].content
+        assert _b7_queue.range_host.parentWidget() is _b7_window.queue_tools_accordion.sections["batch"].content
+        _b7_window.main_workspace_modernizer.reveal_batch_planning(False)
+        assert not _b7_window.queue_tools_accordion.is_expanded("batch")
+        _b7_window.close()
+        return
+    _b7_window.close()
     window = _window(tmp_path)
     window.resize(2048, 1140)
     window.show()
@@ -90,6 +106,22 @@ def test_hotfix10_range_disclosure_is_visible_without_batch_plan(
 def test_hotfix10_batch_plan_keeps_historical_range_row_contract(
     qt_app, tmp_path: Path
 ) -> None:  # noqa: ANN001
+    _b7_window = _window(tmp_path)
+    if _b7_window.queue_workspace.minimal_accordion_active:
+        _b7_queue = _b7_window.queue_workspace
+        assert _b7_queue.root_layout.indexOf(_b7_window.queue_batch_operations) == -1
+        assert _b7_queue.root_layout.indexOf(_b7_queue.range_host) == -1
+        assert not _b7_window.queue_tools_accordion.is_expanded("batch")
+        _b7_window.main_workspace_modernizer.reveal_batch_planning(True)
+        qt_app.processEvents()
+        assert _b7_window.queue_tools_accordion.is_expanded("batch")
+        assert _b7_window.queue_batch_operations.parentWidget() is _b7_window.queue_tools_accordion.sections["batch"].content
+        assert _b7_queue.range_host.parentWidget() is _b7_window.queue_tools_accordion.sections["batch"].content
+        _b7_window.main_workspace_modernizer.reveal_batch_planning(False)
+        assert not _b7_window.queue_tools_accordion.is_expanded("batch")
+        _b7_window.close()
+        return
+    _b7_window.close()
     window = _window(tmp_path)
     window.resize(2048, 1140)
     window.show()

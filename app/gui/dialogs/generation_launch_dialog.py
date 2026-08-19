@@ -109,8 +109,8 @@ class GenerationLaunchDialog(QDialog):
         self.workspace.add_body_widget(checklist_section, 1)
 
         self.ack_section = DialogSection(
-            "Required acknowledgements",
-            "Start remains disabled until every required decision is explicitly acknowledged.",
+            "Review acknowledgement",
+            "Warnings that require confirmation are grouped into one explicit launch decision.",
         )
         self.ack_container = QFrame()
         self.ack_container.setObjectName("generationLaunchAcknowledgements")
@@ -243,13 +243,18 @@ class GenerationLaunchDialog(QDialog):
         required_checks = [
             item for item in self.confirmation.checks if item.requires_acknowledgement
         ]
-        for check in required_checks:
-            box = QCheckBox(f"I understand: {check.title}")
+        if required_checks:
+            codes = tuple(check.code for check in required_checks)
+            titles = tuple(check.title for check in required_checks)
+            details = tuple(check.detail for check in required_checks)
+            box = QCheckBox("I reviewed the warnings above and want to continue with this generation.")
             box.setObjectName("generationLaunchAcknowledgement")
-            box.setProperty("ackCode", check.code)
-            box.setToolTip(check.detail)
+            box.setProperty("ackCodes", codes)
+            box.setToolTip("\n".join(f"• {title}: {detail}" for title, detail in zip(titles, details, strict=True)))
             box.toggled.connect(self._update_start_enabled)
-            self.acknowledgement_boxes[check.code] = box
+            # Keep the auditable per-code contract while presenting one daily-workflow decision.
+            for code in codes:
+                self.acknowledgement_boxes[code] = box
             self.ack_layout.addWidget(box)
         if not required_checks:
             ready = QLabel("No additional acknowledgement is required for this launch.")
@@ -295,16 +300,13 @@ class GenerationLaunchDialog(QDialog):
         QApplication.clipboard().setText("\n".join(lines))
 
     def _update_start_enabled(self) -> None:
-        all_acknowledged = all(
-            box.isChecked() for box in self.acknowledgement_boxes.values()
-        )
+        unique_boxes = tuple(dict.fromkeys(self.acknowledgement_boxes.values()))
+        all_acknowledged = all(box.isChecked() for box in unique_boxes)
         self.start_button.setEnabled(self.confirmation.allowed and all_acknowledged)
-        remaining = sum(
-            1 for box in self.acknowledgement_boxes.values() if not box.isChecked()
-        )
+        remaining = sum(1 for box in unique_boxes if not box.isChecked())
         if remaining:
             self.start_button.setToolTip(
-                f"Acknowledge {remaining:,} remaining decision(s) before starting."
+                "Review the warnings and acknowledge the single launch decision before starting."
             )
         else:
             self.start_button.setToolTip("Start exactly the reviewed generation batch. No provider or scope change is applied here.")

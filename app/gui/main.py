@@ -347,6 +347,37 @@ class MainWindow(QMainWindow):
         self.output_summary=self.project_context_widget.output_summary
         self.reloadb=self.project_context_widget.reload_button
         self.metrics_strip=MetricsStrip(self.metric_filter_clicked); self.cards=self.metrics_strip.cards
+        self.metrics_strip.bind_actions(
+            [
+                self.actions_by_name.get('New Project'),
+                self.actions_by_name.get('Open Project'),
+                self.actions_by_name.get('Save'),
+                self.actions_by_name.get('Add source files'),
+                self.actions_by_name.get('Start Generation'),
+            ],
+            [
+                self.actions_by_name.get('Run Preflight'),
+                self.actions_by_name.get('Voice Browser'),
+                self.actions_by_name.get('Provider accounts'),
+                self.actions_by_name.get('Voice & Model Catalog'),
+                self.actions_by_name.get('Generation Workflow'),
+                self.actions_by_name.get('Queue Batch Operations'),
+                self.actions_by_name.get('Generation Live Operations'),
+                self.actions_by_name.get('Output playback'),
+                self.actions_by_name.get('Command Palette'),
+            ],
+        )
+        self.metrics_strip.attach_status_badges(
+            self.project_context_widget.provider_badge,
+            self.project_context_widget.model_badge,
+            self.project_context_widget.preflight_badge,
+        )
+        self.project_context_widget.badge_host.hide()
+        # Sources now has one visible command in the unified daily strip.  Keep
+        # Reload and Output contextual in the consolidated project card.
+        self.project_context_widget.browse_csv_button.hide()
+        self.main_toolbar.hide()
+        if hasattr(self,'view_toolbar_action'): self.view_toolbar_action.setChecked(False)
         self.application_shell.add_header(self.project_context_widget,self.metrics_strip)
         self.project_path_notice=ProjectPathNotice(self.application_shell)
         self.project_path_notice.locate_source_requested.connect(self.pick_csv)
@@ -433,13 +464,23 @@ class MainWindow(QMainWindow):
             self.table=QueueTableView(); self.table.setObjectName('queueTable'); self.table.setItemDelegateForColumn(5,QueueStatusDelegate(self.table)); self.queue_adapter=QueueViewAdapter(self.table,parent=self)
         else:
             self.table=QTableWidget(0,12); self.table.setHorizontalHeaderLabels(['Source row','Filename','Source','Worksheet','Characters','Status','Provider','Voice','Model','Duration','Retry','Output']); configure_queue_table(self.table); self.queue_adapter=QueueViewAdapter(self.table,jobs_provider=self.displayed_queue_jobs,parent=self)
-        self.queue_workspace.bind_table(self.table,QSettings()); self.table.setContextMenuPolicy(Qt.CustomContextMenu); self.table.horizontalHeader().sectionClicked.connect(self.queue_header_clicked); self.queue_adapter.selection_changed.connect(self.preview); self.queue_adapter.selection_changed.connect(self.update_queue_actions); self.queue_adapter.selection_changed.connect(self.update_selection_scope_summary); self.queue_adapter.selection_changed.connect(self.refresh_queue_batch_operations); self.queue_adapter.context_menu_requested.connect(self.queue_context_menu); self.queue_adapter.cell_double_clicked.connect(lambda *_: self.play_selected_output()); ml.addWidget(self.table); split.addWidget(mid)
+        self.queue_workspace.bind_table(self.table,QSettings()); self.table.setContextMenuPolicy(Qt.CustomContextMenu); self.table.horizontalHeader().sectionClicked.connect(self.queue_header_clicked); self.queue_adapter.selection_changed.connect(self.preview); self.queue_adapter.selection_changed.connect(self.update_queue_actions); self.queue_adapter.selection_changed.connect(self.update_selection_scope_summary); self.queue_adapter.selection_changed.connect(self.refresh_queue_batch_operations); self.queue_adapter.context_menu_requested.connect(self.queue_context_menu); self.queue_adapter.cell_double_clicked.connect(lambda *_: self.play_selected_output()); ml.addWidget(self.table)
+        self.queue_tools_accordion=self.queue_workspace.install_minimal_accordion(
+            generation_journey=self.generation_journey,
+            queue_batch_operations=self.queue_batch_operations,
+            range_host=self.queue_workspace.range_host,
+            filters=(self.queue_search,self.queue_filter,self.source_filter),
+            planning=(self.scope_selector,self.order_selector,self.use_sort_button),
+            actions=(self.use_selection_scope_button,self.retry_menu_button,self.skip_menu_button,self.reset_menu_button,self.clear_completed_button,self.output_menu_button,self.queue_more_actions_button),
+        )
+        self.dry_run_button.hide()
+        split.addWidget(mid)
         pb=DockPanelGroupBox('Selected row'); self.selected_row_panel=pb
         self.queue_details=QueueDetailsPane(pb,play_output=self.play_selected_output,open_output=self.open_selected_output,stop_playback=self.audio_player_service.stop,copy_output=self.copy_selected_output_path)
         self.pname=self.queue_details.pname; self.pstatus=self.queue_details.pstatus; self.pmeta=self.queue_details.pmeta; self.presolved=self.queue_details.presolved; self.poutput=self.queue_details.poutput; self.pretry=self.queue_details.pretry; self.ptext=self.queue_details.ptext
         self.play_output_button=self.queue_details.play_output_button; self.open_selected_button=self.queue_details.open_selected_button; self.stop_playback_button=self.queue_details.stop_playback_button; self.copy_output_button=self.queue_details.copy_output_button
         self.right_tabs=DockTabWidget(); self.right_tabs.setObjectName('rightInspectorTabs'); self.right_tabs.setMinimumWidth(0); self.right_tabs.addTab(pb,icon('queue'),'Selected Row'); self.notification_center=NotificationCenterWidget(self.notification_center_service,self); self.notification_center.action_requested.connect(self.handle_notification_action); self.right_dock=MonitorDockWidget('Generation Monitor',self); self.right_dock.setObjectName('workspaceRightDock'); self.right_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea); self.right_dock.setWidget(self.right_tabs); self.right_dock.setMinimumWidth(MONITOR_MIN_WIDTH); self.right_dock.setMaximumWidth(self.safe_monitor_width()); pb.set_visibility_proxy(self.right_dock); self.addDockWidget(Qt.RightDockWidgetArea,self.right_dock); self.notification_dock=WorkspaceDockWidget('Notifications',self); self.notification_dock.setObjectName('notificationCenterDock'); self.notification_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea|Qt.BottomDockWidgetArea); self.notification_dock.setWidget(self.notification_center); self.notification_dock.setMinimumWidth(360); self.addDockWidget(Qt.RightDockWidgetArea,self.notification_dock); self.notification_dock.visibilityChanged.connect(self.view_notifications_action.setChecked); self.notification_dock.hide(); self.text_studio=TextStudioWorkspace(TextSourceService(),session_path=self.context.container.runtime.data_dir/'text-studio-session.json',parent=self); self.text_studio.import_requested.connect(self.import_text_studio_entries); self.text_studio_dock=WorkspaceDockWidget('Text Studio',self); self.text_studio_dock.setObjectName('textStudioDock'); self.text_studio_dock.setAllowedAreas(Qt.LeftDockWidgetArea|Qt.RightDockWidgetArea|Qt.BottomDockWidgetArea); self.text_studio_dock.setWidget(self.text_studio); self.text_studio_dock.setMinimumWidth(720); self.addDockWidget(Qt.BottomDockWidgetArea,self.text_studio_dock); self.text_studio_dock.visibilityChanged.connect(self.view_text_studio_action.setChecked); self.text_studio_dock.hide(); split.setSizes([980])
-        self.activity_center=ActivityCenter(); self.activity_tabs=self.activity_center; self.activity_expanded_height=self.activity_center.expanded_height
+        self.activity_center=ActivityCenter(); self.activity_tabs=self.activity_center; self.activity_center.set_compact_output_mode(True,height=260); self.activity_expanded_height=self.activity_center.compact_output_height
         self.log=self.activity_center.activity_log; self.output_log=self.activity_center.output_log; self.error_log=self.activity_center.error_log
         self.activity_timeline=ActivityTimelineWidget(self.activity_timeline_service,self); self.activity_center.install_timeline(self.activity_timeline)
         self.output_workspace=self.activity_center.install_output_workspace(
@@ -451,6 +492,7 @@ class MainWindow(QMainWindow):
             output_path_for=self.generation_controller.output_path_for,
         )
         self.generation_status_strip=GenerationStatusStrip(start=self.start,pause=self.pause,stop=self.stop,show_preflight=self.show_latest_preflight)
+        self.generation_status_strip.set_minimal_daily_mode(True)
         self.generation_status_strip.stateChanged.connect(self.announce_interface_status)
         self.generation_action_bar=self.generation_status_strip
         self.startb=self.generation_status_strip.start_button; self.preflight_status=self.generation_status_strip.preflight_button
@@ -526,7 +568,7 @@ class MainWindow(QMainWindow):
         self.visual_design_system_action.setShortcut(QKeySequence('Ctrl+Alt+8'))
         self.visual_design_system_action.triggered.connect(self.open_visual_design_system)
         self.actions_by_name['Visual Design System 2.0']=self.visual_design_system_action
-        self.view_menu.addSeparator(); self.view_toolbar_action=self.view_menu.addAction(icon('queue'),'Toolbar'); self.view_toolbar_action.setCheckable(True); self.view_toolbar_action.setChecked(True); self.view_toolbar_action.triggered.connect(lambda checked:self.main_toolbar.setVisible(checked)); self.view_provider_dock_action=self.view_menu.addAction(icon('provider'),'Provider/Sources dock'); self.view_provider_dock_action.setCheckable(True); self.view_provider_dock_action.setChecked(True); self.view_provider_dock_action.triggered.connect(lambda checked:self.left_dock.setVisible(checked)); self.view_inspector_dock_action=self.view_menu.addAction(icon('report'),'Inspector/Monitor dock'); self.view_inspector_dock_action.setCheckable(True); self.view_inspector_dock_action.setChecked(True); self.view_inspector_dock_action.triggered.connect(lambda checked:self.right_dock.setVisible(checked)); self.view_activity_action=self.view_menu.addAction(icon('activity'),'Activity panel'); self.view_activity_action.setCheckable(True); self.view_activity_action.setChecked(False); self.view_activity_action.triggered.connect(lambda checked:self.set_activity_expanded(checked)); self.view_notifications_action=self.view_menu.addAction(icon('notification'),'Notification Center'); self.view_notifications_action.setCheckable(True); self.view_notifications_action.setChecked(False); self.view_notifications_action.triggered.connect(lambda checked:self.notification_dock.setVisible(checked)); self.view_text_studio_action=self.view_menu.addAction(action_icon('project.add_text_source'),'Text Studio'); self.view_text_studio_action.setCheckable(True); self.view_text_studio_action.setChecked(False); self.view_text_studio_action.setShortcut(QKeySequence('Ctrl+7')); self.view_text_studio_action.triggered.connect(lambda checked:self.text_studio_dock.setVisible(checked)); self.actions_by_name['Text Studio']=self.view_text_studio_action; self.follow_active_job_action=self.view_menu.addAction(icon('success'),'Follow active job'); self.follow_active_job_action.setCheckable(True); self.follow_active_job_action.setChecked(True)
+        self.view_menu.addSeparator(); self.view_toolbar_action=self.view_menu.addAction(icon('queue'),'Toolbar'); self.view_toolbar_action.setCheckable(True); self.view_toolbar_action.setChecked(False); self.view_toolbar_action.setVisible(False); self.view_toolbar_action.triggered.connect(lambda _checked:self.main_toolbar.setVisible(False)); self.view_provider_dock_action=self.view_menu.addAction(icon('provider'),'Provider/Sources dock'); self.view_provider_dock_action.setCheckable(True); self.view_provider_dock_action.setChecked(True); self.view_provider_dock_action.triggered.connect(lambda checked:self.left_dock.setVisible(checked)); self.view_inspector_dock_action=self.view_menu.addAction(icon('report'),'Inspector/Monitor dock'); self.view_inspector_dock_action.setCheckable(True); self.view_inspector_dock_action.setChecked(True); self.view_inspector_dock_action.triggered.connect(lambda checked:self.right_dock.setVisible(checked)); self.view_activity_action=self.view_menu.addAction(icon('activity'),'Activity panel'); self.view_activity_action.setCheckable(True); self.view_activity_action.setChecked(False); self.view_activity_action.triggered.connect(lambda checked:self.set_activity_expanded(checked)); self.view_notifications_action=self.view_menu.addAction(icon('notification'),'Notification Center'); self.view_notifications_action.setCheckable(True); self.view_notifications_action.setChecked(False); self.view_notifications_action.triggered.connect(lambda checked:self.notification_dock.setVisible(checked)); self.view_text_studio_action=self.view_menu.addAction(action_icon('project.add_text_source'),'Text Studio'); self.view_text_studio_action.setCheckable(True); self.view_text_studio_action.setChecked(False); self.view_text_studio_action.setShortcut(QKeySequence('Ctrl+7')); self.view_text_studio_action.triggered.connect(lambda checked:self.text_studio_dock.setVisible(checked)); self.actions_by_name['Text Studio']=self.view_text_studio_action; self.follow_active_job_action=self.view_menu.addAction(icon('success'),'Follow active job'); self.follow_active_job_action.setCheckable(True); self.follow_active_job_action.setChecked(True)
         self.open_output_workspace_action=self.view_menu.addAction(icon('folder-output'),'Output playback')
         self.open_output_workspace_action.setShortcut(QKeySequence('Ctrl+6'))
         self.open_output_workspace_action.triggered.connect(self.show_output_workspace)
@@ -841,6 +883,9 @@ class MainWindow(QMainWindow):
             if hasattr(self,'left_tabs'): self.left_tabs.setCurrentIndex(0)
             target=getattr(self,'provider',None); label='Provider panel'
         elif region=='queue':
+            queue=getattr(self,'queue_workspace',None)
+            if queue is not None and queue.minimal_accordion_active:
+                queue.set_minimal_accordion_section('filters',True)
             target=getattr(self,'queue_search',None)
             if target is None: target=getattr(self,'table',None)
             label='Generation queue'
@@ -852,9 +897,13 @@ class MainWindow(QMainWindow):
         elif region=='activity':
             self.set_activity_expanded(True); target=getattr(self,'activity_tabs',None); label='Activity panel'
         elif region=='generation':
-            target=getattr(self,'startb',None)
-            if target is not None and not target.isEnabled():
-                target=getattr(self,'dry_run_button',None)
+            queue=getattr(self,'queue_workspace',None)
+            if queue is not None and queue.minimal_accordion_active:
+                target=getattr(getattr(self,'metrics_strip',None),'action_buttons',{}).get('Start Generation')
+            else:
+                target=getattr(self,'startb',None)
+                if target is not None and not target.isEnabled():
+                    target=getattr(self,'dry_run_button',None)
             label='Generation controls'
         elif region=='output':
             self.show_output_workspace(); target=getattr(getattr(self,'output_workspace',None),'player',None); label='Output playback'
@@ -900,7 +949,7 @@ class MainWindow(QMainWindow):
         QSettings('S Talking','S Talking').setValue('workspace/header_visible',bool(visible))
 
     def toggle_workspace_metrics(self,visible):
-        if hasattr(self,'metrics_strip'): self.metrics_strip.setVisible(bool(visible))
+        if hasattr(self,'metrics_strip'): self.metrics_strip.set_metrics_visible(bool(visible))
         QSettings('S Talking','S Talking').setValue('workspace/metrics_visible',bool(visible))
     def set_activity_expanded(self,expanded):
         if not hasattr(self,'activity_center'): return
@@ -915,6 +964,16 @@ class MainWindow(QMainWindow):
             if path:
                 workspace.load_output(Path(path),autoplay=bool(autoplay))
         self.activity_center.show_output_workspace()
+        # B7 keeps Output compact by default, but the explicit MainWindow review
+        # command preserves the historical usable review floor.  This does not
+        # make the drawer permanently large: direct ActivityCenter expansion
+        # remains at compact_output_height and collapse restores the small band.
+        if self.activity_center.compact_output_mode:
+            self.activity_center.expanded_height=max(
+                300,
+                self.activity_center.compact_output_height,
+            )
+            self.activity_center.set_expanded(True)
         if hasattr(self,'view_activity_action'): self.view_activity_action.setChecked(True)
         return workspace
     def open_audio_review_export(self):
@@ -950,7 +1009,7 @@ class MainWindow(QMainWindow):
         self._sync_workspace_overlay_compact()
         if hasattr(self,'left_dock'): self.left_dock.setVisible(profile.left_dock_visible)
         if hasattr(self,'right_dock'): self.right_dock.setVisible(profile.right_dock_visible)
-        if hasattr(self,'main_toolbar'): self.main_toolbar.setVisible(profile.toolbar_visible)
+        if hasattr(self,'main_toolbar'): self.main_toolbar.setVisible(False)
         docks=[]; widths=[]
         if profile.left_dock_visible and hasattr(self,'left_dock'): docks.append(self.left_dock); widths.append(profile.left_dock_width)
         if profile.right_dock_visible and hasattr(self,'right_dock'): docks.append(self.right_dock); widths.append(self.safe_monitor_width(profile.right_dock_width))
@@ -958,7 +1017,7 @@ class MainWindow(QMainWindow):
         if hasattr(self,'right_tabs') and self.right_tabs.count()>profile.right_tab: self.right_tabs.setCurrentIndex(profile.right_tab)
         if hasattr(self,'activity_tabs'):
             self.activity_expanded_height=profile.activity_height; self.set_activity_expanded(profile.activity_visible)
-        if hasattr(self,'view_toolbar_action'): self.view_toolbar_action.setChecked(profile.toolbar_visible)
+        if hasattr(self,'view_toolbar_action'): self.view_toolbar_action.setChecked(False)
         if hasattr(self,'view_provider_dock_action'): self.view_provider_dock_action.setChecked(profile.left_dock_visible)
         if hasattr(self,'view_inspector_dock_action'): self.view_inspector_dock_action.setChecked(profile.right_dock_visible)
         if hasattr(self,'main_workspace_modernizer'): self.main_workspace_modernizer.refresh_presentation()
@@ -981,7 +1040,7 @@ class MainWindow(QMainWindow):
         self.generation_menu=QMenu('Generation',self); self.menuBar().addMenu(self.generation_menu)
         workflow_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Generation Workflow'); workflow_action.setShortcut(QKeySequence('Ctrl+Alt+G')); workflow_action.triggered.connect(self.focus_generation_workflow); self.actions_by_name['Generation Workflow']=workflow_action; batch_action=self.generation_menu.addAction(action_icon('queue'),'Queue Batch Operations'); batch_action.setShortcut(QKeySequence('Ctrl+Alt+Q')); batch_action.triggered.connect(self.focus_queue_batch_operations); self.actions_by_name['Queue Batch Operations']=batch_action; live_action=self.generation_menu.addAction(action_icon('history'),'Generation Live Operations'); live_action.setShortcut(QKeySequence('Ctrl+Alt+R')); live_action.triggered.connect(self.focus_generation_live_operations); self.actions_by_name['Generation Live Operations']=live_action; self.generation_menu.addSeparator()
         self.show_monitor_action=self.generation_menu.addAction('Show/Hide Generation Monitor'); self.show_monitor_action.setCheckable(True); self.show_monitor_action.setChecked(True); self.show_monitor_action.triggered.connect(self.toggle_generation_monitor); self.actions_by_name['Show/Hide Generation Monitor']=self.show_monitor_action
-        self.dry_run_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Dry run'); self.dry_run_action.triggered.connect(self.dry_run); self.actions_by_name['Dry run']=self.dry_run_action; self.actions_by_name['Run Preflight']=self.dry_run_action
+        self.dry_run_action=self.generation_menu.addAction(action_icon('generation.preflight'),'Preflight / dry run'); self.dry_run_action.triggered.connect(self.dry_run); self.actions_by_name['Dry run']=self.dry_run_action; self.actions_by_name['Run Preflight']=self.dry_run_action
         language_probe_action=self.generation_menu.addAction(action_icon('pronunciation.dictionary'),'Language Probe (1-3 samples)'); language_probe_action.setShortcut(QKeySequence('Ctrl+Alt+P')); language_probe_action.triggered.connect(self.open_language_probe); self.actions_by_name['Language Probe']=language_probe_action
         pronunciation_review_action=self.generation_menu.addAction(action_icon('pronunciation.dictionary'),'Pronunciation Review Workspace'); pronunciation_review_action.setShortcut(QKeySequence('Ctrl+Alt+Shift+P')); pronunciation_review_action.triggered.connect(self.open_pronunciation_review); self.actions_by_name['Pronunciation Review Workspace']=pronunciation_review_action
         pronunciation_readiness_action=self.generation_menu.addAction(action_icon('report'),'Pronunciation Project Readiness'); pronunciation_readiness_action.triggered.connect(self.open_pronunciation_readiness); self.actions_by_name['Pronunciation Project Readiness']=pronunciation_readiness_action
@@ -2030,7 +2089,7 @@ class MainWindow(QMainWindow):
             header_visible=settings.value('workspace/header_visible',True,type=bool)
             metrics_visible=settings.value('workspace/metrics_visible',profile.metrics_visible,type=bool)
             self.project_context_widget.setVisible(header_visible)
-            self.metrics_strip.setVisible(metrics_visible)
+            self.metrics_strip.setVisible(True); self.metrics_strip.set_metrics_visible(metrics_visible)
             if hasattr(self,'show_workspace_header_action'): self.show_workspace_header_action.setChecked(header_visible)
             if hasattr(self,'show_metrics_action'): self.show_metrics_action.setChecked(metrics_visible)
     def save_layout_state(self):
@@ -3037,11 +3096,26 @@ class MainWindow(QMainWindow):
         if hasattr(self,'preflight_status'):
             self.generation_status_strip.set_preflight_text('Preflight: Not checked'); self.preflight_status.setStyleSheet('color:#94A3B8;font-weight:700;')
             if hasattr(self,'project_context_widget'): self.project_context_widget.set_preflight_state('not checked')
-            if hasattr(self,'generation_status_strip'): self.generation_status_strip.set_generation_state('Preflight required','Run Preflight explicitly before launch review')
-            self.startb.setEnabled(False)
-            self.startb.setToolTip('Run Preflight explicitly before reviewing or starting generation.')
+            if hasattr(self,'generation_status_strip'):
+                self.generation_status_strip.set_generation_state('Ready to validate','Start performs a fresh no-audio safety check when needed')
+            can_start=not self.generation_controller.is_active
+            self.startb.setEnabled(can_start)
+            if 'Start Generation' in self.actions_by_name: self.actions_by_name['Start Generation'].setEnabled(can_start)
+            self.startb.setToolTip('Start generation. A fresh safety check runs automatically when the current request has not been validated.')
         self.refresh_generation_journey()
+    def synchronize_generation_plan_controls(self):
+        """Keep controller planning authority aligned with the visible UI controls.
+
+        B7 keeps explicit Preflight/dry-run optional.  This helper also prevents a
+        stale controller scope/order from making either an explicit review or
+        Start's no-audio safety validation inspect an empty plan while the queue
+        UI visibly targets another scope.
+        """
+        self.generation_controller.set_scope_mode(self.current_scope_mode())
+        self.generation_controller.set_execution_order(self.current_execution_order())
+
     def current_launch_request_revision(self,settings=None):
+        self.synchronize_generation_plan_controls()
         s=settings or self.settings()
         return self.preflight_service.request_revision(
             self.generation_controller.generation_jobs(),
@@ -3060,6 +3134,7 @@ class MainWindow(QMainWindow):
         if hasattr(self,'dry_run_button'): self.dry_run_button.setFocus()
 
     def current_preflight_state(self,settings=None):
+        self.synchronize_generation_plan_controls()
         s=settings or self.settings()
         return self.preflight_service.current_state(
             jobs=self.generation_controller.generation_jobs(),
@@ -3070,6 +3145,7 @@ class MainWindow(QMainWindow):
         )
     def run_preflight(self,write_report=False):
         self.last_launch_assurance=None
+        self.synchronize_generation_plan_controls()
         self.refresh_quota_snapshot()
         state=self.preflight_service.run(jobs=self.generation_controller.generation_jobs(),settings=self.settings(),output_dir=Path(self.out.text() or self.project_controller.default_output_path),csv_path=Path(self.csv.text()) if self.csv.text().strip() else None,project_name=self.project_controller.project_name,project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None)
         if write_report: self.preflight_service.write_report(state,self.project_controller.project_name)
@@ -3120,13 +3196,15 @@ class MainWindow(QMainWindow):
         if hasattr(self,'dry_run_button'):
             self.dry_run_button.setFocus()
         self.statusBar().showMessage(
-            'Run Preflight explicitly. Start remains unavailable until the current resolved request has a valid Preflight result.',
+            'Preflight / dry run is optional and produces no audio. Start performs the same safety validation automatically when needed.',
             7000,
         )
     def review_generation_launch(self,confirmation,state):
+        # Clean launches stay one-click in B7. The review surface appears only
+        # when a real acknowledgement/exception decision is required.
+        if not confirmation.requires_user_confirmation: return ()
         app=QApplication.instance(); platform=app.platformName().casefold() if app is not None else ''
         if platform in {'offscreen','minimal'} or not self.isVisible():
-            if not confirmation.requires_user_confirmation: return ()
             if self.notifications.confirmation(confirmation.title,confirmation.message):
                 return confirmation.required_acknowledgements
             return None
@@ -3178,17 +3256,14 @@ class MainWindow(QMainWindow):
             s=self.settings()
         state=self.current_preflight_state(s)
         if state is None:
-            self.startb.setEnabled(False)
+            # B7 makes explicit Preflight/dry-run an optional preview. Start still
+            # performs the same no-audio safety evaluation before any provider
+            # request, and hard blockers stop the launch below.
             self.generation_status_strip.set_generation_state(
-                'Preflight required',
-                'The resolved request changed or has not been checked',
+                'Validating',
+                'Checking the current queue and launch request before generation',
             )
-            self.notifications.information(
-                'Preflight required',
-                'Run Preflight explicitly for the current queue, scope, provider, voice, model, language and output settings before launch review.',
-            )
-            if hasattr(self,'dry_run_button'): self.dry_run_button.setFocus()
-            return
+            state=self.run_preflight(write_report=False)
         try:
             launch_assurance=self.launch_assurance_service.verify_launch(
                 state,
@@ -4279,6 +4354,7 @@ class MainWindow(QMainWindow):
         if 'Start Generation' in self.actions_by_name: self.actions_by_name['Start Generation'].setEnabled(not active)
         if 'Pause/Resume' in self.actions_by_name: self.actions_by_name['Pause/Resume'].setEnabled(active)
         if 'Stop Generation' in self.actions_by_name: self.actions_by_name['Stop Generation'].setEnabled(active)
+        if hasattr(self,'generation_status_strip'): self.generation_status_strip.set_runtime_active(active)
         self.pauseb.setText('Pause')
         self.stopb.setText('Stop')
         self.update_queue_actions()

@@ -204,8 +204,8 @@ def test_phase93_compact_workspace_does_not_consume_queue_height(qt_app, tmp_pat
     window.setGeometry(0, 0, 1366, 768)
     window.apply_workspace_preset("Compact")
     qt_app.processEvents()
-    assert window.queue_batch_operations.isHidden()
-    assert window.generation_journey.isHidden()
+    assert not window.queue_tools_accordion.is_expanded("batch")
+    assert not window.queue_tools_accordion.is_expanded("workflow")
     assert window.live_operations.parent() is window.monitor_scroll.widget()
     window.close()
 

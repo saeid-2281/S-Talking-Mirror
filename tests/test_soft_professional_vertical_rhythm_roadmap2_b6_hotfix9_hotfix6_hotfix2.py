@@ -49,6 +49,17 @@ def test_hotfix9_hotfix6_hotfix2_uses_bounded_visible_chrome_height_authority() 
 def test_hotfix9_hotfix6_hotfix2_collapsed_chrome_has_no_command_summary_dead_cell(
     qt_app, tmp_path: Path
 ) -> None:  # noqa: ANN001
+    _b7_window = _window(tmp_path)
+    if _b7_window.queue_workspace.minimal_accordion_active:
+        _b7_queue = _b7_window.queue_workspace
+        assert _b7_queue.command_host.isHidden()
+        assert _b7_queue.root_layout.indexOf(_b7_queue.command_host) == -1
+        assert _b7_queue.body_layout.indexOf(_b7_window.table) >= 0
+        assert _b7_queue.body_layout.indexOf(_b7_window.queue_tools_accordion) > _b7_queue.body_layout.indexOf(_b7_window.table)
+        assert all(not _b7_window.queue_tools_accordion.is_expanded(key) for key in _b7_window.queue_tools_accordion.sections)
+        _b7_window.close()
+        return
+    _b7_window.close()
     window = _window(tmp_path)
     window.resize(2048, 1140)
     window.show()
@@ -82,6 +93,37 @@ def test_hotfix9_hotfix6_hotfix2_expanded_then_collapsed_chrome_shrinks_again(
     window.show()
     modernizer = window.main_workspace_modernizer
     modernizer.apply_responsive_mode("wide")
+
+    # Roadmap 2 B7 deliberately moves Workflow/Batch disclosure out of legacy
+    # queue chrome and below the table into a one-open accordion.  Under that
+    # presentation the chrome must *not* grow when an advanced section opens;
+    # preserving the old grow/shrink assertion would re-introduce the exact
+    # vertical-space waste B7 removes.  Keep the historical assertion for the
+    # legacy composition and certify the equivalent B7 disclosure contract here.
+    if window.queue_workspace.minimal_accordion_active:
+        queue = window.queue_workspace
+        accordion = window.queue_tools_accordion
+        collapsed_height = queue.chrome_host.height()
+
+        modernizer.reveal_workflow(True)
+        assert accordion.is_expanded("workflow")
+        modernizer.reveal_batch_planning(True)
+        modernizer.reapply_visual_geometry()
+        _events(qt_app)
+        assert accordion.is_expanded("batch")
+        assert not accordion.is_expanded("workflow")
+        assert queue.chrome_host.height() == collapsed_height
+
+        modernizer.reveal_workflow(False)
+        modernizer.reveal_batch_planning(False)
+        modernizer.reapply_visual_geometry()
+        _events(qt_app)
+        assert all(not accordion.is_expanded(key) for key in accordion.sections)
+        assert queue.chrome_host.height() == collapsed_height
+        assert queue.chrome_host.height() == queue.chrome_content_height()
+        window.close()
+        return
+
     modernizer.reveal_workflow(True)
     modernizer.reveal_batch_planning(True)
     modernizer.reapply_visual_geometry()

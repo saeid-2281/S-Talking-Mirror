@@ -38,6 +38,22 @@ def test_hotfix9_hotfix2_collapsed_batch_range_is_structurally_removed() -> None
 def test_hotfix9_hotfix2_wide_collapsed_range_has_no_layout_slot_or_dead_gap(
     qt_app, tmp_path: Path
 ) -> None:  # noqa: ANN001
+    _b7_window = _window(tmp_path)
+    if _b7_window.queue_workspace.minimal_accordion_active:
+        _b7_queue = _b7_window.queue_workspace
+        assert _b7_queue.root_layout.indexOf(_b7_window.queue_batch_operations) == -1
+        assert _b7_queue.root_layout.indexOf(_b7_queue.range_host) == -1
+        assert not _b7_window.queue_tools_accordion.is_expanded("batch")
+        _b7_window.main_workspace_modernizer.reveal_batch_planning(True)
+        qt_app.processEvents()
+        assert _b7_window.queue_tools_accordion.is_expanded("batch")
+        assert _b7_window.queue_batch_operations.parentWidget() is _b7_window.queue_tools_accordion.sections["batch"].content
+        assert _b7_queue.range_host.parentWidget() is _b7_window.queue_tools_accordion.sections["batch"].content
+        _b7_window.main_workspace_modernizer.reveal_batch_planning(False)
+        assert not _b7_window.queue_tools_accordion.is_expanded("batch")
+        _b7_window.close()
+        return
+    _b7_window.close()
     window = _window(tmp_path)
     window.resize(2048, 1140)
     window.show()
@@ -62,6 +78,22 @@ def test_hotfix9_hotfix2_wide_collapsed_range_has_no_layout_slot_or_dead_gap(
 def test_hotfix9_hotfix2_explicit_batch_range_reinserts_one_compact_row(
     qt_app, tmp_path: Path
 ) -> None:  # noqa: ANN001
+    _b7_window = _window(tmp_path)
+    if _b7_window.queue_workspace.minimal_accordion_active:
+        _b7_queue = _b7_window.queue_workspace
+        assert _b7_queue.root_layout.indexOf(_b7_window.queue_batch_operations) == -1
+        assert _b7_queue.root_layout.indexOf(_b7_queue.range_host) == -1
+        assert not _b7_window.queue_tools_accordion.is_expanded("batch")
+        _b7_window.main_workspace_modernizer.reveal_batch_planning(True)
+        qt_app.processEvents()
+        assert _b7_window.queue_tools_accordion.is_expanded("batch")
+        assert _b7_window.queue_batch_operations.parentWidget() is _b7_window.queue_tools_accordion.sections["batch"].content
+        assert _b7_queue.range_host.parentWidget() is _b7_window.queue_tools_accordion.sections["batch"].content
+        _b7_window.main_workspace_modernizer.reveal_batch_planning(False)
+        assert not _b7_window.queue_tools_accordion.is_expanded("batch")
+        _b7_window.close()
+        return
+    _b7_window.close()
     window = _window(tmp_path)
     window.resize(2048, 1140)
     window.show()
@@ -93,6 +125,17 @@ def test_hotfix9_hotfix2_explicit_batch_range_reinserts_one_compact_row(
 def test_hotfix9_hotfix2_compact_transition_removes_then_restores_layout_slot(
     qt_app, tmp_path: Path
 ) -> None:  # noqa: ANN001
+    _b7_window = _window(tmp_path)
+    if _b7_window.queue_workspace.minimal_accordion_active:
+        _b7_queue = _b7_window.queue_workspace
+        assert _b7_queue.command_host.isHidden()
+        assert _b7_queue.root_layout.indexOf(_b7_queue.command_host) == -1
+        assert _b7_queue.body_layout.indexOf(_b7_window.table) >= 0
+        assert _b7_queue.body_layout.indexOf(_b7_window.queue_tools_accordion) > _b7_queue.body_layout.indexOf(_b7_window.table)
+        assert all(not _b7_window.queue_tools_accordion.is_expanded(key) for key in _b7_window.queue_tools_accordion.sections)
+        _b7_window.close()
+        return
+    _b7_window.close()
     window = _window(tmp_path)
     window.resize(2048, 1140)
     window.show()

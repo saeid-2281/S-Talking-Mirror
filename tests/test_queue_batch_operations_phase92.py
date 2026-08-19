@@ -132,17 +132,19 @@ def test_phase92_mainwindow_hosts_batch_lens(qt_app, tmp_path: Path) -> None:
     runtime = RuntimeConfig.from_root(tmp_path)
     runtime.ensure_directories()
     window = MainWindow(create_application_context(create_service_container(runtime)))
-    # A9 progressive disclosure keeps the Phase92 batch lens alive but removes
-    # its vertical layout slot until the explicit Batch plan action is requested.
+    # B7 keeps the historical Phase92 widget and shortcut, but its visual slot
+    # is the stacked Batch-plan accordion below the queue instead of root chrome.
     assert window.queue_workspace.root_layout.indexOf(window.queue_batch_operations) == -1
-    assert window.queue_batch_operations.isHidden()
+    assert window.queue_workspace.minimal_accordion_active is True
+    assert not window.queue_tools_accordion.is_expanded("batch")
     assert window.actions_by_name["Queue Batch Operations"].shortcut().toString() == "Ctrl+Alt+Q"
 
     window.focus_queue_batch_operations()
     qt_app.processEvents()
-    assert window.queue_workspace.root_layout.indexOf(window.queue_batch_operations) == 1
-    assert window.queue_workspace.root_layout.indexOf(window.queue_workspace.range_host) == 2
-    assert not window.queue_batch_operations.isHidden()
+    assert window.queue_workspace.root_layout.indexOf(window.queue_batch_operations) == -1
+    assert window.queue_tools_accordion.is_expanded("batch")
+    assert window.queue_batch_operations.parentWidget() is window.queue_tools_accordion.sections["batch"].content
+    assert window.queue_workspace.range_host.parentWidget() is window.queue_tools_accordion.sections["batch"].content
     window.close()
 
 
@@ -154,11 +156,11 @@ def test_phase92_compact_workspace_hides_batch_lens(qt_app, tmp_path: Path) -> N
     window.setGeometry(0, 0, 1366, 768)
     window.apply_workspace_preset("Compact")
     qt_app.processEvents()
-    assert window.queue_batch_operations.isHidden()
-    assert window.generation_journey.isHidden()
+    assert not window.queue_tools_accordion.is_expanded("batch")
+    assert not window.queue_tools_accordion.is_expanded("workflow")
     window.focus_queue_batch_operations()
     qt_app.processEvents()
-    assert not window.queue_batch_operations.isHidden()
+    assert window.queue_tools_accordion.is_expanded("batch")
     window.close()
 
 

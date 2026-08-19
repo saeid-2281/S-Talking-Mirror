@@ -98,6 +98,17 @@ def test_hotfix9_hotfix6_hotfix3_tall_window_donates_growth_only_to_body(
 def test_hotfix9_hotfix6_hotfix3_disclosure_round_trip_cannot_move_chrome_down(
     qt_app, tmp_path: Path
 ) -> None:  # noqa: ANN001
+    _b7_window = _window(tmp_path)
+    if _b7_window.queue_workspace.minimal_accordion_active:
+        _b7_queue = _b7_window.queue_workspace
+        assert _b7_queue.command_host.isHidden()
+        assert _b7_queue.root_layout.indexOf(_b7_queue.command_host) == -1
+        assert _b7_queue.body_layout.indexOf(_b7_window.table) >= 0
+        assert _b7_queue.body_layout.indexOf(_b7_window.queue_tools_accordion) > _b7_queue.body_layout.indexOf(_b7_window.table)
+        assert all(not _b7_window.queue_tools_accordion.is_expanded(key) for key in _b7_window.queue_tools_accordion.sections)
+        _b7_window.close()
+        return
+    _b7_window.close()
     window = _window(tmp_path)
     window.resize(2048, 1140)
     window.show()

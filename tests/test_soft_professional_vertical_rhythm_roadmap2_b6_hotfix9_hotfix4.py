@@ -38,6 +38,17 @@ def test_hotfix9_hotfix4_optional_disclosures_use_structural_membership() -> Non
 def test_hotfix9_hotfix4_collapsed_wide_queue_is_physically_contiguous(
     qt_app, tmp_path: Path
 ) -> None:  # noqa: ANN001
+    _b7_window = _window(tmp_path)
+    if _b7_window.queue_workspace.minimal_accordion_active:
+        _b7_queue = _b7_window.queue_workspace
+        assert _b7_queue.command_host.isHidden()
+        assert _b7_queue.root_layout.indexOf(_b7_queue.command_host) == -1
+        assert _b7_queue.body_layout.indexOf(_b7_window.table) >= 0
+        assert _b7_queue.body_layout.indexOf(_b7_window.queue_tools_accordion) > _b7_queue.body_layout.indexOf(_b7_window.table)
+        assert all(not _b7_window.queue_tools_accordion.is_expanded(key) for key in _b7_window.queue_tools_accordion.sections)
+        _b7_window.close()
+        return
+    _b7_window.close()
     window = _window(tmp_path)
     window.resize(2048, 1140)
     window.show()
@@ -65,6 +76,22 @@ def test_hotfix9_hotfix4_collapsed_wide_queue_is_physically_contiguous(
 def test_hotfix9_hotfix4_explicit_batch_plan_is_one_contiguous_structural_block(
     qt_app, tmp_path: Path
 ) -> None:  # noqa: ANN001
+    _b7_window = _window(tmp_path)
+    if _b7_window.queue_workspace.minimal_accordion_active:
+        _b7_queue = _b7_window.queue_workspace
+        assert _b7_queue.root_layout.indexOf(_b7_window.queue_batch_operations) == -1
+        assert _b7_queue.root_layout.indexOf(_b7_queue.range_host) == -1
+        assert not _b7_window.queue_tools_accordion.is_expanded("batch")
+        _b7_window.main_workspace_modernizer.reveal_batch_planning(True)
+        qt_app.processEvents()
+        assert _b7_window.queue_tools_accordion.is_expanded("batch")
+        assert _b7_window.queue_batch_operations.parentWidget() is _b7_window.queue_tools_accordion.sections["batch"].content
+        assert _b7_queue.range_host.parentWidget() is _b7_window.queue_tools_accordion.sections["batch"].content
+        _b7_window.main_workspace_modernizer.reveal_batch_planning(False)
+        assert not _b7_window.queue_tools_accordion.is_expanded("batch")
+        _b7_window.close()
+        return
+    _b7_window.close()
     window = _window(tmp_path)
     window.resize(2048, 1140)
     window.show()
@@ -88,6 +115,22 @@ def test_hotfix9_hotfix4_explicit_batch_plan_is_one_contiguous_structural_block(
 def test_hotfix9_hotfix4_explicit_workflow_is_contiguous_and_batch_stays_detached(
     qt_app, tmp_path: Path
 ) -> None:  # noqa: ANN001
+    _b7_window = _window(tmp_path)
+    if _b7_window.queue_workspace.minimal_accordion_active:
+        _b7_queue = _b7_window.queue_workspace
+        assert _b7_queue.root_layout.indexOf(_b7_window.queue_batch_operations) == -1
+        assert _b7_queue.root_layout.indexOf(_b7_queue.range_host) == -1
+        assert not _b7_window.queue_tools_accordion.is_expanded("batch")
+        _b7_window.main_workspace_modernizer.reveal_batch_planning(True)
+        qt_app.processEvents()
+        assert _b7_window.queue_tools_accordion.is_expanded("batch")
+        assert _b7_window.queue_batch_operations.parentWidget() is _b7_window.queue_tools_accordion.sections["batch"].content
+        assert _b7_queue.range_host.parentWidget() is _b7_window.queue_tools_accordion.sections["batch"].content
+        _b7_window.main_workspace_modernizer.reveal_batch_planning(False)
+        assert not _b7_window.queue_tools_accordion.is_expanded("batch")
+        _b7_window.close()
+        return
+    _b7_window.close()
     window = _window(tmp_path)
     window.resize(2048, 1140)
     window.show()
@@ -110,6 +153,20 @@ def test_hotfix9_hotfix4_explicit_workflow_is_contiguous_and_batch_stays_detache
 def test_hotfix9_hotfix4_compact_focus_still_surfaces_historical_actions(
     qt_app, tmp_path: Path
 ) -> None:  # noqa: ANN001
+    _b7_window = _window(tmp_path)
+    if _b7_window.queue_workspace.minimal_accordion_active:
+        _b7_window.main_workspace_modernizer.apply_responsive_mode("compact")
+        assert all(not _b7_window.queue_tools_accordion.is_expanded(key) for key in _b7_window.queue_tools_accordion.sections)
+        _b7_window.focus_generation_workflow()
+        qt_app.processEvents()
+        assert _b7_window.queue_tools_accordion.is_expanded("workflow")
+        _b7_window.focus_queue_batch_operations()
+        qt_app.processEvents()
+        assert _b7_window.queue_tools_accordion.is_expanded("batch")
+        assert not _b7_window.queue_tools_accordion.is_expanded("workflow")
+        _b7_window.close()
+        return
+    _b7_window.close()
     window = _window(tmp_path)
     window.resize(1366, 768)
     window.show()

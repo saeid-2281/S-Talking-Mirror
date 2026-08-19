@@ -126,27 +126,29 @@ def test_a7_launch_dialog_shows_current_readiness_snapshot(qt_app) -> None:
     dialog.close()
 
 
-def test_a7_invalidation_disables_start_until_explicit_preflight() -> None:
+def test_a7_invalidation_preserves_safety_state_without_forcing_a_separate_preflight_step() -> None:
     source = Path("app/gui/main.py").read_text(encoding="utf-8")
     method = source.split("def invalidate_preflight", 1)[1].split(
-        "def current_preflight_state",
+        "def synchronize_generation_plan_controls",
         1,
     )[0]
 
     assert "self.preflight_service.invalidate()" in method
-    assert "self.startb.setEnabled(False)" in method
-    assert "Preflight required" in method
+    assert "Ready to validate" in method
+    assert "self.startb.setEnabled(can_start)" in method
     assert "run_preflight(" not in method
 
 
-def test_a7_start_never_runs_preflight_or_quota_refresh_implicitly() -> None:
+def test_a7_b7_start_runs_no_audio_safety_validation_only_when_state_is_stale() -> None:
     source = Path("app/gui/main.py").read_text(encoding="utf-8")
     method = source.split("def start(self):", 1)[1].split("def pause", 1)[0]
 
-    assert "state=self.current_preflight_state(s)" in method
-    assert "Run Preflight explicitly" in method
-    assert "self.run_preflight(" not in method
-    assert "self.refresh_quota_snapshot(" not in method
+    current_pos = method.index("state=self.current_preflight_state(s)")
+    condition_pos = method.index("if state is None:", current_pos)
+    validation_pos = method.index("state=self.run_preflight(write_report=False)", condition_pos)
+    confirmation_pos = method.index("generation_confirmation_service.evaluate", validation_pos)
+    generation_pos = method.index("self.generation_controller.start(", confirmation_pos)
+    assert current_pos < condition_pos < validation_pos < confirmation_pos < generation_pos
     assert "self.dry_run(" not in method
 
 
@@ -173,7 +175,9 @@ def test_a7_visible_launch_review_is_a_separate_final_action() -> None:
     assert "settings=self.settings()" in method
     headless_pos = method.index("if platform in {'offscreen','minimal'}")
     return_pos = method.index("if not confirmation.requires_user_confirmation: return ()")
-    assert return_pos > headless_pos
+    # B7 clean launches remain one-click; the visible review dialog is reserved
+    # for real acknowledgement/exception decisions.
+    assert return_pos < headless_pos
 
 
 def test_a7_onboarding_focuses_preflight_without_running_it() -> None:

@@ -168,8 +168,13 @@ def test_phase24_keyboard_navigation_actions_focus_major_regions(qt_app, tmp_pat
 
     assert window.focus_workspace_region("generation") is True
     qt_app.processEvents()
-    assert window.startb.isEnabled() is False
-    assert window.dry_run_button.hasFocus()
+    if window.queue_workspace.minimal_accordion_active:
+        assert window.startb.isHidden()
+        assert window.dry_run_button.isHidden()
+        assert window.metrics_strip.action_buttons["Start Generation"].hasFocus()
+    else:
+        assert window.startb.isEnabled() is False
+        assert window.dry_run_button.hasFocus()
     window.close()
 
 

@@ -91,7 +91,12 @@ class MainWorkspaceModernizer:
         self._tune_layout(owner.queue_workspace.command_layout, (0, 0, 0, 0), 6)
         self._tune_layout(owner.queue_workspace.action_layout, (0, 0, 0, 0), 6)
         self._tune_layout(owner.queue_workspace.planning_layout, (0, 0, 0, 0), 6)
-        self._lock_vertical(owner.queue_workspace.command_host, command_height)
+        if owner.queue_workspace.minimal_accordion_active:
+            owner.queue_workspace.command_host.setMinimumHeight(0)
+            owner.queue_workspace.command_host.setMaximumHeight(0)
+            owner.queue_workspace.command_host.hide()
+        else:
+            self._lock_vertical(owner.queue_workspace.command_host, command_height)
         self._tune_layout(owner.queue_workspace.range_layout, (8, 4, 8, 4), 6)
         self.sync_queue_disclosure_layout_from_widgets()
         self._tune_layout(owner.queue_workspace.body_layout, (0, 0, 0, 0), 4)
@@ -103,8 +108,17 @@ class MainWorkspaceModernizer:
         for name, widget in owner.queue_workspace._command_widgets.items():
             if name in {"filter_label", "planning_label", "action_label"}:
                 continue
-            widget.setMinimumHeight(control_height)
-            widget.setMaximumHeight(control_height)
+            # B7 reparents these controls into accordion rows and leaves Dry Run
+            # hidden as a compatibility handle.  A strict fixed height keeps
+            # both shown and hidden/reparented controls on the A8 compact rhythm;
+            # min/max alone can leave a stale pre-reparent geometry on Qt/Windows.
+            widget.setFixedHeight(control_height)
+            # Hidden/reparented Qt controls can keep their old geometry even
+            # after min/max height changes until a layout pass actually resizes
+            # them.  Dry Run is intentionally hidden in B7, so make the current
+            # geometry authoritative as well as the size constraints.
+            if widget.height() != control_height:
+                widget.resize(widget.width(), control_height)
 
         for button in (
             owner.generation_status_strip.start_button,
@@ -217,6 +231,11 @@ class MainWorkspaceModernizer:
         owner.queue_workflow_toggle = self.workflow_toggle
         owner.queue_batch_toggle = self.batch_toggle
         owner.queue_focus_badge = self.focus_badge
+        if owner.queue_workspace.minimal_accordion_active:
+            self.range_toggle.hide()
+            self.workflow_toggle.hide()
+            self.batch_toggle.hide()
+            self.focus_badge.hide()
 
     def _hide_duplicate_toolbar_generation_controls(self) -> None:
         toolbar = self.owner.main_toolbar
@@ -264,6 +283,13 @@ class MainWorkspaceModernizer:
     def reveal_workflow(self, expanded: bool = True) -> None:
         self._workflow_expanded = bool(expanded)
         journey = getattr(self.owner, "generation_journey", None)
+        if self.owner.queue_workspace.minimal_accordion_active:
+            # The accordion owns visibility; keep the historical widget itself
+            # presentation-ready so opening the section never reveals a 0px row.
+            self._set_visible(journey, True)
+            self.owner.queue_workspace.set_minimal_accordion_section("workflow", expanded)
+            self._sync_toggle(self.workflow_toggle, expanded)
+            return
         self._set_visible(journey, expanded)
         batch = getattr(self.owner, "queue_batch_operations", None)
         self._sync_queue_disclosure_layout(
@@ -311,6 +337,34 @@ class MainWorkspaceModernizer:
         root.invalidate()
         queue.sync_chrome_height()
 
+    def _sync_minimal_range_host_geometry(self, expanded: bool | None = None) -> None:
+        """Bound B7 range-row geometry without stealing it from the accordion."""
+
+        queue = self.owner.queue_workspace
+        host = queue.range_host
+        if expanded is None:
+            compact = bool(
+                self._responsive_mode == "compact"
+                or getattr(queue, "_compact_presentation", False)
+            )
+            expanded = bool(
+                (self._batch_expanded or self._range_expanded)
+                and not compact
+            )
+        expanded = bool(expanded)
+        host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        if expanded:
+            height = COMPONENTS.control_compact_height + 8
+            host.setMinimumHeight(height)
+            host.setMaximumHeight(height)
+            host.show()
+        else:
+            host.setMinimumHeight(0)
+            host.setMaximumHeight(0)
+            host.hide()
+        host.updateGeometry()
+        queue.sync_chrome_height()
+
     def _sync_queue_disclosure_layout(
         self,
         *,
@@ -331,6 +385,24 @@ class MainWorkspaceModernizer:
         root = queue.root_layout
         journey = getattr(owner, "generation_journey", None)
         batch = getattr(owner, "queue_batch_operations", None)
+
+        if queue.minimal_accordion_active:
+            if journey is not None:
+                self._set_visible(journey, True)
+            if batch is not None:
+                self._set_visible(batch, True)
+            compact = bool(
+                self._responsive_mode == "compact"
+                or getattr(queue, "_compact_presentation", False)
+            )
+            if compact and queue.queue_accordion is not None:
+                queue.queue_accordion.collapse_all()
+            else:
+                queue.set_minimal_accordion_section("workflow", self._workflow_expanded)
+                queue.set_minimal_accordion_section("batch", self._batch_expanded or self._range_expanded)
+            self._sync_minimal_range_host_geometry()
+            queue.sync_chrome_height()
+            return
 
         if workflow_visible is None:
             workflow_visible = bool(
@@ -400,16 +472,14 @@ class MainWorkspaceModernizer:
         )
 
     def reveal_range_controls(self, expanded: bool = True) -> None:
-        """Expose explicit row-range controls without requiring Batch plan.
-
-        The range host remains structurally collapsed by default so H9's compact
-        queue chrome is preserved.  This disclosure restores the earlier direct
-        From/To workflow for either original source rows or current displayed
-        queue positions.  Batch plan continues to surface the same range row for
-        historical compatibility.
-        """
+        """Expose explicit row-range controls without requiring Batch plan."""
 
         self._range_expanded = bool(expanded)
+        if self.owner.queue_workspace.minimal_accordion_active:
+            self.owner.queue_workspace.set_minimal_accordion_section("batch", expanded)
+            self._sync_minimal_range_host_geometry(expanded and self._responsive_mode != "compact")
+            self._sync_toggle(self.range_toggle, expanded)
+            return
         journey = getattr(self.owner, "generation_journey", None)
         batch = getattr(self.owner, "queue_batch_operations", None)
         self._sync_queue_disclosure_layout(
@@ -429,6 +499,12 @@ class MainWorkspaceModernizer:
     def reveal_batch_planning(self, expanded: bool = True) -> None:
         self._batch_expanded = bool(expanded)
         batch = getattr(self.owner, "queue_batch_operations", None)
+        if self.owner.queue_workspace.minimal_accordion_active:
+            self._set_visible(batch, True)
+            self.owner.queue_workspace.set_minimal_accordion_section("batch", expanded)
+            self._sync_minimal_range_host_geometry(expanded and self._responsive_mode != "compact")
+            self._sync_toggle(self.batch_toggle, expanded)
+            return
         self._set_visible(batch, expanded)
         journey = getattr(self.owner, "generation_journey", None)
         self._sync_queue_disclosure_layout(
@@ -461,6 +537,24 @@ class MainWorkspaceModernizer:
     def _simplify_queue_commands(self) -> None:
         owner = self.owner
         command_widgets = owner.queue_workspace._command_widgets  # presentation registry
+        if owner.queue_workspace.minimal_accordion_active:
+            owner.queue_workspace.command_host.hide()
+            owner.queue_workspace.command_host.setMinimumHeight(0)
+            owner.queue_workspace.command_host.setMaximumHeight(0)
+            for name in ("filter_label", "planning_label", "action_label"):
+                label = command_widgets.get(name)
+                if label is not None:
+                    if label.isWindow() or label.parentWidget() is None:
+                        label.setParent(owner.queue_workspace.command_host)
+                    label.hide()
+            for name in ("search", "status", "source", "scope", "order", "use_sort", "retry"):
+                self._set_visible(command_widgets.get(name), True)
+            self._set_visible(command_widgets.get("dry_run"), False)
+            show_full_operator_set = self._responsive_mode == "wide"
+            for name in ("use_selection", "skip", "reset", "clear", "output"):
+                self._set_visible(command_widgets.get(name), show_full_operator_set)
+            self._set_visible(owner.queue_more_actions_button, not show_full_operator_set)
+            return
         planning_label = command_widgets.get("planning_label")
         if planning_label is not None:
             if planning_label.isWindow() or planning_label.parentWidget() is None:
@@ -502,18 +596,36 @@ class MainWorkspaceModernizer:
         owner.left_dock.setMaximumWidth(300)
         owner.right_dock.setMinimumWidth(290 if compact else 300)
         owner.right_dock.setMaximumWidth(320 if compact else 328)
-        self.range_toggle.setVisible(not compact)
-        self.workflow_toggle.setVisible(not compact)
-        self.batch_toggle.setVisible(not compact)
-        self.focus_badge.setVisible(not compact)
-        if compact:
-            self._set_visible(owner.generation_journey, False)
-            self._set_visible(owner.queue_batch_operations, False)
-            self._set_visible(owner.queue_workspace.range_host, False)
+        if owner.queue_workspace.minimal_accordion_active:
+            self.range_toggle.hide()
+            self.workflow_toggle.hide()
+            self.batch_toggle.hide()
+            self.focus_badge.hide()
+            self._set_visible(owner.generation_journey, True)
+            self._set_visible(owner.queue_batch_operations, True)
+            if compact:
+                if owner.queue_workspace.queue_accordion is not None:
+                    owner.queue_workspace.queue_accordion.collapse_all()
+                self._sync_minimal_range_host_geometry(False)
+            else:
+                owner.queue_workspace.set_minimal_accordion_section("workflow", self._workflow_expanded)
+                owner.queue_workspace.set_minimal_accordion_section(
+                    "batch", self._batch_expanded or self._range_expanded
+                )
+                self._sync_minimal_range_host_geometry()
         else:
-            self._set_visible(owner.generation_journey, self._workflow_expanded)
-            self._set_visible(owner.queue_batch_operations, self._batch_expanded)
-        self.sync_queue_disclosure_layout_from_widgets()
+            self.range_toggle.setVisible(not compact)
+            self.workflow_toggle.setVisible(not compact)
+            self.batch_toggle.setVisible(not compact)
+            self.focus_badge.setVisible(not compact)
+            if compact:
+                self._set_visible(owner.generation_journey, False)
+                self._set_visible(owner.queue_batch_operations, False)
+                self._set_visible(owner.queue_workspace.range_host, False)
+            else:
+                self._set_visible(owner.generation_journey, self._workflow_expanded)
+                self._set_visible(owner.queue_batch_operations, self._batch_expanded)
+            self.sync_queue_disclosure_layout_from_widgets()
         self._apply_metric_priority()
         self._simplify_queue_commands()
         owner.project_context_widget.context_label.hide()
@@ -641,6 +753,41 @@ QToolButton#providerInsightsDisclosure, QToolButton#queueColumnsButton {{
 QToolButton#queueWorkflowDisclosure:hover, QToolButton#queueBatchDisclosure:hover,
 QToolButton#providerInsightsDisclosure:hover, QToolButton#queueColumnsButton:hover {{
     background:{p.surface_secondary}; color:{p.text_primary}; border-color:{p.border_strong};
+}}
+QFrame#dailyCommandActions, QFrame#dailyCommandStatus, QFrame#dailyMetricHost {{
+    background:transparent; border:0;
+}}
+QToolButton#dailyProjectMenu, QToolButton#dailyCommandAction, QToolButton#dailyAddSources, QToolButton#dailyCommandMore {{
+    min-height:32px; max-height:34px; color:{p.text_secondary}; background:{p.surface};
+    border:1px solid {p.border}; border-radius:9px; padding:0 9px; font-weight:600;
+}}
+QToolButton#dailyProjectMenu:hover, QToolButton#dailyCommandAction:hover, QToolButton#dailyAddSources:hover, QToolButton#dailyCommandMore:hover {{
+    color:{p.text_primary}; background:{p.surface_secondary}; border-color:{p.border_strong};
+}}
+QToolButton#dailyPrimaryStart {{
+    min-height:32px; max-height:34px; background:{p.primary}; color:{p.text_inverse};
+    border:1px solid {p.primary}; border-radius:9px; padding:0 14px; font-weight:750;
+}}
+QToolButton#dailyPrimaryStart:hover {{ background:{p.primary_hover}; }}
+QLabel#workspaceStatusBadge[dailyStatus="true"] {{
+    min-height:28px; max-height:30px; padding:0 8px; border-radius:8px;
+}}
+QFrame#projectContextStrip[embedded="true"] {{
+    background:transparent; border:0; border-top:1px solid {p.border}; border-radius:0;
+}}
+QFrame#queueAccordionStack {{
+    background:transparent; border:0;
+}}
+QFrame#queueAccordionSection {{
+    background:{p.surface_secondary}; border:1px solid {p.border}; border-radius:9px;
+}}
+QToolButton#queueAccordionHeader {{
+    background:transparent; color:{p.text_secondary}; border:0; border-radius:8px;
+    padding:0 9px; text-align:left; font-size:11px; font-weight:650;
+}}
+QToolButton#queueAccordionHeader:hover {{ background:{p.surface}; color:{p.text_primary}; }}
+QFrame#queueAccordionContent {{
+    background:{p.surface}; border:0; border-top:1px solid {p.border};
 }}
 QFrame#queueCommandBar {{
     background:{p.surface_secondary}; border:0; border-radius:12px;

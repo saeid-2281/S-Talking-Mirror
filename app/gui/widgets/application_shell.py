@@ -8,11 +8,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QSizePolicy,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -126,7 +128,14 @@ class MetricPill(QFrame):
 
 
 class MetricsStrip(QFrame):
-    """Own all top-level queue metrics and their click behavior."""
+    """Unified daily command strip plus high-value queue status chips.
+
+    B7 keeps the historical ``MetricsStrip`` API so dashboards and plugins keep
+    updating the same cards, but the visual role changes from a second row of
+    metrics into the single daily command/status bar.  The native QMainWindow
+    toolbar remains available as an action container and shortcut authority; its
+    actions are surfaced here instead of being drawn a second time.
+    """
 
     METRICS = (
         ("files", "Files", "All", "project.open"),
@@ -139,45 +148,180 @@ class MetricsStrip(QFrame):
         ("quota", "Quota", "", "general.quota"),
         ("eta", "ETA", "", "activity"),
     )
+    DAILY_METRICS = {"files", "running", "done", "failed"}
 
     def __init__(self, metric_filter: Callable[[str], None]) -> None:
         super().__init__()
         self.setObjectName("metricsStrip")
+        self.setProperty("workspaceRole", "daily-command-strip")
         self.setMaximumHeight(42)
+        self.setMinimumHeight(38)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         self.cards: dict[str, MetricPill] = {}
+        self.action_buttons: dict[str, QToolButton] = {}
+        self._status_badges: list[QWidget] = []
+
+        self.command_host = QFrame(self)
+        self.command_host.setObjectName("dailyCommandActions")
+        self.command_layout = QHBoxLayout(self.command_host)
+        self.command_layout.setContentsMargins(0, 0, 0, 0)
+        self.command_layout.setSpacing(3)
+        layout.addWidget(self.command_host, 0)
+
+        self.status_host = QFrame(self)
+        self.status_host.setObjectName("dailyCommandStatus")
+        self.status_layout = QHBoxLayout(self.status_host)
+        self.status_layout.setContentsMargins(0, 0, 0, 0)
+        self.status_layout.setSpacing(4)
+        layout.addWidget(self.status_host, 0)
+
+        self.metric_host = QFrame(self)
+        self.metric_host.setObjectName("dailyMetricHost")
+        metric_layout = QHBoxLayout(self.metric_host)
+        metric_layout.setContentsMargins(0, 0, 0, 0)
+        metric_layout.setSpacing(4)
+        layout.addWidget(self.metric_host, 1)
 
         for key, title, filter_text, icon_name in self.METRICS:
             pill = MetricPill(title)
             pill.configure(key, filter_text, icon_name)
             pill.clicked.connect(metric_filter)
             self.cards[key] = pill
-            layout.addWidget(pill)
+            metric_layout.addWidget(pill)
+            pill.setVisible(key in self.DAILY_METRICS)
+
+        self.more_button = QToolButton(self.command_host)
+        self.more_button.setObjectName("dailyCommandMore")
+        self.more_button.setText("More")
+        self.more_button.setIcon(action_icon("general.more", size=16))
+        self.more_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.more_button.setPopupMode(QToolButton.InstantPopup)
+        self.more_button.setAccessibleName("More workspace actions")
+        self.more_menu = QMenu(self.more_button)
+        self.more_button.setMenu(self.more_menu)
+        self.more_button.hide()
+
+    def bind_actions(self, primary_actions: list[object], more_actions: list[object]) -> None:
+        """Surface existing QAction objects without creating alternate commands."""
+
+        while self.command_layout.count():
+            item = self.command_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None and widget is not self.more_button:
+                widget.deleteLater()
+        self.action_buttons.clear()
+        project_actions = [
+            action for action in primary_actions
+            if action is not None and str(action.text() or "") in {"New Project", "Open Project", "Save"}
+        ]
+        if project_actions:
+            project_button = QToolButton(self.command_host)
+            project_button.setObjectName("dailyProjectMenu")
+            project_button.setText("Project")
+            project_button.setIcon(action_icon("project.open", size=16))
+            project_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            project_button.setPopupMode(QToolButton.InstantPopup)
+            project_button.setAccessibleName("Project actions")
+            project_menu = QMenu(project_button)
+            for action in project_actions:
+                project_menu.addAction(action)
+                self.action_buttons[str(action.text() or "Action")] = project_button
+            project_button.setMenu(project_menu)
+            self.command_layout.addWidget(project_button)
+
+        for action in primary_actions:
+            if action is None:
+                continue
+            name = str(action.text() or "Action")
+            if name in {"New Project", "Open Project", "Save"}:
+                continue
+            button = QToolButton(self.command_host)
+            button.setDefaultAction(action)
+            button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            button.setAutoRaise(False)
+            button.setAccessibleName(name)
+            if name == "Start Generation":
+                button.setObjectName("dailyPrimaryStart")
+                button.setText("Start")
+            elif name == "Add source files":
+                button.setObjectName("dailyAddSources")
+                button.setText("Sources")
+            else:
+                button.setObjectName("dailyCommandAction")
+            self.command_layout.addWidget(button)
+            self.action_buttons[name] = button
+
+        self.more_menu.clear()
+        for action in more_actions:
+            if action is not None:
+                self.more_menu.addAction(action)
+        self.more_button.setVisible(bool(self.more_menu.actions()))
+        self.command_layout.addWidget(self.more_button)
+
+    def attach_status_badges(self, *badges: QWidget) -> None:
+        """Move the existing provider/model/preflight badges into this strip."""
+
+        for badge in badges:
+            if badge is None or badge in self._status_badges:
+                continue
+            badge.setParent(self.status_host)
+            badge.setProperty("dailyStatus", True)
+            self.status_layout.addWidget(badge)
+            self._status_badges.append(badge)
 
     def apply_density(self, density: object) -> None:
         compact = normalize_density(density).value == "compact"
         self.layout().setSpacing(2 if compact else 4)
+        self.command_layout.setSpacing(2 if compact else 3)
+        self.status_layout.setSpacing(2 if compact else 4)
         for card in self.cards.values():
-            card.layout().setContentsMargins(6 if compact else 8, 2, 6 if compact else 8, 2)
-            card.setMinimumHeight(34 if compact else 38)
+            card.layout().setContentsMargins(5 if compact else 6, 2, 5 if compact else 6, 2)
+            card.setMinimumHeight(34 if compact else 36)
+        for button in self.action_buttons.values():
+            button.setMinimumHeight(32)
+            button.setMaximumHeight(34)
+        self.more_button.setMinimumHeight(32)
+        self.more_button.setMaximumHeight(34)
+
+    def set_metrics_visible(self, visible: bool) -> None:
+        """Toggle optional queue metrics without hiding the daily command path."""
+
+        self.metric_host.setVisible(bool(visible))
 
     def set_responsive_mode(self, mode: object) -> None:
         value = str(getattr(mode, "value", mode) or "standard").casefold()
         compact = value == "compact"
+        wide = value == "wide"
+        visible_metrics = {"files", "running", "failed"} if compact else self.DAILY_METRICS
+        if wide:
+            visible_metrics = self.DAILY_METRICS | {"eta"}
         for key, card in self.cards.items():
-            card.setVisible(not compact or key not in {"chars", "skipped", "quota"})
+            card.setVisible(key in visible_metrics)
+        # Keep the primary path visible; trim secondary project chrome first.
+        seen_buttons: set[QToolButton] = set()
+        for button in self.action_buttons.values():
+            if button in seen_buttons:
+                continue
+            seen_buttons.add(button)
+            button.show()
+        for index, badge in enumerate(self._status_badges):
+            if compact and index == 1:
+                badge.hide()
+            else:
+                badge.show()
         self.setProperty("responsiveMode", value)
         self.style().unpolish(self)
         self.style().polish(self)
 
 
 class ProjectContextBar(QWidget):
-    """Project identity, readiness and source/output controls.
+    """Single consolidated project/source/output identity surface for B7.
 
-    Public handles from the legacy compact context bar are intentionally kept
-    stable so controllers and plugins can migrate independently.
+    The previous workspace rendered a large project hero and a second source /
+    output strip immediately below it.  B7 keeps all public handles but nests the
+    source/output controls inside the same card, eliminating one full-width band.
     """
 
     def __init__(
@@ -195,14 +339,17 @@ class ProjectContextBar(QWidget):
         self._mode = "expanded"
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(6)
+        root.setSpacing(0)
 
         self.hero = QFrame()
         self.hero.setObjectName("workspaceHero")
-        hero_layout = QHBoxLayout(self.hero)
-        hero_layout.setContentsMargins(14, 9, 14, 9)
-        hero_layout.setSpacing(12)
+        hero_layout = QVBoxLayout(self.hero)
+        hero_layout.setContentsMargins(14, 8, 14, 8)
+        hero_layout.setSpacing(5)
 
+        identity_row = QHBoxLayout()
+        identity_row.setContentsMargins(0, 0, 0, 0)
+        identity_row.setSpacing(10)
         identity = QVBoxLayout()
         identity.setContentsMargins(0, 0, 0, 0)
         identity.setSpacing(1)
@@ -216,12 +363,15 @@ class ProjectContextBar(QWidget):
         )
         self.context_label.setObjectName("projectContextBar")
         self.context_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.context_label.hide()
         identity.addWidget(self.project_title)
         identity.addWidget(self.project_subtitle)
         identity.addWidget(self.context_label)
-        hero_layout.addLayout(identity, 1)
+        identity_row.addLayout(identity, 1)
 
-        badge_layout = QHBoxLayout()
+        self.badge_host = QFrame(self.hero)
+        self.badge_host.setObjectName("workspaceContextBadges")
+        badge_layout = QHBoxLayout(self.badge_host)
         badge_layout.setContentsMargins(0, 0, 0, 0)
         badge_layout.setSpacing(6)
         self.provider_badge = StatusBadge("Mock provider", "info")
@@ -230,16 +380,17 @@ class ProjectContextBar(QWidget):
         badge_layout.addWidget(self.provider_badge)
         badge_layout.addWidget(self.model_badge)
         badge_layout.addWidget(self.preflight_badge)
-        hero_layout.addLayout(badge_layout)
-        root.addWidget(self.hero)
+        identity_row.addWidget(self.badge_host, 0, Qt.AlignVCenter)
+        hero_layout.addLayout(identity_row)
 
-        self.strip = QFrame()
+        self.strip = QFrame(self.hero)
         self.strip.setObjectName("projectContextStrip")
-        self.strip.setMaximumHeight(52)
-        self.strip.setMinimumHeight(38)
+        self.strip.setProperty("embedded", True)
+        self.strip.setMaximumHeight(44)
+        self.strip.setMinimumHeight(34)
         layout = QHBoxLayout(self.strip)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(8)
+        layout.setContentsMargins(0, 2, 0, 0)
+        layout.setSpacing(7)
 
         self.csv = QLineEdit()
         self.csv.hide()
@@ -283,10 +434,11 @@ class ProjectContextBar(QWidget):
         layout.addWidget(self.source_summary, 2)
         layout.addWidget(self.browse_csv_button)
         layout.addWidget(self.reload_button)
-        layout.addSpacing(12)
+        layout.addSpacing(8)
         layout.addWidget(self.output_summary, 2)
         layout.addWidget(self.browse_output_button)
-        root.addWidget(self.strip)
+        hero_layout.addWidget(self.strip)
+        root.addWidget(self.hero)
 
     def update_context(
         self,
@@ -304,7 +456,10 @@ class ProjectContextBar(QWidget):
         self.project_title.setText(safe_project)
         source_label = source if source and source != "none" else "No source loaded"
         voice_label = voice if voice and voice != "—" else "No voice selected"
-        self.project_subtitle.setText(f"{source_label} · {voice_label}")
+        model_label = model or "Default model"
+        self.project_subtitle.setText(
+            f"{source_label} · {provider or 'Provider not set'} · {voice_label} · {model_label}"
+        )
         self.context_label.setText(
             f"Project: {safe_project} · Source: {source or 'none'} · Output: {output or 'output'} · "
             f"Provider: {provider} · Model: {model or '—'} · Voice: {voice or '—'} · "
@@ -321,30 +476,32 @@ class ProjectContextBar(QWidget):
     def set_presentation_mode(self, mode: str) -> None:
         self._mode = mode if mode in {"expanded", "compact", "hidden"} else "expanded"
         self.setVisible(self._mode != "hidden")
-        self.hero.setVisible(self._mode == "expanded")
-        self.context_label.setVisible(self._mode == "expanded")
+        self.project_subtitle.setVisible(self._mode == "expanded")
+        self.context_label.hide()
         self.strip.setVisible(self._mode != "hidden")
 
     def apply_density(self, density: object) -> None:
         metrics = density_metrics(density)
+        compact = normalize_density(density).value == "compact"
         self.hero.layout().setContentsMargins(
-            metrics.panel_padding,
-            7 if metrics.control_height <= 34 else 9,
-            metrics.panel_padding,
-            7 if metrics.control_height <= 34 else 9,
+            metrics.shell_margin,
+            5 if compact else 7,
+            metrics.shell_margin,
+            5 if compact else 7,
         )
-        self.layout().setSpacing(metrics.section_gap)
+        self.hero.layout().setSpacing(3 if compact else 5)
+        self.strip.layout().setSpacing(5 if compact else 7)
+        self.strip.setMaximumHeight(38 if compact else 44)
+        self.strip.setMinimumHeight(32 if compact else 34)
 
     def set_responsive_mode(self, mode: object) -> None:
         value = str(getattr(mode, "value", mode) or "standard").casefold()
-        self.setProperty("responsiveMode", value)
         compact = value == "compact"
-        self.project_subtitle.setVisible(not compact)
-        self.context_label.setVisible(self._mode == "expanded" and not compact)
-        self.model_badge.setVisible(not compact)
+        self.project_subtitle.setVisible(not compact and self._mode == "expanded")
+        self.reload_button.setVisible(not compact and self.reload_button.isEnabled())
         self.browse_csv_button.setText("Sources" if compact else "Add sources")
         self.browse_output_button.setText("Output")
-        self.reload_button.setText("Reload")
+        self.setProperty("responsiveMode", value)
         self.style().unpolish(self)
         self.style().polish(self)
 
@@ -359,6 +516,8 @@ class ActivityCenter(QTabWidget):
         super().__init__()
         self.setObjectName("activityTabs")
         self.expanded_height = 320
+        self.compact_output_mode = False
+        self.compact_output_height = 260
 
         self.activity_log = QPlainTextEdit()
         self.activity_log.setReadOnly(True)
@@ -420,12 +579,21 @@ class ActivityCenter(QTabWidget):
         self.insertTab(index, workspace, icon("folder-output"), "Output")
         return workspace
 
+    def set_compact_output_mode(self, enabled: bool, *, height: int = 260) -> None:
+        self.compact_output_mode = bool(enabled)
+        self.compact_output_height = max(210, min(340, int(height)))
+        if self.compact_output_mode:
+            self.expanded_height = min(self.expanded_height, self.compact_output_height)
+
     def show_output_workspace(self) -> None:
         if self.output_workspace is not None:
             self.setCurrentWidget(self.output_workspace)
         else:
             self.setCurrentIndex(1)
-        self.expanded_height = max(560, self.expanded_height)
+        if self.compact_output_mode:
+            self.expanded_height = self.compact_output_height
+        else:
+            self.expanded_height = max(560, self.expanded_height)
         self.set_expanded(True)
 
     def set_expanded(self, expanded: bool) -> None:
@@ -511,6 +679,33 @@ class GenerationStatusStrip(QFrame):
         layout.addWidget(self.stop_button, 0, Qt.AlignVCenter)
         layout.addStretch(1)
         layout.addWidget(self.progress_context)
+        self._minimal_daily_mode = False
+
+    def set_minimal_daily_mode(self, enabled: bool = True) -> None:
+        """Keep only run-time pause/stop/progress chrome in the secondary strip.
+
+        Start and Preflight live in the B7 unified command strip.  The original
+        buttons remain instantiated as stable API handles for controllers,
+        shortcuts and historical integrations, but are not rendered twice.
+        """
+
+        self._minimal_daily_mode = bool(enabled)
+        self.start_button.setVisible(not self._minimal_daily_mode)
+        self.preflight_button.setVisible(not self._minimal_daily_mode)
+        if self._minimal_daily_mode:
+            self.state_badge.setVisible(True)
+            self.pause_button.setVisible(self.pause_button.isEnabled())
+            self.stop_button.setVisible(self.stop_button.isEnabled())
+        else:
+            self.pause_button.setVisible(True)
+            self.stop_button.setVisible(True)
+
+    def set_runtime_active(self, active: bool) -> None:
+        if not self._minimal_daily_mode:
+            return
+        self.pause_button.setVisible(bool(active))
+        self.stop_button.setVisible(bool(active))
+        self.progress_context.setVisible(True)
 
     def set_generation_state(self, state: str, detail: str = "") -> None:
         self.state_badge.update_status(state)
@@ -684,8 +879,10 @@ class ApplicationShell(QWidget):
     def add_header(self, context: QWidget, metrics: QWidget) -> None:
         self.header_context = context
         self.header_metrics = metrics
-        self.root_layout.addWidget(context)
+        # B7 command/status strip is the single top-level entry point; the
+        # consolidated project/source card follows it as context, not another toolbar.
         self.root_layout.addWidget(metrics)
+        self.root_layout.addWidget(context)
 
     def add_notice(self, notice: QWidget) -> None:
         self.notice = notice
@@ -727,7 +924,11 @@ class ApplicationShell(QWidget):
         elif self.header_context is not None:
             self.header_context.setVisible(mode != "hidden")
         if self.header_metrics is not None:
-            self.header_metrics.setVisible(metrics_visible and mode != "hidden")
+            # B7 daily commands/status are no longer optional metric chrome.
+            self.header_metrics.setVisible(True)
+            metrics_handler = getattr(self.header_metrics, "set_metrics_visible", None)
+            if callable(metrics_handler):
+                metrics_handler(metrics_visible)
 
     def set_responsive_mode(self, mode: object) -> None:
         value = str(getattr(mode, "value", mode) or "standard").casefold()

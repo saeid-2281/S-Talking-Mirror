@@ -59,16 +59,36 @@ def test_phase27_compact_queue_reflow_keeps_primary_controls_visible(qt_app, tmp
     window.apply_responsive_workspace(state)
 
     assert window.queue_workspace.property("responsiveMode") == "compact"
-    assert window.queue_search.isVisible() is True
-    assert window.queue_filter.isVisible() is True
-    assert window.source_filter.isVisible() is True
-    assert window.scope_selector.isVisible() is True
-    assert window.order_selector.isVisible() is True
-    assert window.dry_run_button.isVisible() is True
-    assert window.retry_menu_button.isVisible() is True
-    assert window.queue_more_actions_button.isVisible() is True
-    assert window.use_selection_scope_button.isVisible() is False
-    assert window.skip_menu_button.isVisible() is False
+    if window.queue_workspace.minimal_accordion_active:
+        accordion = window.queue_tools_accordion
+        assert all(not accordion.is_expanded(key) for key in accordion.sections)
+        accordion.set_expanded("filters", True)
+        qt_app.processEvents()
+        assert window.queue_search.isVisible() is True
+        assert window.queue_filter.isVisible() is True
+        assert window.source_filter.isVisible() is True
+        accordion.set_expanded("batch", True)
+        qt_app.processEvents()
+        assert window.scope_selector.isVisible() is True
+        assert window.order_selector.isVisible() is True
+        accordion.set_expanded("queue-actions", True)
+        qt_app.processEvents()
+        assert window.dry_run_button.isHidden()
+        assert window.retry_menu_button.isVisible() is True
+        assert window.queue_more_actions_button.isVisible() is True
+        assert window.use_selection_scope_button.isVisible() is False
+        assert window.skip_menu_button.isVisible() is False
+    else:
+        assert window.queue_search.isVisible() is True
+        assert window.queue_filter.isVisible() is True
+        assert window.source_filter.isVisible() is True
+        assert window.scope_selector.isVisible() is True
+        assert window.order_selector.isVisible() is True
+        assert window.dry_run_button.isVisible() is True
+        assert window.retry_menu_button.isVisible() is True
+        assert window.queue_more_actions_button.isVisible() is True
+        assert window.use_selection_scope_button.isVisible() is False
+        assert window.skip_menu_button.isVisible() is False
     assert window.main_toolbar.toolButtonStyle() == Qt.ToolButtonIconOnly
 
 
@@ -84,6 +104,9 @@ def test_phase27_wide_queue_reflow_restores_full_operator_actions(qt_app, tmp_pa
     window.apply_responsive_workspace(wide)
 
     assert window.queue_workspace.property("responsiveMode") == "wide"
+    if window.queue_workspace.minimal_accordion_active:
+        window.queue_tools_accordion.set_expanded("queue-actions", True)
+        qt_app.processEvents()
     assert window.use_selection_scope_button.isVisible() is True
     assert window.skip_menu_button.isVisible() is True
     assert window.reset_menu_button.isVisible() is True

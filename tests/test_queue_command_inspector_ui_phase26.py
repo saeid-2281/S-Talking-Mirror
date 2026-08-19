@@ -23,22 +23,34 @@ def test_phase26_queue_command_center_uses_two_readable_rows(qt_app, tmp_path: P
 
     workspace = window.queue_workspace
 
-    # The responsive coordinator is intentionally debounced. In a busy full
-    # suite its timer may fire before this assertion and select the compact
-    # three-row layout, while an isolated run can still be on the initial
-    # two-row layout. Pin the presentation under test instead of depending on
-    # event-loop timing, then verify the compact reflow explicitly.
+    # The responsive coordinator is intentionally debounced. Pin the
+    # presentation under test instead of depending on event-loop timing. B7
+    # replaces the legacy two/three-row command band with a hidden compatibility
+    # host plus the one-open queue accordion; pre-B7 builds retain the row test.
     workspace.set_responsive_mode("standard", force=True)
-    assert workspace.command_root_layout.count() == 2
-    assert workspace.command_layout.count() >= 7
-    assert workspace.action_layout.count() >= 8
-
-    workspace.set_responsive_mode("compact", force=True)
-    assert workspace.command_root_layout.count() == 3
-    assert workspace.command_root_layout.indexOf(workspace.planning_host) == 1
-
-    workspace.set_responsive_mode("standard", force=True)
-    assert workspace.command_root_layout.count() == 2
+    if workspace.minimal_accordion_active:
+        assert workspace.command_host.isHidden()
+        assert workspace.command_host.maximumHeight() == 0
+        assert workspace.queue_accordion is not None
+        assert set(workspace.queue_accordion.sections) == {
+            "queue-actions", "filters", "batch", "workflow", "columns"
+        }
+        workspace.set_responsive_mode("compact", force=True)
+        assert all(
+            not workspace.queue_accordion.is_expanded(key)
+            for key in workspace.queue_accordion.sections
+        )
+        workspace.set_responsive_mode("standard", force=True)
+        assert workspace.command_host.isHidden()
+    else:
+        assert workspace.command_root_layout.count() == 2
+        assert workspace.command_layout.count() >= 7
+        assert workspace.action_layout.count() >= 8
+        workspace.set_responsive_mode("compact", force=True)
+        assert workspace.command_root_layout.count() == 3
+        assert workspace.command_root_layout.indexOf(workspace.planning_host) == 1
+        workspace.set_responsive_mode("standard", force=True)
+        assert workspace.command_root_layout.count() == 2
     assert window.queue_search.minimumWidth() >= 220
     assert window.dry_run_button.objectName() == "queuePrimaryAction"
     assert window.retry_menu_button.objectName() == "queueActionMenu"

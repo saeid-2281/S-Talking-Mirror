@@ -96,14 +96,17 @@ def test_a9_queue_uses_header_disclosures_for_workflow_and_batch(qt_app, tmp_pat
     window = _window(tmp_path)
     assert window.queue_workflow_toggle.objectName() == "queueWorkflowDisclosure"
     assert window.queue_batch_toggle.objectName() == "queueBatchDisclosure"
-    assert window.generation_journey.isHidden()
-    assert window.queue_batch_operations.isHidden()
-    assert window.queue_workspace.range_host.isHidden()
+    # B7 supersedes the visible A9 header toggles with one stacked accordion
+    # below the queue while retaining these historical handles for focus paths.
+    assert window.queue_workflow_toggle.isHidden()
+    assert window.queue_batch_toggle.isHidden()
+    assert not window.queue_tools_accordion.is_expanded("workflow")
+    assert not window.queue_tools_accordion.is_expanded("batch")
     window.main_workspace_modernizer.reveal_workflow(True)
+    assert window.queue_tools_accordion.is_expanded("workflow")
     window.main_workspace_modernizer.reveal_batch_planning(True)
-    assert not window.generation_journey.isHidden()
-    assert not window.queue_batch_operations.isHidden()
-    assert not window.queue_workspace.range_host.isHidden()
+    assert window.queue_tools_accordion.is_expanded("batch")
+    assert not window.queue_tools_accordion.is_expanded("workflow")
     window.close()
 
 
@@ -111,20 +114,16 @@ def test_a9_queue_command_center_prioritizes_core_controls_and_more(qt_app, tmp_
     window = _window(tmp_path)
     modernizer = window.main_workspace_modernizer
     modernizer.apply_responsive_mode("standard")
-    assert not window.queue_search.isHidden()
-    assert not window.queue_filter.isHidden()
-    assert not window.source_filter.isHidden()
-    assert not window.scope_selector.isHidden()
-    assert not window.order_selector.isHidden()
-    assert not window.dry_run_button.isHidden()
-    assert not window.retry_menu_button.isHidden()
-    assert not window.queue_more_actions_button.isHidden()
-    assert window.queue_workspace.action_layout.indexOf(window.queue_more_actions_button) >= 0
-    assert window.use_selection_scope_button.isHidden()
-    assert window.skip_menu_button.isHidden()
-    assert window.reset_menu_button.isHidden()
-    assert window.clear_completed_button.isHidden()
-    assert window.output_menu_button.isHidden()
+    # B7 removes the always-open command center and keeps the same controls in
+    # purpose-specific stacked sections. Preflight/dry-run has one secondary
+    # entry in the daily More menu rather than another queue button.
+    assert window.queue_workspace.command_host.isHidden()
+    assert window.dry_run_button.isHidden()
+    assert window.queue_search.parentWidget() is window.queue_tools_accordion.sections["filters"].content
+    assert window.scope_selector.parentWidget() is window.queue_tools_accordion.sections["batch"].content
+    assert window.retry_menu_button.parentWidget() is window.queue_tools_accordion.sections["queue-actions"].content
+    assert not window.queue_tools_accordion.is_expanded("filters")
+    assert not window.queue_tools_accordion.is_expanded("queue-actions")
     window.close()
 
 
@@ -167,6 +166,8 @@ def test_a9_queue_focus_badge_reuses_existing_state_without_new_authority(qt_app
 def test_a9_wide_mode_restores_full_historical_operator_actions(qt_app, tmp_path: Path) -> None:
     window = _window(tmp_path)
     window.main_workspace_modernizer.apply_responsive_mode("wide")
+    # B7 keeps the full historical action set available inside the accordion
+    # instead of changing which controls exist by viewport width.
     for widget in (
         window.use_sort_button,
         window.use_selection_scope_button,
@@ -174,11 +175,13 @@ def test_a9_wide_mode_restores_full_historical_operator_actions(qt_app, tmp_path
         window.reset_menu_button,
         window.clear_completed_button,
         window.output_menu_button,
+        window.queue_more_actions_button,
     ):
-        assert not widget.isHidden()
-    assert window.queue_more_actions_button.isHidden()
+        assert widget.parentWidget() is not None
+    window.queue_tools_accordion.set_expanded("queue-actions", True)
+    assert window.queue_tools_accordion.is_expanded("queue-actions")
     window.main_workspace_modernizer.apply_responsive_mode("standard")
-    assert not window.queue_more_actions_button.isHidden()
+    assert window.queue_tools_accordion.is_expanded("queue-actions")
     window.close()
 
 

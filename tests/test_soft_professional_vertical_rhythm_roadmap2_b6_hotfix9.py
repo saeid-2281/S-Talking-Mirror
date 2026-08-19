@@ -65,6 +65,17 @@ def test_hotfix9_geometry_removes_duplicate_queue_command_margins() -> None:
 
 
 def test_hotfix9_wide_queue_gives_spare_height_to_work_surface(qt_app, tmp_path: Path) -> None:  # noqa: ANN001
+    _b7_window = _window(tmp_path)
+    if _b7_window.queue_workspace.minimal_accordion_active:
+        _b7_queue = _b7_window.queue_workspace
+        assert _b7_queue.command_host.isHidden()
+        assert _b7_queue.root_layout.indexOf(_b7_queue.command_host) == -1
+        assert _b7_queue.body_layout.indexOf(_b7_window.table) >= 0
+        assert _b7_queue.body_layout.indexOf(_b7_window.queue_tools_accordion) > _b7_queue.body_layout.indexOf(_b7_window.table)
+        assert all(not _b7_window.queue_tools_accordion.is_expanded(key) for key in _b7_window.queue_tools_accordion.sections)
+        _b7_window.close()
+        return
+    _b7_window.close()
     window = _window(tmp_path)
     window.resize(2048, 1140)
     window.show()

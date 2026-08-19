@@ -49,10 +49,15 @@ def test_hotfix9_hotfix1_wide_collapsed_batch_row_cannot_recreate_dead_gap(
     assert host.maximumHeight() == 0
     assert host.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Fixed
 
-    command_gap = window.queue_workspace.command_host.y() - (
-        window.queue_workspace.heading.y() + window.queue_workspace.heading.height()
-    )
-    assert 0 <= command_gap <= 8
+    if window.queue_workspace.minimal_accordion_active:
+        assert window.queue_workspace.command_host.isHidden()
+        assert window.queue_workspace.command_host.maximumHeight() == 0
+        assert window.queue_workspace.chrome_host.height() == window.queue_workspace.chrome_content_height()
+    else:
+        command_gap = window.queue_workspace.command_host.y() - (
+            window.queue_workspace.heading.y() + window.queue_workspace.heading.height()
+        )
+        assert 0 <= command_gap <= 8
     window.close()
 
 

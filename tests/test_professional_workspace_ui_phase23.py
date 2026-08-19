@@ -96,7 +96,10 @@ def test_phase23_focus_queue_hides_chrome_and_restores_workspace(qt_app, tmp_pat
 
     assert window.focus_queue_action.isChecked()
     assert window.project_context_widget.isVisible() is False
-    assert window.metrics_strip.isVisible() is False
+    # B7 focus mode hides optional metrics but keeps the daily command/status
+    # strip available so the primary generation path never disappears.
+    assert window.metrics_strip.isVisible() is True
+    assert window.metrics_strip.metric_host.isVisible() is False
     assert window.left_dock.isVisible() is False
     assert window.right_dock.isVisible() is False
 

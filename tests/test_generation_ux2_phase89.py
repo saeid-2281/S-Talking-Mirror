@@ -168,18 +168,18 @@ def test_phase89_mainwindow_hosts_live_journey(qt_app, tmp_path: Path) -> None:
     runtime.ensure_directories()
     window = MainWindow(create_application_context(create_service_container(runtime)))
 
-    # A9 progressive disclosure keeps the historical journey instance and
-    # shortcut, but removes its layout slot until the user explicitly asks for it.
+    # B7 keeps the historical journey instance and shortcut while moving its
+    # presentation into the Workflow accordion below the queue rows.
     assert window.queue_workspace.root_layout.indexOf(window.generation_journey) == -1
-    assert window.generation_journey.isHidden()
+    assert not window.queue_tools_accordion.is_expanded("workflow")
     assert window.actions_by_name["Generation Workflow"].shortcut().toString() == "Ctrl+Alt+G"
     assert window.generation_journey.state is not None
     assert window.generation_journey.state.next_action_code == "prepare-source"
 
     window.focus_generation_workflow()
     qt_app.processEvents()
-    assert window.queue_workspace.root_layout.indexOf(window.generation_journey) == 1
-    assert not window.generation_journey.isHidden()
+    assert window.queue_workspace.root_layout.indexOf(window.generation_journey) == -1
+    assert window.queue_tools_accordion.is_expanded("workflow")
     window.close()
 
 
@@ -194,12 +194,12 @@ def test_phase89_compact_workspace_hides_journey_for_queue_dominance(
     window.apply_workspace_preset("Compact")
     qt_app.processEvents()
 
-    assert window.generation_journey.isHidden()
+    assert not window.queue_tools_accordion.is_expanded("workflow")
     assert window.queue_workspace.property("compact") is True
 
     window.focus_generation_workflow()
     qt_app.processEvents()
-    assert not window.generation_journey.isHidden()
+    assert window.queue_tools_accordion.is_expanded("workflow")
     window.close()
 
 
