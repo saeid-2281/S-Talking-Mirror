@@ -3765,49 +3765,49 @@ class MainWindow(QMainWindow):
             self.empty_state.setVisible(not jobs)
             self.table.setVisible(bool(jobs))
         output_dir=Path(self.out.text() or self.project_controller.default_output_path)
-        current_settings=self.settings() if jobs else None
-        default_provider=self.provider.currentText()
-        default_voice=self.voice.text() or '—'
-        default_model=self.current_model_id() or '—'
-        default_source=Path(self.csv.text()).name if hasattr(self,'csv') and self.csv.text().strip() else '—'
+        settings=self.settings()
+        provider_name=self.provider.currentText()
+        voice_id=self.voice.text() or '—'
+        model_id=self.current_model_id() or '—'
+        csv_name=Path(self.csv.text()).name if hasattr(self,'csv') and self.csv.text().strip() else '—'
         if self.queue_adapter.is_model_view:
             output_paths={
-                int(job.row_number): self.generation_controller.output_path_for(job,output_dir,current_settings)
-                for job in jobs
+                int(j.row_number): self.generation_controller.output_path_for(j,output_dir,settings)
+                for j in jobs
             }
             progress={
-                int(job.row_number): 100.0
-                for job in jobs
-                if job.status.value=='completed'
+                int(j.row_number): 100.0
+                for j in jobs
+                if j.status.value=='completed'
             }
             self.queue_adapter.refresh_jobs(
                 jobs,
-                default_provider=default_provider,
-                default_voice=default_voice,
-                default_model=default_model,
-                default_source=default_source,
+                default_provider=provider_name,
+                default_voice=voice_id,
+                default_model=model_id,
+                default_source=csv_name,
                 output_paths=output_paths,
                 progress=progress,
             )
         else:
-            self.table.setRowCount(len(jobs))
-            for r,j in enumerate(jobs):
-                output_path=self.generation_controller.output_path_for(j,output_dir,current_settings)
-                values=[j.source_row or j.row_number,j.filename,j.source_display_name or default_source,j.source_sheet or '—',f'{j.character_count:,}',j.status.value,j.provider_override or default_provider,j.voice_override or default_voice,j.model_override or default_model,f'{j.duration_seconds:.2f}s' if j.duration_seconds else '—',j.retry_count,output_path.name]
-                for c,v in enumerate(values):
-                    item=QTableWidgetItem(str(v)); item.setData(Qt.UserRole,j.row_number); item.setToolTip(str(v))
-                    if c in {0,4,9,10}: item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
-                    if c==4: item.setData(Qt.UserRole+1,j.character_count)
-                    if c==5: item.setTextAlignment(Qt.AlignCenter); item.setData(Qt.AccessibleTextRole,f'Status: {j.status.value}')
-                    self.table.setItem(r,c,item)
-                self.paint(r,j.status.value)
-        if selected_ids:
-            self.queue_adapter.restore_selection(selected_ids)
+            self.table.setUpdatesEnabled(False); self.table.blockSignals(True)
+            try:
+                self.table.setRowCount(len(jobs))
+                for r,j in enumerate(jobs):
+                    output_path=self.generation_controller.output_path_for(j,output_dir,settings)
+                    values=[j.source_row or j.row_number,j.filename,j.source_display_name or csv_name,j.source_sheet or '—',f'{j.character_count:,}',j.status.value,j.provider_override or provider_name,j.voice_override or voice_id,j.model_override or model_id,f'{j.duration_seconds:.2f}s' if j.duration_seconds else '—',j.retry_count,output_path.name]
+                    for c,v in enumerate(values):
+                        item=QTableWidgetItem(str(v)); item.setData(Qt.UserRole,j.row_number); item.setToolTip(str(v)); self.table.setItem(r,c,item)
+                    self.paint(r,j.status.value)
+            finally:
+                self.table.blockSignals(False); self.table.setUpdatesEnabled(True); self.table.viewport().update()
+        if selected_ids: self.queue_adapter.restore_selection(selected_ids)
         self.update_queue_summary_strip()
         self.update_queue_scope_summary(jobs)
         self.update_selection_scope_summary(jobs)
         self.update_queue_actions()
         self.refresh_queue_batch_operations(jobs)
+        if selected_ids: self.preview()
     def refresh_queue_batch_operations(self,visible_jobs=None):
         if not hasattr(self,'queue_batch_operations'): return
         jobs=list(visible_jobs if visible_jobs is not None else self.displayed_queue_jobs())
@@ -4243,10 +4243,33 @@ class MainWindow(QMainWindow):
                     break
         self.update_queue_summary_strip(); self.update_queue_scope_summary(jobs); self.update_selection_scope_summary(jobs); self.update_queue_actions(); self.refresh_queue_batch_operations(jobs)
 
+    def refresh_progress_row(self,name,status,duration,retry):
+        if not hasattr(self,'table'): return
+        if hasattr(self,'queue_adapter') and self.queue_adapter.is_model_view:
+            self.render_queue(); return
+        if self.queue_filter.currentText() != 'All' or getattr(self.generation_controller,'display_order','csv') == 'status':
+            self.render_queue(); return
+        target=Path(name).name if name else ''
+        if not target: return
+        job=next((item for item in self.generation_controller.jobs if Path(item.filename).name==target),None)
+        if job is None: return
+        row=-1
+        for candidate in range(self.table.rowCount()):
+            marker=self.table.item(candidate,0)
+            if marker is not None and marker.data(Qt.UserRole)==job.row_number:
+                row=candidate; break
+        if row<0: return
+        values={5:status,9:f'{duration:.2f}s' if duration else '—',10:retry}
+        for column,value in values.items():
+            item=self.table.item(row,column)
+            if item is None:
+                item=QTableWidgetItem(); item.setData(Qt.UserRole,job.row_number); self.table.setItem(row,column,item)
+            item.setText(str(value)); item.setToolTip(str(value))
+        self.paint(row,status); self.update_queue_actions()
     def progress(self,i,total,name,status,duration,retry,error):
-        self.bar.setMaximum(total); self.bar.setValue(i); self.generation_status_strip.set_progress_detail(i,total,status=status,filename=Path(name).name if name else ''); self.monitor_service.handle_progress(self.generation_controller.jobs,status=status,name=name,duration=duration,retry=retry,error=error); self.refresh_queue_progress(name,status); self.sync_execution_session('running')
+        self.bar.setMaximum(total); self.bar.setValue(i); self.monitor_service.handle_progress(self.generation_controller.jobs,status=status,name=name,duration=duration,retry=retry,error=error); self.refresh_progress_row(name,status,duration,retry)
         display_name=Path(name).name if name else ''
-        line=f'[{i}/{total}] {status}: {display_name}'+(f' — {error}' if error else ''); self.run_logs.append(line); self.log.appendPlainText(line); self.dashboard(); self.update_status_bar()
+        line=f'[{i}/{total}] {status}: {display_name}'+(f' — {error}' if error else ''); self.run_logs.append(line); self.log.appendPlainText(line); self.dashboard()
     def set_generation_controls(self, *, active: bool) -> None:
         self.startb.setEnabled(not active)
         if hasattr(self,'generation_status_strip') and not active:

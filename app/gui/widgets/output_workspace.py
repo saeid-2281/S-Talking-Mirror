@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -80,9 +81,22 @@ class OutputPlaybackWorkspace(QWidget):
         self.render_state(self.service.state)
 
     def _build(self) -> None:
-        root = QVBoxLayout(self)
+        shell = QVBoxLayout(self)
+        shell.setContentsMargins(0, 0, 0, 0)
+        shell.setSpacing(0)
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setObjectName("outputWorkspaceScroll")
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_content = QWidget()
+        self.scroll_content.setObjectName("outputWorkspaceScrollContent")
+        self.scroll_content.setMinimumHeight(520)
+        root = QVBoxLayout(self.scroll_content)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(8)
+        self.scroll_area.setWidget(self.scroll_content)
+        shell.addWidget(self.scroll_area)
 
         self.header = QFrame()
         self.header.setObjectName("outputWorkspaceHeader")
@@ -212,6 +226,8 @@ class OutputPlaybackWorkspace(QWidget):
         self.path_label = QLabel("No generated file selected")
         self.path_label.setObjectName("outputFilePath")
         self.path_label.setWordWrap(True)
+        self.path_label.setMinimumWidth(0)
+        self.path_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.metadata_label = QLabel("Format — · Size —")
         self.metadata_label.setObjectName("outputFileMetadata")

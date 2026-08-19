@@ -1,0 +1,155 @@
+param(
+    [string]$SourcePortableRoot = "",
+    [string]$DestinationPortableRoot = ""
+)
+
+& {
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
+$OutputRoot = "C:\zip-for-GPT"
+$Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$LogRoot = Join-Path $OutputRoot "S-Talking-runner-logs"
+$Log = Join-Path $LogRoot "S-Talking-Local-State-Migration-$Stamp.txt"
+$LastLog = Join-Path $OutputRoot "S-Talking-Local-State-Migration-last-run.txt"
+$TranscriptStarted = $false
+
+function Resolve-Destination([string]$Value) {
+    if (-not [string]::IsNullOrWhiteSpace($Value)) { return [System.IO.Path]::GetFullPath($Value.Trim('"')) }
+    if ((Test-Path -LiteralPath (Join-Path $PSScriptRoot "S-Talking.exe")) -and
+        (Test-Path -LiteralPath (Join-Path $PSScriptRoot "portable.mode"))) {
+        return [System.IO.Path]::GetFullPath($PSScriptRoot)
+    }
+    $Entered = Read-Host "Paste the NEW Portable folder containing S-Talking.exe and portable.mode"
+    if ([string]::IsNullOrWhiteSpace($Entered)) { throw "Destination Portable folder was not provided." }
+    return [System.IO.Path]::GetFullPath($Entered.Trim('"'))
+}
+
+function Resolve-Source([string]$Value) {
+    if (-not [string]::IsNullOrWhiteSpace($Value)) { return [System.IO.Path]::GetFullPath($Value.Trim('"')) }
+    $Entered = Read-Host "Paste the OLD Portable folder that already contains the working local engines"
+    if ([string]::IsNullOrWhiteSpace($Entered)) { throw "Source Portable folder was not provided." }
+    return [System.IO.Path]::GetFullPath($Entered.Trim('"'))
+}
+
+function Copy-Tree([string]$Source, [string]$Destination, [string]$Label) {
+    if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
+        Write-Host "${Label}: source not present; skipped." -ForegroundColor Yellow
+        return
+    }
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    & robocopy.exe $Source $Destination /E /COPY:DAT /DCOPY:T /R:2 /W:1 /NFL /NDL /NP
+    $Code = $LASTEXITCODE
+    if ($Code -gt 7) { throw "$Label copy failed with robocopy exit code $Code." }
+    Write-Host "${Label}: COPIED" -ForegroundColor Green
+}
+
+try {
+    New-Item -ItemType Directory -Path $OutputRoot,$LogRoot -Force | Out-Null
+    Start-Transcript -LiteralPath $Log -Force | Out-Null
+    $TranscriptStarted = $true
+
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host "S-Talking Local Engine / Portable State Migration" -ForegroundColor Cyan
+    Write-Host "=============================================" -ForegroundColor Cyan
+
+    $DestinationPortableRoot = Resolve-Destination $DestinationPortableRoot
+    $SourcePortableRoot = Resolve-Source $SourcePortableRoot
+    if ($SourcePortableRoot -eq $DestinationPortableRoot) { throw "Source and destination Portable folders must be different." }
+
+    foreach ($Root in @($SourcePortableRoot,$DestinationPortableRoot)) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Root "S-Talking.exe") -PathType Leaf)) { throw "S-Talking.exe not found under: $Root" }
+        if (-not (Test-Path -LiteralPath (Join-Path $Root "portable.mode") -PathType Leaf)) { throw "portable.mode not found under: $Root" }
+    }
+    $Running = @(Get-Process -Name "S-Talking" -ErrorAction SilentlyContinue)
+    if ($Running.Count -gt 0) { throw "Close every running S-Talking window before migrating local state." }
+
+    $SourceData = Join-Path $SourcePortableRoot "S-Talking-Data"
+    $DestinationData = Join-Path $DestinationPortableRoot "S-Talking-Data"
+    New-Item -ItemType Directory -Path $DestinationData -Force | Out-Null
+
+    Copy-Tree (Join-Path $SourceData "local-engines") (Join-Path $DestinationData "local-engines") "Local engines"
+    Copy-Tree (Join-Path $SourceData "offline-voices") (Join-Path $DestinationData "offline-voices") "Managed offline voices"
+
+    # Preserve the user's selected Piper model/settings, but rebase absolute paths
+    # from the old Portable root to the new Portable root.
+    $SourceSettings = Join-Path $SourceData "settings\settings.json"
+    $DestinationSettingsDir = Join-Path $DestinationData "settings"
+    $DestinationSettings = Join-Path $DestinationSettingsDir "settings.json"
+    New-Item -ItemType Directory -Path $DestinationSettingsDir -Force | Out-Null
+    if (Test-Path -LiteralPath $SourceSettings -PathType Leaf) {
+        if (Test-Path -LiteralPath $DestinationSettings -PathType Leaf) {
+            Copy-Item -LiteralPath $DestinationSettings -Destination "$DestinationSettings.before-local-state-$Stamp.bak" -Force
+        }
+        $SettingsText = Get-Content -LiteralPath $SourceSettings -Raw -Encoding UTF8
+        $SettingsText = $SettingsText.Replace($SourcePortableRoot, $DestinationPortableRoot)
+        $SettingsText | Set-Content -LiteralPath $DestinationSettings -Encoding UTF8
+        Write-Host "Portable settings (rebased): COPIED" -ForegroundColor Green
+    }
+
+    $SourceWorkspaceProfiles = Join-Path $SourceData "settings\workspace-profiles.json"
+    $DestinationWorkspaceProfiles = Join-Path $DestinationSettingsDir "workspace-profiles.json"
+    if (Test-Path -LiteralPath $SourceWorkspaceProfiles -PathType Leaf) {
+        $WorkspaceText = Get-Content -LiteralPath $SourceWorkspaceProfiles -Raw -Encoding UTF8
+        $WorkspaceText = $WorkspaceText.Replace($SourcePortableRoot, $DestinationPortableRoot)
+        $WorkspaceText | Set-Content -LiteralPath $DestinationWorkspaceProfiles -Encoding UTF8
+        Write-Host "Workspace profile metadata (rebased): COPIED" -ForegroundColor Green
+    }
+
+    $SourceLauncher = Join-Path $SourcePortableRoot "RUN-S-Talking-With-Local-Engines.cmd"
+    $DestinationLauncher = Join-Path $DestinationPortableRoot "RUN-S-Talking-With-Local-Engines.cmd"
+    if (Test-Path -LiteralPath $SourceLauncher -PathType Leaf) {
+        $LauncherText = Get-Content -LiteralPath $SourceLauncher -Raw
+        $LauncherText = $LauncherText.Replace($SourcePortableRoot, $DestinationPortableRoot)
+        $LauncherText | Set-Content -LiteralPath $DestinationLauncher -Encoding ASCII
+        Write-Host "Local Engines launcher (rebased): CREATED" -ForegroundColor Green
+    } else {
+        $EngineRoot = Join-Path $DestinationData "local-engines"
+        $PiperScripts = Join-Path $EngineRoot "piper\.venv\Scripts"
+        $PiperVoices = Join-Path $EngineRoot "piper\voices"
+        $PiperModel = Join-Path $PiperVoices "da_DK-talesyntese-medium.onnx"
+        @(
+            '@echo off',
+            'setlocal',
+            ('set "ENGINE_ROOT={0}"' -f $EngineRoot),
+            ('set "PATH={0};%PATH%"' -f $PiperScripts),
+            ('set "PIPER_DATA_DIR={0}"' -f $PiperVoices),
+            ('set "PIPER_MODEL_PATH={0}"' -f $PiperModel),
+            ('set "S_TALKING_PIPER_DATA_DIR={0}"' -f $PiperVoices),
+            ('set "S_TALKING_PIPER_MODEL_PATH={0}"' -f $PiperModel),
+            'if not exist "%~dp0S-Talking.exe" exit /b 2',
+            'start "" "%~dp0S-Talking.exe"',
+            'exit /b 0'
+        ) | Set-Content -LiteralPath $DestinationLauncher -Encoding ASCII
+        Write-Host "Local Engines launcher (Piper fallback): CREATED" -ForegroundColor Yellow
+    }
+
+    $PiperExe = Join-Path $DestinationData "local-engines\piper\.venv\Scripts\piper.exe"
+    $PiperModel = Join-Path $DestinationData "local-engines\piper\voices\da_DK-talesyntese-medium.onnx"
+    $ManagedModel = Join-Path $DestinationData "offline-voices\piper\da_DK-talesyntese-medium\da_DK-talesyntese-medium.onnx"
+    if (-not (Test-Path -LiteralPath $PiperExe -PathType Leaf)) { throw "Migrated Piper executable not found: $PiperExe" }
+    if (-not (Test-Path -LiteralPath $PiperModel -PathType Leaf)) { throw "Migrated Piper model not found: $PiperModel" }
+    if (-not (Test-Path -LiteralPath $ManagedModel -PathType Leaf)) { throw "Migrated managed Piper voice not found: $ManagedModel" }
+
+    Write-Host ""
+    Write-Host "LOCAL ENGINE / PORTABLE STATE MIGRATION: PASSED" -ForegroundColor Green
+    Write-Host "Launcher: $DestinationLauncher" -ForegroundColor Green
+    Write-Host "Piper executable: FOUND" -ForegroundColor Green
+    Write-Host "Piper model: FOUND" -ForegroundColor Green
+    Write-Host "Managed Piper voice: FOUND" -ForegroundColor Green
+}
+catch {
+    Write-Host ""
+    Write-Host "LOCAL ENGINE / PORTABLE STATE MIGRATION FAILED" -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    throw
+}
+finally {
+    if ($TranscriptStarted) { try { Stop-Transcript | Out-Null } catch {} }
+    if (Test-Path -LiteralPath $Log -PathType Leaf) { try { Copy-Item -LiteralPath $Log -Destination $LastLog -Force } catch {} }
+    Write-Host ""
+    Write-Host "Terminal log (timestamped): $Log" -ForegroundColor Cyan
+    Write-Host "Terminal log (last run):    $LastLog" -ForegroundColor Cyan
+}
+}

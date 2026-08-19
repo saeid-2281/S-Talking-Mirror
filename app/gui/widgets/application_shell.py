@@ -425,7 +425,7 @@ class ActivityCenter(QTabWidget):
             self.setCurrentWidget(self.output_workspace)
         else:
             self.setCurrentIndex(1)
-        self.expanded_height = max(400, self.expanded_height)
+        self.expanded_height = max(560, self.expanded_height)
         self.set_expanded(True)
 
     def set_expanded(self, expanded: bool) -> None:
