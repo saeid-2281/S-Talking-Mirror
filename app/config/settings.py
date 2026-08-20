@@ -15,7 +15,7 @@ def load_settings(path: Path) -> AppSettings:
         )
 
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ConfigurationError(f"Could not read settings: {exc}") from exc
 

@@ -3427,6 +3427,69 @@ def _handle_operations_command_center_command(argv: list[str]) -> int | None:
 
     return 1 if snapshot.overall_status == "critical" else 0
 
+def _handle_local_engines_runtime_verify(argv: list[str]) -> int | None:
+    """Verify migrated local Piper assets through the actual frozen runtime.
+
+    The verifier is read-only: it never downloads, imports, selects, warms, or
+    synthesizes. It proves that the same discovery path used by the UI/provider
+    can see the Portable-managed executable and at least the requested voices.
+    """
+    if "--local-engines-runtime-verify" not in argv:
+        return None
+
+    import argparse
+
+    from app.models import AppSettings
+    from app.providers.piper import PiperProvider
+    from app.services.offline_tts_engine_service import OfflineTTSEngineService
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="Verify Portable local-engine discovery without synthesis",
+    )
+    parser.add_argument("--local-engines-runtime-verify", action="store_true")
+    parser.add_argument("--local-engines-require-piper", action="store_true")
+    parser.add_argument("--local-engines-expected-piper-voices", type=int, default=1)
+    args = parser.parse_args(argv[1:])
+
+    runtime = RuntimeConfig.from_frozen() if getattr(sys, "frozen", False) else RuntimeConfig.from_root()
+    runtime.ensure_directories()
+    service = OfflineTTSEngineService(runtime)
+    settings = AppSettings(provider="piper")
+    snapshot = service.snapshot("piper", settings)
+    voices = service.discover_voices("piper", settings)
+    executable_present = bool(snapshot.executable_path and Path(snapshot.executable_path).is_file())
+
+    provider_runtime_mode = "unavailable"
+    provider_resolution_ok = not args.local_engines_require_piper
+    if voices:
+        try:
+            provider = PiperProvider(
+                AppSettings(provider="piper", piper_model_path=voices[0].model_path),
+                runtime_config=runtime,
+            )
+            provider_runtime_mode = provider.runtime_mode
+            provider_resolution_ok = bool(provider.exe) or provider.runtime.api_available()
+        except Exception:
+            provider_resolution_ok = False
+
+    voices_ok = len(voices) >= max(0, args.local_engines_expected_piper_voices)
+    if args.local_engines_require_piper:
+        passed = snapshot.installed and executable_present and voices_ok and provider_resolution_ok
+    else:
+        passed = voices_ok
+
+    print(f"LOCAL_ENGINES_DATA_ROOT={runtime.data_dir.parent}")
+    print(f"LOCAL_ENGINES_PIPER_INSTALLED={1 if snapshot.installed else 0}")
+    print(f"LOCAL_ENGINES_PIPER_RUNTIME_MODE={snapshot.runtime_mode}")
+    print(f"LOCAL_ENGINES_PIPER_EXECUTABLE_PRESENT={1 if executable_present else 0}")
+    print(f"LOCAL_ENGINES_PIPER_VOICE_COUNT={len(voices)}")
+    print(f"LOCAL_ENGINES_PIPER_PROVIDER_RUNTIME_MODE={provider_runtime_mode}")
+    print(f"LOCAL_ENGINES_PIPER_PROVIDER_RESOLUTION={1 if provider_resolution_ok else 0}")
+    print(f"LOCAL_ENGINES_RUNTIME_VERIFY={'PASS' if passed else 'FAIL'}")
+    return 0 if passed else 1
+
+
 def _handle_provider_accounts_runtime_verify(argv: list[str]) -> int | None:
     """Verify migrated provider accounts using the actual runtime paths/backend.
 
@@ -3497,6 +3560,9 @@ def main() -> int:
         hardening_status, hardening_detail = harden_windows_dll_search(runtime_for_hardening)
         if hardening_status == "block":
             raise RuntimeError(hardening_detail)
+        local_engines_verify_exit = _handle_local_engines_runtime_verify(sys.argv)
+        if local_engines_verify_exit is not None:
+            return local_engines_verify_exit
         provider_accounts_verify_exit = _handle_provider_accounts_runtime_verify(sys.argv)
         if provider_accounts_verify_exit is not None:
             return provider_accounts_verify_exit

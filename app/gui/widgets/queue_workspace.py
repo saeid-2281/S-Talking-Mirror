@@ -670,7 +670,7 @@ class QueueWorkspace(QFrame):
         self.columns_button.show()
 
         accordion.collapse_all()
-        self.body_layout.addWidget(accordion, 0)
+        self.body_layout.addWidget(accordion, 0, Qt.AlignBottom)
         self.queue_accordion = accordion
         accordion.set_compact_mode(self._compact_presentation or self._responsive_mode == "compact")
         self.summary.setVisible(True)

@@ -458,13 +458,13 @@ class MainWindow(QMainWindow):
         self.empty_add_text_button=self.empty_state.add_action('Enter text',self.add_text_source,icon_name='project.add_text_source')
         self.empty_open_project_button=self.empty_state.add_action('Open project',self.open_project,icon_name='project.open')
         self.empty_recent_projects_button=self.empty_state.add_action('Recent projects',self.recent_projects,icon_name='history')
-        empty_wrap=QHBoxLayout(); empty_wrap.addStretch(); empty_wrap.addWidget(self.empty_state); empty_wrap.addStretch(); ml.addLayout(empty_wrap)
+        self.empty_state_host=QWidget(); self.empty_state_host.setObjectName('queueEmptyStateHost'); self.empty_state_host.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding); empty_wrap=QHBoxLayout(self.empty_state_host); empty_wrap.setContentsMargins(0,0,0,0); empty_wrap.addStretch(); empty_wrap.addWidget(self.empty_state); empty_wrap.addStretch(); ml.addWidget(self.empty_state_host,1)
         self.queue_model_view_active=self.queue_model_view_enabled()
         if self.queue_model_view_active:
             self.table=QueueTableView(); self.table.setObjectName('queueTable'); self.table.setItemDelegateForColumn(5,QueueStatusDelegate(self.table)); self.queue_adapter=QueueViewAdapter(self.table,parent=self)
         else:
             self.table=QTableWidget(0,12); self.table.setHorizontalHeaderLabels(['Source row','Filename','Source','Worksheet','Characters','Status','Provider','Voice','Model','Duration','Retry','Output']); configure_queue_table(self.table); self.queue_adapter=QueueViewAdapter(self.table,jobs_provider=self.displayed_queue_jobs,parent=self)
-        self.queue_workspace.bind_table(self.table,QSettings()); self.table.setContextMenuPolicy(Qt.CustomContextMenu); self.table.horizontalHeader().sectionClicked.connect(self.queue_header_clicked); self.queue_adapter.selection_changed.connect(self.preview); self.queue_adapter.selection_changed.connect(self.update_queue_actions); self.queue_adapter.selection_changed.connect(self.update_selection_scope_summary); self.queue_adapter.selection_changed.connect(self.refresh_queue_batch_operations); self.queue_adapter.context_menu_requested.connect(self.queue_context_menu); self.queue_adapter.cell_double_clicked.connect(lambda *_: self.play_selected_output()); ml.addWidget(self.table)
+        self.queue_workspace.bind_table(self.table,QSettings()); self.table.setContextMenuPolicy(Qt.CustomContextMenu); self.table.horizontalHeader().sectionClicked.connect(self.queue_header_clicked); self.queue_adapter.selection_changed.connect(self.preview); self.queue_adapter.selection_changed.connect(self.update_queue_actions); self.queue_adapter.selection_changed.connect(self.update_selection_scope_summary); self.queue_adapter.selection_changed.connect(self.refresh_queue_batch_operations); self.queue_adapter.context_menu_requested.connect(self.queue_context_menu); self.queue_adapter.cell_double_clicked.connect(lambda *_: self.play_selected_output()); ml.addWidget(self.table,1)
         self.queue_tools_accordion=self.queue_workspace.install_minimal_accordion(
             generation_journey=self.generation_journey,
             queue_batch_operations=self.queue_batch_operations,
@@ -3127,11 +3127,13 @@ class MainWindow(QMainWindow):
     def reject_launch_context_change(self,error):
         self.last_launch_assurance=None
         self.invalidate_preflight()
-        message=f'{error} Run Preflight explicitly again before launch.'
-        self.generation_status_strip.set_generation_state('Preflight required','Launch context changed after explicit Preflight')
+        message=f'{error} Press Start again to refresh the no-audio safety validation for the current launch request.'
+        self.generation_status_strip.set_generation_state('Ready to validate','Launch context changed; Start will validate the current request')
         self.notifications.warning('Launch context changed',message)
         self.statusBar().showMessage(message,8000)
-        if hasattr(self,'dry_run_button'): self.dry_run_button.setFocus()
+        if hasattr(self,'metrics_strip'):
+            start_action=self.metrics_strip.action_buttons.get('Start Generation')
+            if start_action is not None and start_action.isEnabled(): start_action.setFocus()
 
     def current_preflight_state(self,settings=None):
         self.synchronize_generation_plan_controls()
@@ -3163,6 +3165,21 @@ class MainWindow(QMainWindow):
         )
         self.refresh_generation_journey()
         return state
+    def block_generation_on_safety_state(self,state):
+        blocking=next(
+            (issue for issue in state.issues if issue.severity in {'hard_error','overridable_error','error'} and not (issue.overridable and issue.overridden)),
+            None,
+        )
+        message=blocking.message if blocking is not None else 'The current launch request is not safe to start.'
+        suggested=blocking.suggested_action if blocking is not None else 'Review the current provider, voice, model, queue and output settings.'
+        detail=f'{message} {suggested}'.strip()
+        self.last_launch_assurance=None
+        self.generation_status_strip.set_generation_state('Blocked',detail)
+        self.notifications.warning('Generation blocked',detail)
+        self.statusBar().showMessage(detail,10000)
+        self.startb.setToolTip(detail)
+        self.refresh_generation_journey()
+
     def show_preflight_dialog(self,state):
         d=PreflightDialog(state,export_report=lambda:self.export_preflight(state),open_output_folder=self.open_output_folder,apply_fixes=lambda:self.fix_preflight_issues(state),parent=self)
         return d.exec()
@@ -3264,6 +3281,9 @@ class MainWindow(QMainWindow):
                 'Checking the current queue and launch request before generation',
             )
             state=self.run_preflight(write_report=False)
+        if not state.can_start:
+            self.block_generation_on_safety_state(state)
+            return
         try:
             launch_assurance=self.launch_assurance_service.verify_launch(
                 state,
@@ -3837,6 +3857,8 @@ class MainWindow(QMainWindow):
         selected_ids=self.queue_adapter.selected_job_ids() if hasattr(self,'queue_adapter') else set()
         jobs=self.displayed_queue_jobs()
         if hasattr(self,'empty_state'):
+            if hasattr(self,'empty_state_host'):
+                self.empty_state_host.setVisible(not jobs)
             self.empty_state.setVisible(not jobs)
             self.table.setVisible(bool(jobs))
         output_dir=Path(self.out.text() or self.project_controller.default_output_path)

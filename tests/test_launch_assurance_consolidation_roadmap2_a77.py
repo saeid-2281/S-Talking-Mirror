@@ -176,13 +176,15 @@ def test_a77_main_checks_context_before_launch_review_and_immediately_before_gen
     assert "Preflight == Launch == Generation" in block
 
 
-def test_a77_context_change_invalidates_preflight_without_automatic_rerun() -> None:
+def test_a77_context_change_invalidates_preflight_and_routes_back_to_b7_start_validation() -> None:
     source = (ROOT / "app/gui/main.py").read_text(encoding="utf-8")
     start = source.index("    def reject_launch_context_change")
     end = source.index("    def current_preflight_state", start)
     block = source[start:end]
     assert "invalidate_preflight()" in block
-    assert "Run Preflight explicitly again" in block
+    assert "Press Start again to refresh the no-audio safety validation" in block
+    assert "Run Preflight explicitly again" not in block
+    assert "Start Generation" in block
     assert "run_preflight(" not in block
     assert "generation_controller.start(" not in block
 

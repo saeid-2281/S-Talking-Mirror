@@ -6,10 +6,12 @@ import tempfile
 import threading
 from pathlib import Path
 
+from app.config.runtime import RuntimeConfig
 from app.exceptions import ConfigurationError, ProviderError
 from app.models import AppSettings
 from app.models.provider_contract import ProviderCapabilities, ProviderConfigurationResult
 from app.providers.base import TTSProvider
+from app.providers.piper_installation import resolve_piper_executable
 from app.providers.piper_runtime import (
     PiperRuntimeService,
     PiperRuntimeUnavailable,
@@ -27,10 +29,14 @@ class PiperProvider(TTSProvider):
         *,
         runtime: PiperRuntimeService | None = None,
         executable_finder=shutil.which,
+        runtime_config: RuntimeConfig | None = None,
     ) -> None:
         self.settings = settings
         self.runtime = runtime or shared_piper_runtime_service()
-        self.exe = executable_finder("piper")
+        self.exe = resolve_piper_executable(
+            runtime_config,
+            executable_finder=executable_finder,
+        )
         self._cancel_event = threading.Event()
         self._process_lock = threading.RLock()
         self._process: subprocess.Popen[str] | None = None

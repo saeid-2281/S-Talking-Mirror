@@ -84,7 +84,11 @@ try {
         }
         $SettingsText = Get-Content -LiteralPath $SourceSettings -Raw -Encoding UTF8
         $SettingsText = $SettingsText.Replace($SourcePortableRoot, $DestinationPortableRoot)
-        $SettingsText | Set-Content -LiteralPath $DestinationSettings -Encoding UTF8
+        [System.IO.File]::WriteAllText(
+            $DestinationSettings,
+            $SettingsText,
+            [System.Text.UTF8Encoding]::new($false)
+        )
         Write-Host "Portable settings (rebased): COPIED" -ForegroundColor Green
     }
 
@@ -93,7 +97,11 @@ try {
     if (Test-Path -LiteralPath $SourceWorkspaceProfiles -PathType Leaf) {
         $WorkspaceText = Get-Content -LiteralPath $SourceWorkspaceProfiles -Raw -Encoding UTF8
         $WorkspaceText = $WorkspaceText.Replace($SourcePortableRoot, $DestinationPortableRoot)
-        $WorkspaceText | Set-Content -LiteralPath $DestinationWorkspaceProfiles -Encoding UTF8
+        [System.IO.File]::WriteAllText(
+            $DestinationWorkspaceProfiles,
+            $WorkspaceText,
+            [System.Text.UTF8Encoding]::new($false)
+        )
         Write-Host "Workspace profile metadata (rebased): COPIED" -ForegroundColor Green
     }
 
@@ -133,7 +141,32 @@ try {
     if (-not (Test-Path -LiteralPath $ManagedModel -PathType Leaf)) { throw "Migrated managed Piper voice not found: $ManagedModel" }
 
     Write-Host ""
-    Write-Host "LOCAL ENGINE / PORTABLE STATE MIGRATION: PASSED" -ForegroundColor Green
+    Write-Host "==> verifying migrated Piper through the actual frozen runtime" -ForegroundColor Yellow
+    $PortableExe = Join-Path $DestinationPortableRoot "S-Talking.exe"
+    $PreviousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $RuntimeVerifyOutput = @(
+        & $PortableExe --local-engines-runtime-verify --local-engines-require-piper --local-engines-expected-piper-voices 1 2>&1 |
+            ForEach-Object { $_.ToString() }
+    )
+    $RuntimeVerifyExit = $LASTEXITCODE
+    $ErrorActionPreference = $PreviousPreference
+    foreach ($Line in $RuntimeVerifyOutput) { Write-Host $Line }
+    if ($RuntimeVerifyExit -ne 0) {
+        throw "Frozen local-engine runtime verification failed with exit code $RuntimeVerifyExit."
+    }
+    if (-not ($RuntimeVerifyOutput -contains "LOCAL_ENGINES_RUNTIME_VERIFY=PASS")) {
+        throw "Frozen local-engine runtime verification did not report PASS."
+    }
+    if (-not ($RuntimeVerifyOutput -contains "LOCAL_ENGINES_PIPER_INSTALLED=1")) {
+        throw "Frozen runtime still does not detect migrated Piper as installed."
+    }
+    if (-not ($RuntimeVerifyOutput -contains "LOCAL_ENGINES_PIPER_EXECUTABLE_PRESENT=1")) {
+        throw "Frozen runtime still cannot resolve the migrated Piper executable."
+    }
+
+    Write-Host ""
+    Write-Host "LOCAL ENGINE / PORTABLE STATE MIGRATION + FROZEN RUNTIME VERIFICATION: PASSED" -ForegroundColor Green
     Write-Host "Launcher: $DestinationLauncher" -ForegroundColor Green
     Write-Host "Piper executable: FOUND" -ForegroundColor Green
     Write-Host "Piper model: FOUND" -ForegroundColor Green

@@ -137,7 +137,7 @@ class WorkspaceProfileService:
         if not self.state_path.exists():
             return
         try:
-            payload = json.loads(self.state_path.read_text(encoding="utf-8"))
+            payload = json.loads(self.state_path.read_text(encoding="utf-8-sig"))
             last = str(payload.get("last_profile", "Standard"))
             if last in self._profiles:
                 self._last_profile = last
