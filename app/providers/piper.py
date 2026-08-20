@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -17,6 +18,38 @@ from app.providers.piper_runtime import (
     PiperRuntimeUnavailable,
     shared_piper_runtime_service,
 )
+
+
+def _hidden_windows_process_kwargs(
+    *,
+    platform_name: str | None = None,
+) -> dict[str, object]:
+    """Return a no-console Windows launch policy for Piper CLI subprocesses.
+
+    S-Talking is a GUI application.  A console-subsystem executable such as
+    Piper must not create or flash a terminal window for every generated row.
+    The flags are applied only on Windows and do not change stdin/stdout/stderr,
+    cancellation, timeout, provider/model/language authority, or synthesis.
+    """
+
+    if (platform_name or os.name) != "nt":
+        return {}
+
+    kwargs: dict[str, object] = {}
+    no_window = int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0)
+    if no_window:
+        kwargs["creationflags"] = no_window
+
+    startupinfo_type = getattr(subprocess, "STARTUPINFO", None)
+    if startupinfo_type is not None:
+        startupinfo = startupinfo_type()
+        use_show_window = int(getattr(subprocess, "STARTF_USESHOWWINDOW", 0) or 0)
+        if use_show_window:
+            startupinfo.dwFlags |= use_show_window
+        startupinfo.wShowWindow = int(getattr(subprocess, "SW_HIDE", 0) or 0)
+        kwargs["startupinfo"] = startupinfo
+
+    return kwargs
 
 
 class PiperProvider(TTSProvider):
@@ -100,6 +133,7 @@ class PiperProvider(TTSProvider):
                 stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
+                **_hidden_windows_process_kwargs(),
             )
             with self._process_lock:
                 self._process = process
