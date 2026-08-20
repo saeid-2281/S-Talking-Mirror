@@ -99,6 +99,14 @@ def resolve_piper_model_path(
 
 
 def managed_piper_executable_candidates(runtime: RuntimeConfig) -> tuple[Path, ...]:
+    """Return the historical managed Piper executable inventory order.
+
+    H2 established the migrated venv console wrapper as the first inventory
+    candidate. Keep that public contract stable. Runtime *selection* is a
+    separate policy because a copied Windows console wrapper can exist while
+    retaining a stale interpreter binding.
+    """
+
     root = managed_piper_root(runtime)
     return (
         root / ".venv" / "Scripts" / "piper.exe",
@@ -111,6 +119,23 @@ def managed_piper_executable_candidates(runtime: RuntimeConfig) -> tuple[Path, .
         root / "piper.exe",
         root / "piper",
     )
+
+
+def _managed_piper_resolution_candidates(runtime: RuntimeConfig) -> tuple[Path, ...]:
+    """Return Portable runtime candidates in execution-preference order.
+
+    The official standalone binary is Portable-safe and therefore outranks a
+    copied pip/venv console wrapper. The public inventory function above keeps
+    its historical H2 order for compatibility.
+    """
+
+    root = managed_piper_root(runtime)
+    preferred = (
+        root / "bin" / "piper.exe",
+        root / "bin" / "piper",
+    )
+    historical = managed_piper_executable_candidates(runtime)
+    return (*preferred, *(candidate for candidate in historical if candidate not in preferred))
 
 
 def managed_piper_python_candidates(runtime: RuntimeConfig) -> tuple[Path, ...]:
@@ -162,9 +187,10 @@ def resolve_piper_cli(
 
     Resolution order:
     1. explicit S_TALKING_PIPER_EXECUTABLE override,
-    2. managed pip console-script wrapper,
-    3. managed venv Python + ``-m piper`` fallback,
-    4. legacy PATH lookup.
+    2. managed official standalone runtime,
+    3. managed pip console-script wrapper,
+    4. managed venv Python + ``-m piper`` fallback,
+    5. legacy PATH lookup.
 
     The Python-module fallback makes the Portable runtime resilient when the
     pip-generated ``piper.exe`` wrapper is removed after migration while the
@@ -178,7 +204,7 @@ def resolve_piper_cli(
             return PiperCliInvocation(str(explicit_path.resolve()))
 
     active_runtime = runtime or runtime_for_current_process()
-    for candidate in managed_piper_executable_candidates(active_runtime):
+    for candidate in _managed_piper_resolution_candidates(active_runtime):
         if candidate.is_file():
             return PiperCliInvocation(str(candidate.resolve()))
 
