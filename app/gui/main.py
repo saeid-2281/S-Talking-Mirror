@@ -2900,11 +2900,11 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self,'Account Details','\n'.join(lines))
     def save_global_preferences(self,s):
         q=QSettings('S Talking','S Talking')
-        for key,value in {'provider':s.provider,'voice_id':s.voice_id,'model_id':s.model_id,'language_code':s.language_code,'stability':s.stability,'similarity_boost':s.similarity_boost,'style':s.style,'speed':s.speed,'use_speaker_boost':s.use_speaker_boost,'short_text_pronunciation_aid':s.short_text_pronunciation_aid}.items():
+        for key,value in {'provider':s.provider,'voice_id':s.voice_id,'model_id':s.model_id,'language_code':s.language_code,'piper_model_path':s.piper_model_path or '','stability':s.stability,'similarity_boost':s.similarity_boost,'style':s.style,'speed':s.speed,'use_speaker_boost':s.use_speaker_boost,'short_text_pronunciation_aid':s.short_text_pronunciation_aid}.items():
             q.setValue(f'global_settings/{key}',value)
     def load_global_preferences(self,base):
         q=QSettings('S Talking','S Talking'); updates={}
-        for key in ['provider','voice_id','model_id','language_code']:
+        for key in ['provider','voice_id','model_id','language_code','piper_model_path']:
             value=q.value(f'global_settings/{key}',None)
             if value not in (None,''): updates[key]=str(value)
         if updates.get('provider')=='elevenlabs' and not updates.get('voice_id'):
@@ -2965,7 +2965,7 @@ class MainWindow(QMainWindow):
         self.settings_changed(); self.statusBar().showMessage('Defaults restored without changing API key, project, or queue.',6000)
     def resolved_piper_model_text(self,value):
         if not value: return ''
-        resolved=resolve_piper_model_path(value,self.context.runtime)
+        resolved=resolve_piper_model_path(value,self.context.container.runtime)
         return str(resolved or value)
     def save_settings(self): self.settings_controller.save_global_settings(self.settings()); self.log.appendPlainText('Settings saved.')
     def load_saved(self):
@@ -3799,14 +3799,14 @@ class MainWindow(QMainWindow):
             if self.generation_controller.resume(): self.pauseb.setText('Pause'); self.monitor_service.resume(); self.generation_status_strip.set_generation_state('Running','Generation resumed'); self.dashboard(); self.sync_execution_session('running'); self.context.product_activity_service.activity('generation','Generation resumed','The active batch resumed.',metadata={'run_id':self.current_run_id or ''})
     def stop(self):
         if self.generation_controller.stop():
-            self.stopb.setText('Stopping…')
+            self.stopb.setText('Cancelling…')
             self.stopb.setEnabled(False)
             self.pauseb.setEnabled(False)
             self.monitor_service.stop_requested()
-            self.generation_status_strip.set_generation_state('Stopping','Waiting for the current provider request')
-            self.statusBar().showMessage('Stopping after the current provider request…')
+            self.generation_status_strip.set_generation_state('Stopping','Cancelling the active provider request now')
+            self.statusBar().showMessage('Cancelling the active provider request now…')
             self.sync_execution_session('stopping')
-            self.context.product_activity_service.activity('generation','Stop requested','Stopping after the current provider request.',metadata={'run_id':self.current_run_id or ''})
+            self.context.product_activity_service.activity('generation','Stop requested','Cancelling the active provider request now.',metadata={'run_id':self.current_run_id or ''})
     def resume_generation(self):
         if self.generation_controller.is_paused: self.pause()
     def open_output_folder(self): self.context.desktop_service.open_path(Path(self.out.text() or self.project_controller.default_output_path))

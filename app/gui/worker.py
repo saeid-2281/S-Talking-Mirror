@@ -96,7 +96,7 @@ class GenerationWorker(QObject):
             if callable(cancel):
                 cancel()
         self._paused.set()
-        self.log.emit("Stop requested. Finishing the current provider request, if any…")
+        self.log.emit("Stop requested. Cancelling the active provider request now…")
 
     def _wait_until_runnable(self) -> bool:
         while not self._stop_event.is_set():
@@ -219,6 +219,8 @@ class GenerationWorker(QObject):
                         if prepared.aid_applied:
                             summary["provider_diagnostics"].setdefault("pronunciation_aid", 0)
                             summary["provider_diagnostics"]["pronunciation_aid"] += 1
+                        if self._stop_event.is_set():
+                            raise ProviderError("Generation cancelled by user.", provider_code="cancelled")
                         audio = provider.synthesize(prepared.provider_text, job_settings)
                         summary["provider_diagnostics"]["language_lock"] = (
                             job_settings.language_code or ""
@@ -778,6 +780,10 @@ class GenerationWorker(QObject):
                     reason="concurrent scheduler assignment",
                 )
                 prepared = PronunciationService().prepare_job(job, job_settings)
+                if self._stop_event.is_set():
+                    raise ProviderError(
+                        "Generation cancelled by user.", provider_code="cancelled"
+                    )
                 audio = provider.synthesize(prepared.provider_text, job_settings)
                 if self._stop_event.is_set():
                     raise ProviderError(

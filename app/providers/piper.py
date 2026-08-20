@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import threading
 from pathlib import Path
 
@@ -36,20 +37,77 @@ def _hidden_windows_process_kwargs(
         return {}
 
     kwargs: dict[str, object] = {}
-    no_window = int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0)
-    if no_window:
-        kwargs["creationflags"] = no_window
+    # Use documented Win32 values as fallbacks as well.  This matters in frozen
+    # GUI builds where a stripped/alternate subprocess module must still never
+    # fall back to a visible console launch.
+    no_window = int(getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) or 0x08000000)
+    kwargs["creationflags"] = no_window
 
     startupinfo_type = getattr(subprocess, "STARTUPINFO", None)
     if startupinfo_type is not None:
         startupinfo = startupinfo_type()
-        use_show_window = int(getattr(subprocess, "STARTF_USESHOWWINDOW", 0) or 0)
-        if use_show_window:
-            startupinfo.dwFlags |= use_show_window
+        use_show_window = int(getattr(subprocess, "STARTF_USESHOWWINDOW", 0x00000001) or 0x00000001)
+        startupinfo.dwFlags |= use_show_window
         startupinfo.wShowWindow = int(getattr(subprocess, "SW_HIDE", 0) or 0)
         kwargs["startupinfo"] = startupinfo
 
     return kwargs
+
+
+def _kill_process(process: subprocess.Popen[str]) -> None:
+    """Best-effort immediate termination used by user cancellation/timeouts."""
+
+    try:
+        if process.poll() is None:
+            process.kill()
+    except OSError:
+        pass
+
+
+def _communicate_cancellable(
+    process: subprocess.Popen[str],
+    *,
+    text: str,
+    timeout_seconds: float,
+    cancel_event: threading.Event,
+) -> tuple[str, str]:
+    """Wait for Piper in short slices so a Stop request is acted on promptly."""
+
+    deadline = time.monotonic() + max(0.1, float(timeout_seconds))
+    input_payload: str | None = text
+    while True:
+        if cancel_event.is_set():
+            _kill_process(process)
+            try:
+                process.communicate(timeout=1.0)
+            except Exception:
+                pass
+            raise ProviderError(
+                "Generation cancelled by user.",
+                provider_code="cancelled",
+            )
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _kill_process(process)
+            try:
+                process.communicate(timeout=1.0)
+            except Exception:
+                pass
+            raise ProviderError(
+                "Piper synthesis timed out.",
+                retryable=True,
+                provider_code="timeout",
+            )
+
+        try:
+            return process.communicate(
+                input=input_payload,
+                timeout=min(0.20, remaining),
+            )
+        except subprocess.TimeoutExpired:
+            # Python documents communicate() as safe to retry after TimeoutExpired.
+            input_payload = None
 
 
 class PiperProvider(TTSProvider):
@@ -133,23 +191,18 @@ class PiperProvider(TTSProvider):
                 stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
+                cwd=str(Path(self.cli_invocation.executable).resolve().parent),
                 **_hidden_windows_process_kwargs(),
             )
             with self._process_lock:
                 self._process = process
             try:
-                _stdout, stderr = process.communicate(
-                    input=text,
-                    timeout=settings.timeout_seconds,
+                _stdout, stderr = _communicate_cancellable(
+                    process,
+                    text=text,
+                    timeout_seconds=settings.timeout_seconds,
+                    cancel_event=self._cancel_event,
                 )
-            except subprocess.TimeoutExpired as exc:
-                process.kill()
-                process.communicate()
-                raise ProviderError(
-                    "Piper synthesis timed out.",
-                    retryable=True,
-                    provider_code="timeout",
-                ) from exc
             finally:
                 with self._process_lock:
                     if self._process is process:
@@ -161,8 +214,10 @@ class PiperProvider(TTSProvider):
                     provider_code="cancelled",
                 )
             if process.returncode or not output.exists():
+                executable = str(self.cli_invocation.executable)
+                detail = (stderr or "Piper produced no output file").strip()
                 raise ProviderError(
-                    (stderr or "Piper failed")[:800],
+                    f"Piper CLI failed (exit={process.returncode}, executable={executable}): {detail}"[:800],
                     provider_code="piper_cli_error",
                 )
             return output.read_bytes()
@@ -171,13 +226,11 @@ class PiperProvider(TTSProvider):
         self._cancel_event.set()
         with self._process_lock:
             process = self._process
-        if process is not None and process.poll() is None:
-            try:
-                process.terminate()
-            except OSError:
-                pass
+        if process is not None:
+            _kill_process(process)
 
     def close(self) -> None:
+        self.cancel()
         with self._process_lock:
             self._process = None
 
