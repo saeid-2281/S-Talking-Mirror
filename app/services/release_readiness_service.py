@@ -13,6 +13,7 @@ from app.csv_loader import diagnose_csv
 from app.database.connection import Database
 from app.models import AppSettings, ProviderStatusState, ReleaseReadinessState, TTSJob
 from app.release import RELEASE_CHANNEL, build_metadata
+from app.providers.piper_installation import resolve_piper_executable
 from app.services.diagnostics_service import DiagnosticsService
 from app.services.git_service import GitService
 from app.services.preflight_service import PreflightService
@@ -106,7 +107,12 @@ class ReleaseReadinessService:
                 python_api = importlib.util.find_spec("piper") is not None
             except (ImportError, ModuleNotFoundError, ValueError):
                 python_api = False
-            available = python_api or bool(shutil.which("piper"))
+            available = python_api or bool(
+                resolve_piper_executable(
+                    self.runtime,
+                    executable_finder=shutil.which,
+                )
+            )
             model_ok = bool(
                 settings.piper_model_path
                 and model.is_file()

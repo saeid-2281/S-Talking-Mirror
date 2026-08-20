@@ -134,11 +134,22 @@ try {
     }
 
     $PiperExe = Join-Path $DestinationData "local-engines\piper\.venv\Scripts\piper.exe"
+    $PiperPython = Join-Path $DestinationData "local-engines\piper\.venv\Scripts\python.exe"
+    $PiperModule = Join-Path $DestinationData "local-engines\piper\.venv\Lib\site-packages\piper\__main__.py"
     $PiperModel = Join-Path $DestinationData "local-engines\piper\voices\da_DK-talesyntese-medium.onnx"
     $ManagedModel = Join-Path $DestinationData "offline-voices\piper\da_DK-talesyntese-medium\da_DK-talesyntese-medium.onnx"
-    if (-not (Test-Path -LiteralPath $PiperExe -PathType Leaf)) { throw "Migrated Piper executable not found: $PiperExe" }
+    $WrapperPresent = Test-Path -LiteralPath $PiperExe -PathType Leaf
+    $PythonModuleFallbackPresent = (
+        (Test-Path -LiteralPath $PiperPython -PathType Leaf) -and
+        (Test-Path -LiteralPath $PiperModule -PathType Leaf)
+    )
+    if (-not $WrapperPresent -and -not $PythonModuleFallbackPresent) {
+        throw "Migrated Piper has neither the console wrapper nor the managed Python-module fallback."
+    }
     if (-not (Test-Path -LiteralPath $PiperModel -PathType Leaf)) { throw "Migrated Piper model not found: $PiperModel" }
     if (-not (Test-Path -LiteralPath $ManagedModel -PathType Leaf)) { throw "Migrated managed Piper voice not found: $ManagedModel" }
+    Write-Host ("Piper console wrapper: " + $(if ($WrapperPresent) { "FOUND" } else { "MISSING; Python-module fallback will be used" })) -ForegroundColor $(if ($WrapperPresent) { "Green" } else { "Yellow" })
+    Write-Host ("Piper Python-module fallback: " + $(if ($PythonModuleFallbackPresent) { "FOUND" } else { "NOT REQUIRED" })) -ForegroundColor Green
 
     Write-Host ""
     Write-Host "==> verifying migrated Piper through the actual frozen runtime" -ForegroundColor Yellow
@@ -162,13 +173,16 @@ try {
         throw "Frozen runtime still does not detect migrated Piper as installed."
     }
     if (-not ($RuntimeVerifyOutput -contains "LOCAL_ENGINES_PIPER_EXECUTABLE_PRESENT=1")) {
-        throw "Frozen runtime still cannot resolve the migrated Piper executable."
+        throw "Frozen runtime still cannot resolve a runnable Piper executable/managed Python fallback."
+    }
+    if (-not ($RuntimeVerifyOutput -contains "LOCAL_ENGINES_PIPER_CLI_PROBE=1")) {
+        throw "Frozen runtime resolved Piper but its CLI probe did not execute successfully."
     }
 
     Write-Host ""
     Write-Host "LOCAL ENGINE / PORTABLE STATE MIGRATION + FROZEN RUNTIME VERIFICATION: PASSED" -ForegroundColor Green
     Write-Host "Launcher: $DestinationLauncher" -ForegroundColor Green
-    Write-Host "Piper executable: FOUND" -ForegroundColor Green
+    Write-Host "Piper runnable CLI: FOUND" -ForegroundColor Green
     Write-Host "Piper model: FOUND" -ForegroundColor Green
     Write-Host "Managed Piper voice: FOUND" -ForegroundColor Green
 }

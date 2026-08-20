@@ -11,6 +11,7 @@ from app.models import AppSettings
 from app.models.provider_identity import ProviderReadiness
 from app.provider_factory import PROVIDER_CLASSES, available_provider_ids, create_provider
 from app.provider_registry import DEFAULT_PROVIDER_REGISTRY, ProviderRegistry
+from app.providers.piper_installation import resolve_piper_executable
 from app.services.provider_identity_service import ProviderIdentityService
 
 
@@ -146,7 +147,7 @@ class ProviderReadinessService:
         except (ImportError, ModuleNotFoundError, ValueError):
             installed = False
         if dependency == "piper" and not installed:
-            return bool(shutil.which("piper"))
+            return bool(resolve_piper_executable(executable_finder=shutil.which))
         return installed
 
     def _probe_settings(self, provider_id: str, settings: AppSettings | None) -> AppSettings:

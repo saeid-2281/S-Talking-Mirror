@@ -3438,9 +3438,11 @@ def _handle_local_engines_runtime_verify(argv: list[str]) -> int | None:
         return None
 
     import argparse
+    import subprocess
 
     from app.models import AppSettings
     from app.providers.piper import PiperProvider
+    from app.providers.piper_installation import resolve_piper_cli
     from app.services.offline_tts_engine_service import OfflineTTSEngineService
 
     parser = argparse.ArgumentParser(
@@ -3459,6 +3461,22 @@ def _handle_local_engines_runtime_verify(argv: list[str]) -> int | None:
     snapshot = service.snapshot("piper", settings)
     voices = service.discover_voices("piper", settings)
     executable_present = bool(snapshot.executable_path and Path(snapshot.executable_path).is_file())
+    cli_invocation = resolve_piper_cli(runtime)
+    cli_launch_mode = cli_invocation.launch_mode if cli_invocation is not None else "unavailable"
+    cli_probe_ok = not args.local_engines_require_piper
+    if cli_invocation is not None:
+        try:
+            probe = subprocess.run(
+                cli_invocation.command("--help"),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=15.0,
+                check=False,
+            )
+            cli_probe_ok = probe.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            cli_probe_ok = False
 
     provider_runtime_mode = "unavailable"
     provider_resolution_ok = not args.local_engines_require_piper
@@ -3475,7 +3493,13 @@ def _handle_local_engines_runtime_verify(argv: list[str]) -> int | None:
 
     voices_ok = len(voices) >= max(0, args.local_engines_expected_piper_voices)
     if args.local_engines_require_piper:
-        passed = snapshot.installed and executable_present and voices_ok and provider_resolution_ok
+        passed = (
+            snapshot.installed
+            and executable_present
+            and voices_ok
+            and provider_resolution_ok
+            and cli_probe_ok
+        )
     else:
         passed = voices_ok
 
@@ -3483,6 +3507,8 @@ def _handle_local_engines_runtime_verify(argv: list[str]) -> int | None:
     print(f"LOCAL_ENGINES_PIPER_INSTALLED={1 if snapshot.installed else 0}")
     print(f"LOCAL_ENGINES_PIPER_RUNTIME_MODE={snapshot.runtime_mode}")
     print(f"LOCAL_ENGINES_PIPER_EXECUTABLE_PRESENT={1 if executable_present else 0}")
+    print(f"LOCAL_ENGINES_PIPER_CLI_LAUNCH_MODE={cli_launch_mode}")
+    print(f"LOCAL_ENGINES_PIPER_CLI_PROBE={1 if cli_probe_ok else 0}")
     print(f"LOCAL_ENGINES_PIPER_VOICE_COUNT={len(voices)}")
     print(f"LOCAL_ENGINES_PIPER_PROVIDER_RUNTIME_MODE={provider_runtime_mode}")
     print(f"LOCAL_ENGINES_PIPER_PROVIDER_RESOLUTION={1 if provider_resolution_ok else 0}")

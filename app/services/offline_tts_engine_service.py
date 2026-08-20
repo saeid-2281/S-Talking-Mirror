@@ -16,7 +16,7 @@ from app.models.offline_tts_engine import (
 )
 from app.models.piper_runtime import PiperRuntimeHealth
 from app.providers.kokoro_runtime import KokoroRuntimeHealth, KokoroRuntimeService, shared_kokoro_runtime_service
-from app.providers.piper_installation import resolve_piper_executable
+from app.providers.piper_installation import resolve_piper_cli
 from app.providers.piper_runtime import (
     PiperRuntimeService,
     shared_piper_runtime_service,
@@ -94,13 +94,20 @@ class OfflineTTSEngineService:
         spec = self._spec(engine_id)
         active = settings or AppSettings()
         module_available = self._module_available(spec.dependency_name)
-        executable_path = (
-            resolve_piper_executable(
+        piper_cli = (
+            resolve_piper_cli(
                 self.runtime,
                 executable_finder=self._executable_finder,
             )
             if spec.engine_id == "piper"
+            else None
+        )
+        executable_path = (
+            piper_cli.executable
+            if piper_cli is not None
             else self._first_executable(spec.executable_names)
+            if spec.engine_id != "piper"
+            else None
         )
         installed = module_available or bool(executable_path)
 

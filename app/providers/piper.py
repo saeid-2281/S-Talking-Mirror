@@ -11,7 +11,7 @@ from app.exceptions import ConfigurationError, ProviderError
 from app.models import AppSettings
 from app.models.provider_contract import ProviderCapabilities, ProviderConfigurationResult
 from app.providers.base import TTSProvider
-from app.providers.piper_installation import resolve_piper_executable
+from app.providers.piper_installation import resolve_piper_cli
 from app.providers.piper_runtime import (
     PiperRuntimeService,
     PiperRuntimeUnavailable,
@@ -33,10 +33,14 @@ class PiperProvider(TTSProvider):
     ) -> None:
         self.settings = settings
         self.runtime = runtime or shared_piper_runtime_service()
-        self.exe = resolve_piper_executable(
+        self.cli_invocation = resolve_piper_cli(
             runtime_config,
             executable_finder=executable_finder,
         )
+        # Historical compatibility handle used by readiness/tests.  For the
+        # managed Python-module fallback this points to python.exe while the
+        # actual CLI prefix is stored in ``cli_invocation``.
+        self.exe = self.cli_invocation.executable if self.cli_invocation is not None else None
         self._cancel_event = threading.Event()
         self._process_lock = threading.RLock()
         self._process: subprocess.Popen[str] | None = None
@@ -51,7 +55,7 @@ class PiperProvider(TTSProvider):
             raise ConfigurationError(f"Piper voice config not found: {self.config}")
 
         self.runtime_mode = "python-api" if self.runtime.api_available() else "legacy-cli"
-        if self.runtime_mode == "legacy-cli" and not self.exe:
+        if self.runtime_mode == "legacy-cli" and self.cli_invocation is None:
             raise ConfigurationError(
                 "Piper is not installed. Install the optional piper-tts runtime."
             )
@@ -69,24 +73,23 @@ class PiperProvider(TTSProvider):
                     requested_acceleration="auto",
                 )
             except PiperRuntimeUnavailable:
-                if not self.exe:
+                if self.cli_invocation is None:
                     raise
                 self.runtime_mode = "legacy-cli"
         return self._synthesize_legacy_cli(text, settings)
 
     def _synthesize_legacy_cli(self, text: str, settings: AppSettings) -> bytes:
-        if not self.exe:
+        if self.cli_invocation is None:
             raise ConfigurationError("Piper CLI is unavailable.")
         with tempfile.TemporaryDirectory(prefix="s_talking_piper_") as directory:
             output = Path(directory) / "out.wav"
             process = subprocess.Popen(
-                [
-                    self.exe,
+                self.cli_invocation.command(
                     "--model",
                     str(self.model),
                     "--output_file",
                     str(output),
-                ],
+                ),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -148,7 +151,7 @@ class PiperProvider(TTSProvider):
         config = Path(f"{model}.json")
         if not config.is_file():
             return ProviderConfigurationResult(False, f"Piper voice config not found: {config}")
-        if not self.runtime.api_available() and not self.exe:
+        if not self.runtime.api_available() and self.cli_invocation is None:
             return ProviderConfigurationResult(
                 False,
                 "Piper runtime is unavailable.",
