@@ -3427,6 +3427,67 @@ def _handle_operations_command_center_command(argv: list[str]) -> int | None:
 
     return 1 if snapshot.overall_status == "critical" else 0
 
+def _handle_local_engines_piper_synthesis_smoke(argv: list[str]) -> int | None:
+    """Run an explicit, isolated Piper synthesis smoke.
+
+    This command is intentionally separate from the historical read-only
+    local-engine runtime verifier. It does not persist provider/voice/model
+    selection and does not write output into the user's project.
+    """
+    if "--local-engines-piper-synthesis-smoke" not in argv:
+        return None
+
+    import argparse
+
+    from app.models import AppSettings
+    from app.providers.piper import PiperProvider
+    from app.services.offline_tts_engine_service import OfflineTTSEngineService
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="Run a short isolated Piper synthesis smoke",
+    )
+    parser.add_argument("--local-engines-piper-synthesis-smoke", action="store_true")
+    parser.parse_args(argv[1:])
+
+    runtime = RuntimeConfig.from_frozen() if getattr(sys, "frozen", False) else RuntimeConfig.from_root()
+    runtime.ensure_directories()
+    service = OfflineTTSEngineService(runtime)
+    voices = service.discover_voices("piper", AppSettings(provider="piper"))
+
+    passed = False
+    audio_bytes = 0
+    if voices:
+        smoke_provider = None
+        try:
+            smoke_settings = AppSettings(
+                provider="piper",
+                piper_model_path=voices[0].model_path,
+                speed=1.0,
+            )
+            smoke_provider = PiperProvider(
+                smoke_settings,
+                runtime_config=runtime,
+            )
+            audio = smoke_provider.synthesize("Hej.", smoke_settings)
+            audio_bytes = len(audio)
+            passed = (
+                audio_bytes > 44
+                and audio[:4] == b"RIFF"
+                and audio[8:12] == b"WAVE"
+            )
+        except Exception:
+            passed = False
+        finally:
+            close = getattr(smoke_provider, "close", None)
+            if callable(close):
+                close()
+
+    print(f"LOCAL_ENGINES_PIPER_SYNTHESIS_BYTES={audio_bytes}")
+    print(f"LOCAL_ENGINES_PIPER_SYNTHESIS_SMOKE={'PASS' if passed else 'FAIL'}")
+    return 0 if passed else 1
+
+
 def _handle_local_engines_runtime_verify(argv: list[str]) -> int | None:
     """Verify migrated local Piper assets through the actual frozen runtime.
 
@@ -3442,7 +3503,7 @@ def _handle_local_engines_runtime_verify(argv: list[str]) -> int | None:
 
     from app.models import AppSettings
     from app.providers.piper import PiperProvider
-    from app.providers.piper_installation import resolve_piper_cli
+    from app.providers.piper_installation import resolve_piper_cli, resolve_piper_model_path
     from app.services.offline_tts_engine_service import OfflineTTSEngineService
 
     parser = argparse.ArgumentParser(
@@ -3452,6 +3513,7 @@ def _handle_local_engines_runtime_verify(argv: list[str]) -> int | None:
     parser.add_argument("--local-engines-runtime-verify", action="store_true")
     parser.add_argument("--local-engines-require-piper", action="store_true")
     parser.add_argument("--local-engines-expected-piper-voices", type=int, default=1)
+    parser.add_argument("--local-engines-stale-model-path", default="")
     args = parser.parse_args(argv[1:])
 
     runtime = RuntimeConfig.from_frozen() if getattr(sys, "frozen", False) else RuntimeConfig.from_root()
@@ -3491,6 +3553,17 @@ def _handle_local_engines_runtime_verify(argv: list[str]) -> int | None:
         except Exception:
             provider_resolution_ok = False
 
+    stale_model_rebase_ok = True
+    stale_model_resolved = ""
+    if args.local_engines_stale_model_path:
+        stale_model = resolve_piper_model_path(args.local_engines_stale_model_path, runtime)
+        stale_model_resolved = str(stale_model or "")
+        stale_model_rebase_ok = bool(
+            stale_model
+            and stale_model.is_file()
+            and str(stale_model) != str(args.local_engines_stale_model_path)
+        )
+
     voices_ok = len(voices) >= max(0, args.local_engines_expected_piper_voices)
     if args.local_engines_require_piper:
         passed = (
@@ -3499,9 +3572,10 @@ def _handle_local_engines_runtime_verify(argv: list[str]) -> int | None:
             and voices_ok
             and provider_resolution_ok
             and cli_probe_ok
+            and stale_model_rebase_ok
         )
     else:
-        passed = voices_ok
+        passed = voices_ok and stale_model_rebase_ok
 
     print(f"LOCAL_ENGINES_DATA_ROOT={runtime.data_dir.parent}")
     print(f"LOCAL_ENGINES_PIPER_INSTALLED={1 if snapshot.installed else 0}")
@@ -3512,6 +3586,9 @@ def _handle_local_engines_runtime_verify(argv: list[str]) -> int | None:
     print(f"LOCAL_ENGINES_PIPER_VOICE_COUNT={len(voices)}")
     print(f"LOCAL_ENGINES_PIPER_PROVIDER_RUNTIME_MODE={provider_runtime_mode}")
     print(f"LOCAL_ENGINES_PIPER_PROVIDER_RESOLUTION={1 if provider_resolution_ok else 0}")
+    print(f"LOCAL_ENGINES_STALE_MODEL_REBASE={1 if stale_model_rebase_ok else 0}")
+    if stale_model_resolved:
+        print(f"LOCAL_ENGINES_STALE_MODEL_RESOLVED={stale_model_resolved}")
     print(f"LOCAL_ENGINES_RUNTIME_VERIFY={'PASS' if passed else 'FAIL'}")
     return 0 if passed else 1
 
@@ -3589,6 +3666,9 @@ def main() -> int:
         local_engines_verify_exit = _handle_local_engines_runtime_verify(sys.argv)
         if local_engines_verify_exit is not None:
             return local_engines_verify_exit
+        piper_synthesis_smoke_exit = _handle_local_engines_piper_synthesis_smoke(sys.argv)
+        if piper_synthesis_smoke_exit is not None:
+            return piper_synthesis_smoke_exit
         provider_accounts_verify_exit = _handle_provider_accounts_runtime_verify(sys.argv)
         if provider_accounts_verify_exit is not None:
             return provider_accounts_verify_exit

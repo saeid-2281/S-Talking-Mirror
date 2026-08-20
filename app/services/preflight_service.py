@@ -17,6 +17,7 @@ from app.models.domain import AppSettings, JobStatus, TTSJob
 from app.models.preflight_state import PreflightFix, PreflightIssue, PreflightState
 from app.provider_factory import create_provider
 from app.provider_registry import DEFAULT_PROVIDER_REGISTRY
+from app.providers.piper_installation import resolve_piper_model_path
 from app.repositories.voice_repository import VoiceRepository
 from app.services.generation_planning_service import GenerationPlanningService
 from app.services.language_assurance_service import LanguageAssuranceService
@@ -596,7 +597,11 @@ class PreflightService:
                         self._issue(issues, "hard_error", None, settings.language_code, "Language code is not available for the selected voice/model metadata.", "Choose a compatible language or refresh Voice Browser metadata.", "language_model_incompatible")
                         ready = False
         elif settings.provider == "piper":
-            if not settings.piper_model_path or not Path(settings.piper_model_path).is_file():
+            resolved_piper_model = resolve_piper_model_path(
+                settings.piper_model_path,
+                self.runtime,
+            )
+            if resolved_piper_model is None or not resolved_piper_model.is_file():
                 self._issue(issues, "hard_error", None, settings.piper_model_path or "", "Piper model file is missing.", "Choose an existing .onnx model file.", "missing_piper_model")
                 ready = False
         elif settings.provider in {"cartesia", "deepgram", "resemble", "murf"}:

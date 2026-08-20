@@ -53,6 +53,7 @@ from app.gui.dialogs.first_run_onboarding_dialog import FirstRunOnboardingDialog
 from app.gui.dialogs.provider_setup_wizard_dialog import ProviderSetupWizardDialog
 from app.gui.dialogs.visual_design_system_dialog import VisualDesignSystemDialog
 from app.gui.widgets import ControlledSpinBox, EmptyStateCard
+from app.providers.piper_installation import resolve_piper_model_path
 from app.services.pronunciation_assurance_service import PronunciationAssuranceService
 from app.services.pronunciation_audit_service import PronunciationAuditTrailService
 from app.services.pronunciation_readiness_service import PronunciationReadinessService
@@ -2962,13 +2963,17 @@ class MainWindow(QMainWindow):
         with self.settings_controller.loading():
             self.provider.setCurrentText('mock'); self.set_model_value('eleven_multilingual_v2'); self.set_language_value('da'); self.failover.setCurrentIndex(self.failover.findData('never')); self.scope_selector.setCurrentIndex(self.scope_selector.findData('entire_queue')); self.order_selector.setCurrentIndex(self.order_selector.findData('csv')); self.stability.setValue(45); self.similarity.setValue(75); self.style.setValue(20); self.speed.setValue(1); self.delay.setValue(.5); self.retries.setValue(4); self.boost.setChecked(True); self.pronunciation_aid.setChecked(True); self.skip.setChecked(True); self.apply_theme('Dark')
         self.settings_changed(); self.statusBar().showMessage('Defaults restored without changing API key, project, or queue.',6000)
+    def resolved_piper_model_text(self,value):
+        if not value: return ''
+        resolved=resolve_piper_model_path(value,self.context.runtime)
+        return str(resolved or value)
     def save_settings(self): self.settings_controller.save_global_settings(self.settings()); self.log.appendPlainText('Settings saved.')
     def load_saved(self):
         s=self.settings_controller.load_global_settings()
         s=self.load_global_preferences(s or AppSettings(provider='mock'))
         if s:
             with self.settings_controller.loading():
-                self.provider.setCurrentText(s.provider); self.key.setText(s.api_key); self.voice.setText(s.voice_id); self.set_model_value(s.model_id); self.set_language_value(s.language_code); self.set_combo_data(self.api_profile,s.active_api_profile_id); self.set_combo_data(self.failover,s.api_profile_failover); self.set_combo_data(self.scope_selector,s.generation_scope); self.set_combo_data(self.order_selector,s.execution_order); self.job_pronunciation_overrides=dict(s.job_pronunciation_overrides); self.piper.setText(s.piper_model_path or ''); self.stability.setValue(int(s.stability*100)); self.similarity.setValue(int(s.similarity_boost*100)); self.style.setValue(int(s.style*100)); self.speed.setValue(s.speed); self.delay.setValue(s.delay_seconds); self.retries.setValue(s.max_retries); self.boost.setChecked(s.use_speaker_boost); self.pronunciation_aid.setChecked(s.short_text_pronunciation_aid); self.skip.setChecked(s.skip_existing)
+                self.provider.setCurrentText(s.provider); self.key.setText(s.api_key); self.voice.setText(s.voice_id); self.set_model_value(s.model_id); self.set_language_value(s.language_code); self.set_combo_data(self.api_profile,s.active_api_profile_id); self.set_combo_data(self.failover,s.api_profile_failover); self.set_combo_data(self.scope_selector,s.generation_scope); self.set_combo_data(self.order_selector,s.execution_order); self.job_pronunciation_overrides=dict(s.job_pronunciation_overrides); self.piper.setText(self.resolved_piper_model_text(s.piper_model_path)); self.stability.setValue(int(s.stability*100)); self.similarity.setValue(int(s.similarity_boost*100)); self.style.setValue(int(s.style*100)); self.speed.setValue(s.speed); self.delay.setValue(s.delay_seconds); self.retries.setValue(s.max_retries); self.boost.setChecked(s.use_speaker_boost); self.pronunciation_aid.setChecked(s.short_text_pronunciation_aid); self.skip.setChecked(s.skip_existing)
         if hasattr(self,'api_profile') and self.api_profile.currentData() is None:
             active=None
             if s and s.active_api_profile_id:
@@ -2997,7 +3002,7 @@ class MainWindow(QMainWindow):
     def apply_project_paths(self,s):
         self.project_path=s.project_file; self.csv.setText(str(s.csv_path or '')); self.out.setText(str(s.output_path or self.project_controller.default_output_path))
     def apply_provider_settings(self,s):
-        self.provider.setCurrentText(s.provider); self.key.setText(s.settings.api_key); self.voice.setText(s.settings.voice_id); self.set_model_value(s.settings.model_id); self.set_language_value(s.settings.language_code); self.set_combo_data(self.api_profile,s.settings.active_api_profile_id); self.set_combo_data(self.failover,s.settings.api_profile_failover); self.set_combo_data(self.scope_selector,s.settings.generation_scope); self.set_combo_data(self.order_selector,s.settings.execution_order); self.job_pronunciation_overrides=dict(s.settings.job_pronunciation_overrides); self.piper.setText(s.settings.piper_model_path or ''); self.stability.setValue(int(s.settings.stability*100)); self.similarity.setValue(int(s.settings.similarity_boost*100)); self.style.setValue(int(s.settings.style*100)); self.speed.setValue(s.settings.speed); self.delay.setValue(s.settings.delay_seconds); self.retries.setValue(s.settings.max_retries); self.boost.setChecked(s.settings.use_speaker_boost); self.pronunciation_aid.setChecked(s.settings.short_text_pronunciation_aid); self.skip.setChecked(s.settings.skip_existing)
+        self.provider.setCurrentText(s.provider); self.key.setText(s.settings.api_key); self.voice.setText(s.settings.voice_id); self.set_model_value(s.settings.model_id); self.set_language_value(s.settings.language_code); self.set_combo_data(self.api_profile,s.settings.active_api_profile_id); self.set_combo_data(self.failover,s.settings.api_profile_failover); self.set_combo_data(self.scope_selector,s.settings.generation_scope); self.set_combo_data(self.order_selector,s.settings.execution_order); self.job_pronunciation_overrides=dict(s.settings.job_pronunciation_overrides); self.piper.setText(self.resolved_piper_model_text(s.settings.piper_model_path)); self.stability.setValue(int(s.settings.stability*100)); self.similarity.setValue(int(s.settings.similarity_boost*100)); self.style.setValue(int(s.settings.style*100)); self.speed.setValue(s.settings.speed); self.delay.setValue(s.settings.delay_seconds); self.retries.setValue(s.settings.max_retries); self.boost.setChecked(s.settings.use_speaker_boost); self.pronunciation_aid.setChecked(s.settings.short_text_pronunciation_aid); self.skip.setChecked(s.settings.skip_existing)
     def apply_project_metadata(self,s):
         self.project_path=s.project_file
     def refresh_project_title(self): self.update_window_title()

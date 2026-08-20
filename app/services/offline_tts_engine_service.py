@@ -16,7 +16,7 @@ from app.models.offline_tts_engine import (
 )
 from app.models.piper_runtime import PiperRuntimeHealth
 from app.providers.kokoro_runtime import KokoroRuntimeHealth, KokoroRuntimeService, shared_kokoro_runtime_service
-from app.providers.piper_installation import resolve_piper_cli
+from app.providers.piper_installation import resolve_piper_cli, resolve_piper_model_path
 from app.providers.piper_runtime import (
     PiperRuntimeService,
     shared_piper_runtime_service,
@@ -444,11 +444,10 @@ class OfflineTTSEngineService:
         except OSError:
             return 0
 
-    @staticmethod
-    def _selected_model(settings: AppSettings, engine_id: str) -> Path | None:
+    def _selected_model(self, settings: AppSettings, engine_id: str) -> Path | None:
         if engine_id != "piper" or not settings.piper_model_path:
             return None
-        return Path(settings.piper_model_path).expanduser()
+        return resolve_piper_model_path(settings.piper_model_path, self.runtime)
 
     def _module_available(self, dependency: str) -> bool:
         try:

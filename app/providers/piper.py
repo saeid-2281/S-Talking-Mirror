@@ -11,7 +11,7 @@ from app.exceptions import ConfigurationError, ProviderError
 from app.models import AppSettings
 from app.models.provider_contract import ProviderCapabilities, ProviderConfigurationResult
 from app.providers.base import TTSProvider
-from app.providers.piper_installation import resolve_piper_cli
+from app.providers.piper_installation import resolve_piper_cli, resolve_piper_model_path
 from app.providers.piper_runtime import (
     PiperRuntimeService,
     PiperRuntimeUnavailable,
@@ -33,8 +33,12 @@ class PiperProvider(TTSProvider):
     ) -> None:
         self.settings = settings
         self.runtime = runtime or shared_piper_runtime_service()
+        # Preserve the exact RuntimeConfig used to construct this provider.
+        # Validation must resolve managed Portable paths against the same
+        # runtime instead of falling back to the caller process runtime.
+        self.runtime_config = runtime_config
         self.cli_invocation = resolve_piper_cli(
-            runtime_config,
+            self.runtime_config,
             executable_finder=executable_finder,
         )
         # Historical compatibility handle used by readiness/tests.  For the
@@ -47,7 +51,8 @@ class PiperProvider(TTSProvider):
 
         if not settings.piper_model_path:
             raise ConfigurationError("Select a Piper .onnx model.")
-        self.model = Path(settings.piper_model_path).expanduser()
+        resolved_model = resolve_piper_model_path(settings.piper_model_path, self.runtime_config)
+        self.model = resolved_model or Path(settings.piper_model_path).expanduser()
         if not self.model.is_file():
             raise ConfigurationError(f"Piper model not found: {self.model}")
         self.config = Path(f"{self.model}.json")
@@ -145,7 +150,8 @@ class PiperProvider(TTSProvider):
     def validate_configuration(self, settings: AppSettings) -> ProviderConfigurationResult:
         if not settings.piper_model_path:
             return ProviderConfigurationResult(False, "Select a Piper .onnx model.")
-        model = Path(settings.piper_model_path).expanduser()
+        model = resolve_piper_model_path(settings.piper_model_path, self.runtime_config)
+        model = model or Path(settings.piper_model_path).expanduser()
         if not model.is_file():
             return ProviderConfigurationResult(False, f"Piper model not found: {model}")
         config = Path(f"{model}.json")

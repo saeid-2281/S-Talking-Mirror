@@ -41,12 +41,72 @@ def managed_piper_root(runtime: RuntimeConfig) -> Path:
     return runtime.data_dir.parent / "local-engines" / "piper"
 
 
+def managed_piper_voice_roots(runtime: RuntimeConfig) -> tuple[Path, ...]:
+    """Return canonical and compatibility Piper voice roots in preference order."""
+
+    return (
+        runtime.data_dir / "offline-voices" / "piper",
+        runtime.data_dir.parent / "offline-voices" / "piper",
+        managed_piper_root(runtime) / "voices",
+    )
+
+
+def resolve_piper_model_path(
+    value: str | Path | None,
+    runtime: RuntimeConfig | None = None,
+) -> Path | None:
+    """Resolve the same managed Piper voice after a Portable root changes.
+
+    The selected voice/model identity remains user-controlled.  This helper only
+    repairs a missing absolute path when it clearly points into a historical
+    S-Talking managed Portable location and the same voice filename can be found
+    under the current runtime's managed Piper roots.
+    """
+
+    if value is None or not str(value).strip():
+        return None
+    original = Path(value).expanduser()
+    if original.is_file():
+        try:
+            return original.resolve()
+        except OSError:
+            return original
+
+    normalized = str(value).replace("\\", "/").casefold()
+    managed_hint = (
+        "/s-talking-data/" in normalized
+        or "/local-engines/piper/" in normalized
+        or "/offline-voices/piper/" in normalized
+    )
+    if not managed_hint or original.suffix.casefold() != ".onnx":
+        return original
+
+    active_runtime = runtime or runtime_for_current_process()
+    voice_id = original.parent.name.strip()
+    filename = original.name
+    for root in managed_piper_voice_roots(active_runtime):
+        candidates = []
+        if voice_id and voice_id.casefold() not in {"piper", "voices", "offline-voices"}:
+            candidates.append(root / voice_id / filename)
+        candidates.append(root / filename)
+        for candidate in candidates:
+            if candidate.is_file():
+                try:
+                    return candidate.resolve()
+                except OSError:
+                    return candidate
+    return original
+
+
 def managed_piper_executable_candidates(runtime: RuntimeConfig) -> tuple[Path, ...]:
     root = managed_piper_root(runtime)
     return (
         root / ".venv" / "Scripts" / "piper.exe",
         root / ".venv" / "bin" / "piper",
         root / "Scripts" / "piper.exe",
+        # Official archived Windows standalone distribution is staged here by
+        # the recovery runner together with its adjacent DLL/data files.
+        root / "bin" / "piper.exe",
         root / "bin" / "piper",
         root / "piper.exe",
         root / "piper",
