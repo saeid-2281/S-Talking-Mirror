@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$SourceProjectRoot = "D:\Projects\S-Talking",
     [string]$DestinationPortableRoot = ""
 )
@@ -116,7 +116,12 @@ try {
     }
 
     $TempMetadata = "$DestinationMetadata.$PID.tmp"
-    $MergedPayload | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $TempMetadata -Encoding UTF8
+    $MetadataJson = $MergedPayload | ConvertTo-Json -Depth 20
+    [System.IO.File]::WriteAllText(
+        $TempMetadata,
+        $MetadataJson,
+        [System.Text.UTF8Encoding]::new($false)
+    )
     Move-Item -LiteralPath $TempMetadata -Destination $DestinationMetadata -Force
 
     $CredentialFiles = @()
@@ -195,8 +200,28 @@ print(f"native_migrated={migrated};saved_key_missing={missing};backend={target_s
     Write-Host "Credential migration: $NativeMigrationSummary" -ForegroundColor Green
     Write-Host "Portable metadata: $DestinationMetadata"
     Write-Host "Portable credentials: $DestinationCredentials"
+
     Write-Host ""
-    Write-Host "Restart S-Talking and open Provider Accounts. Credentials migrated to Windows Credential Manager are immediately available; any readable legacy DPAPI fallback is still supported on first access." -ForegroundColor Cyan
+    Write-Host "==> verifying migrated accounts through the actual frozen runtime" -ForegroundColor Yellow
+    $PreviousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $RuntimeVerifyOutput = @(
+        & $PortableExe --provider-accounts-runtime-verify --provider-accounts-expected-count $Profiles.Count --provider-accounts-expected-saved-count $SavedProfiles.Count 2>&1 |
+            ForEach-Object { $_.ToString() }
+    )
+    $RuntimeVerifyExit = $LASTEXITCODE
+    $ErrorActionPreference = $PreviousPreference
+    foreach ($Line in $RuntimeVerifyOutput) { Write-Host $Line }
+    if ($RuntimeVerifyExit -ne 0) {
+        throw "Frozen Provider Accounts runtime verification failed with exit code $RuntimeVerifyExit."
+    }
+    if (-not ($RuntimeVerifyOutput -contains "PROVIDER_ACCOUNTS_RUNTIME_VERIFY=PASS")) {
+        throw "Frozen Provider Accounts runtime verification did not report PASS."
+    }
+
+    Write-Host ""
+    Write-Host "PROVIDER ACCOUNT MIGRATION + FROZEN RUNTIME VERIFICATION: PASSED" -ForegroundColor Green
+    Write-Host "Restart S-Talking and open Provider Accounts. The frozen runtime has verified that migrated profiles and saved credentials are visible without printing secret contents." -ForegroundColor Cyan
 }
 catch {
     Write-Host ""

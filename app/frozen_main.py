@@ -3427,6 +3427,67 @@ def _handle_operations_command_center_command(argv: list[str]) -> int | None:
 
     return 1 if snapshot.overall_status == "critical" else 0
 
+def _handle_provider_accounts_runtime_verify(argv: list[str]) -> int | None:
+    """Verify migrated provider accounts using the actual runtime paths/backend.
+
+    This command never prints credential contents. It reports only paths, backend
+    identity, profile counts, and whether saved credentials can be resolved.
+    """
+    if "--provider-accounts-runtime-verify" not in argv:
+        return None
+
+    import argparse
+
+    from app.services.api_profile_service import ApiProfileService
+    from app.services.provider_accounts_center_service import ProviderAccountsCenterService
+    from app.services.provider_catalog_service import ProviderCatalogService
+    from app.services.secure_credentials import SecureCredentialStore
+
+    parser = argparse.ArgumentParser(
+        prog="S-Talking.exe",
+        description="Verify Portable Provider Accounts migration without exposing secrets",
+    )
+    parser.add_argument("--provider-accounts-runtime-verify", action="store_true")
+    parser.add_argument("--provider-accounts-expected-count", type=int, default=None)
+    parser.add_argument("--provider-accounts-expected-saved-count", type=int, default=None)
+    args = parser.parse_args(argv[1:])
+
+    runtime = RuntimeConfig.from_frozen() if getattr(sys, "frozen", False) else RuntimeConfig.from_root()
+    runtime.ensure_directories()
+    settings_dir = runtime.settings_path.parent
+    credential_store = SecureCredentialStore(settings_dir / "credentials")
+    profile_service = ApiProfileService(settings_dir / "api-profiles.json", credential_store)
+    profiles = profile_service.list_profiles()
+    saved_profiles = [profile for profile in profiles if profile.has_saved_key]
+    accounts_center = ProviderAccountsCenterService(profile_service, ProviderCatalogService())
+    ui_visible_profiles = accounts_center.profiles_for_view(None)
+    resolved_saved = 0
+    for profile in saved_profiles:
+        if profile_service.api_key_for(profile.profile_id):
+            resolved_saved += 1
+
+    expected_ok = args.provider_accounts_expected_count is None or len(profiles) == args.provider_accounts_expected_count
+    expected_saved_ok = (
+        args.provider_accounts_expected_saved_count is None
+        or len(saved_profiles) == args.provider_accounts_expected_saved_count
+    )
+    credentials_ok = resolved_saved == len(saved_profiles)
+    profiles_ok = len(profiles) > 0
+    ui_visibility_ok = len(ui_visible_profiles) == len(profiles)
+    passed = profiles_ok and expected_ok and expected_saved_ok and credentials_ok and ui_visibility_ok
+
+    print(f"PROVIDER_ACCOUNTS_METADATA={settings_dir / 'api-profiles.json'}")
+    print(f"PROVIDER_ACCOUNTS_CREDENTIAL_BACKEND={credential_store.backend_name}")
+    print(f"PROVIDER_ACCOUNTS_PROFILE_COUNT={len(profiles)}")
+    print(f"PROVIDER_ACCOUNTS_SAVED_PROFILE_COUNT={len(saved_profiles)}")
+    print(f"PROVIDER_ACCOUNTS_RESOLVED_CREDENTIAL_COUNT={resolved_saved}")
+    print(f"PROVIDER_ACCOUNTS_UI_VISIBLE_COUNT={len(ui_visible_profiles)}")
+    print(f"PROVIDER_ACCOUNTS_EXPECTED_COUNT={args.provider_accounts_expected_count if args.provider_accounts_expected_count is not None else 'unspecified'}")
+    print(f"PROVIDER_ACCOUNTS_EXPECTED_SAVED_COUNT={args.provider_accounts_expected_saved_count if args.provider_accounts_expected_saved_count is not None else 'unspecified'}")
+    print(f"PROVIDER_ACCOUNTS_RUNTIME_VERIFY={'PASS' if passed else 'FAIL'}")
+    return 0 if passed else 1
+
+
 def main() -> int:
     crash_service = None
     try:
@@ -3436,6 +3497,9 @@ def main() -> int:
         hardening_status, hardening_detail = harden_windows_dll_search(runtime_for_hardening)
         if hardening_status == "block":
             raise RuntimeError(hardening_detail)
+        provider_accounts_verify_exit = _handle_provider_accounts_runtime_verify(sys.argv)
+        if provider_accounts_verify_exit is not None:
+            return provider_accounts_verify_exit
         recovery_exit = _handle_recovery_command(sys.argv)
         if recovery_exit is not None:
             return recovery_exit

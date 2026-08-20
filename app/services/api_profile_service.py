@@ -327,7 +327,7 @@ class ApiProfileService:
         if not self.metadata_path.exists():
             return {"schema_version": 1, "profiles": []}
         try:
-            data = json.loads(self.metadata_path.read_text(encoding="utf-8"))
+            data = json.loads(self.metadata_path.read_text(encoding="utf-8-sig"))
         except json.JSONDecodeError:
             return {"schema_version": 1, "profiles": []}
         if not isinstance(data, dict):
