@@ -3491,7 +3491,17 @@ class MainWindow(QMainWindow):
             self.notifications.warning('Intelligent TTS execution',str(exc))
             self.statusBar().showMessage('Generation was not started because the approved TTS request changed.',7000)
             return
+        # Make emergency controls visible/enabled before the worker can enter a
+        # local provider.  Force one paint/event pass so Stop has a usable home
+        # even if the first provider request becomes expensive immediately.
+        self.set_generation_controls(active=True)
+        self.generation_status_strip.set_generation_state(
+            'Starting',
+            f'Preparing {len(generation_jobs):,} queued job(s)',
+        )
+        QApplication.processEvents()
         if not self.generation_controller.start(self,s,project.output_path,project.project_key):
+            self.set_generation_controls(active=False)
             if self.current_budget_reservation_id:
                 try: self.context.generation_budget_guard_service.release_reservation(self.current_budget_reservation_id,reason='generation_did_not_start')
                 except Exception as exc: self.log.appendPlainText(f'Budget reservation release failed: {exc}')
@@ -3521,7 +3531,7 @@ class MainWindow(QMainWindow):
                 self.log.appendPlainText(f'Resume receipt start update failed: {exc}')
             self.pending_resume_receipt=None
         self.sync_execution_session('running')
-        self.monitor_service.start_run(self.generation_controller.generation_jobs(),provider=s.provider,output_dir=project.output_path,settings=s,project_key=project.project_key); self.set_generation_controls(active=True); self.generation_status_strip.set_generation_state('Running',f'{len(self.generation_controller.generation_jobs()):,} jobs queued · {run_id}'); self.update_status_bar()
+        self.monitor_service.start_run(self.generation_controller.generation_jobs(),provider=s.provider,output_dir=project.output_path,settings=s,project_key=project.project_key); self.generation_status_strip.set_generation_state('Running',f'{len(self.generation_controller.generation_jobs()):,} jobs queued · {run_id}'); self.update_status_bar()
         self.context.product_activity_service.activity('generation','Generation started',f'{len(self.generation_controller.generation_jobs()):,} job(s) queued · {run_id}.',project_id=current.project_id if current else None,metadata={'run_id':run_id,'launch_receipt':str(receipt or ''),'launch_assurance':launch_assurance.preflight_context_fingerprint[:16]})
     def begin_intelligent_tts_artifact_plan(self,binding,jobs,settings,output_dir,run_id,project_key):
         try:
@@ -4347,14 +4357,18 @@ class MainWindow(QMainWindow):
 
     def refresh_progress_row(self,name,status,duration,retry):
         if not hasattr(self,'table'): return
-        if hasattr(self,'queue_adapter') and self.queue_adapter.is_model_view:
-            self.render_queue(); return
-        if self.queue_filter.currentText() != 'All' or getattr(self.generation_controller,'display_order','csv') == 'status':
-            self.render_queue(); return
         target=Path(name).name if name else ''
         if not target: return
         job=next((item for item in self.generation_controller.jobs if Path(item.filename).name==target),None)
         if job is None: return
+        if hasattr(self,'queue_adapter') and self.queue_adapter.is_model_view:
+            # Updating a single model row is O(1)-ish and preserves proxy
+            # filtering/sorting.  Rebuilding a 20k+ row queue for every worker
+            # signal made the GUI appear frozen during local generation.
+            self.queue_adapter.refresh_rows([job])
+            return
+        if self.queue_filter.currentText() != 'All' or getattr(self.generation_controller,'display_order','csv') == 'status':
+            self.render_queue(); return
         row=-1
         for candidate in range(self.table.rowCount()):
             marker=self.table.item(candidate,0)
@@ -4371,7 +4385,14 @@ class MainWindow(QMainWindow):
     def progress(self,i,total,name,status,duration,retry,error):
         self.bar.setMaximum(total); self.bar.setValue(i); self.monitor_service.handle_progress(self.generation_controller.jobs,status=status,name=name,duration=duration,retry=retry,error=error); self.refresh_progress_row(name,status,duration,retry)
         display_name=Path(name).name if name else ''
-        line=f'[{i}/{total}] {status}: {display_name}'+(f' — {error}' if error else ''); self.run_logs.append(line); self.log.appendPlainText(line); self.dashboard()
+        line=f'[{i}/{total}] {status}: {display_name}'+(f' — {error}' if error else ''); self.run_logs.append(line); self.log.appendPlainText(line); self.schedule_generation_dashboard_refresh()
+    def schedule_generation_dashboard_refresh(self):
+        if getattr(self,'_generation_dashboard_refresh_pending',False): return
+        self._generation_dashboard_refresh_pending=True
+        QTimer.singleShot(350,self.flush_generation_dashboard_refresh)
+    def flush_generation_dashboard_refresh(self):
+        self._generation_dashboard_refresh_pending=False
+        self.dashboard(runtime_lightweight=bool(self.generation_controller.is_active))
     def set_generation_controls(self, *, active: bool) -> None:
         self.startb.setEnabled(not active)
         if hasattr(self,'generation_status_strip') and not active:
@@ -4385,8 +4406,12 @@ class MainWindow(QMainWindow):
         self.pauseb.setText('Pause')
         self.stopb.setText('Stop')
         self.update_queue_actions()
-        self.refresh_generation_journey()
-        self.refresh_generation_live_operations()
+        if active:
+            QTimer.singleShot(250,self.refresh_generation_journey)
+            QTimer.singleShot(300,self.refresh_generation_live_operations)
+        else:
+            self.refresh_generation_journey()
+            self.refresh_generation_live_operations()
 
     def finished(self,s):
         self.monitor_service.finish(s); self.set_generation_controls(active=False); self.generation_status_strip.set_generation_state('Completed',f"{int(s.get('completed',0)):,} jobs completed · {self.current_run_id or 'run'}"); self.dashboard(); self.log.appendPlainText(f'Finished: {json.dumps(s,indent=2)}')
@@ -4509,8 +4534,8 @@ class MainWindow(QMainWindow):
             self.pretry.clear()
             self.pretry.hide()
             self.ptext.setPlainText('The selected row preview will appear here after a source is loaded.')
-    def dashboard(self):
-        self.refresh_quota_snapshot()
+    def dashboard(self, *, runtime_lightweight: bool = False):
+        if not runtime_lightweight: self.refresh_quota_snapshot()
         scoped_jobs=self.generation_controller.generation_jobs(); metrics=self.generation_controller.scoped_metrics()
         self.cards['files'].set_value(f'{metrics.total:,}')
         self.cards['chars'].set_value(f'{sum(len(job.text) for job in scoped_jobs):,}')
@@ -4523,10 +4548,11 @@ class MainWindow(QMainWindow):
         self.cards['eta'].set_value(f'{metrics.eta_seconds/60:.1f} min')
         current=self.queue_filter.currentText() if hasattr(self,'queue_filter') else ''
         for card in self.cards.values(): card.set_active(bool(getattr(card,'filter_text','')) and card.filter_text==current)
-        self.update_source_output_strip()
-        self.update_quota_scope_label(scoped_jobs)
-        self.refresh_provider_intelligence()
-        if hasattr(self,'health_button'): self.update_status_bar()
+        if not runtime_lightweight:
+            self.update_source_output_strip()
+            self.update_quota_scope_label(scoped_jobs)
+            self.refresh_provider_intelligence()
+            if hasattr(self,'health_button'): self.update_status_bar()
     def create_report(self,summary):
         report_summary=dict(summary); report_summary['run_id']=self.current_run_id or ''
         return self.report_service.create_generation_report(project=self.project_controller.current_project,settings=self.settings(),jobs=list(self.generation_controller.generation_jobs()),output_dir=Path(self.out.text() or self.project_controller.default_output_path),summary=report_summary,started_at=self.generation_started_at or datetime.now(timezone.utc),log_events=self.run_logs,monitor_metrics=self.monitor_service.report_metrics())

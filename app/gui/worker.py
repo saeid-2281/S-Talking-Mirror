@@ -374,6 +374,13 @@ class GenerationWorker(QObject):
             db.close()
 
     def _concurrent_scheduling(self) -> bool:
+        # Piper is a local engine and the Portable fallback currently uses a
+        # native CLI process.  Running several copies concurrently multiplies
+        # CPU/process churn and makes cancellation/UI responsiveness worse on
+        # large queues.  Keep Piper serialized; cloud/provider scheduling keeps
+        # its existing policy unchanged.
+        if str(self.settings.provider or "").strip().casefold() == "piper":
+            return False
         plan = self.orchestration_plan
         return bool(
             plan is not None

@@ -48,6 +48,10 @@ class GenerationMonitorService(QObject):
         self.stall_threshold_seconds = 30.0
         self.recovery_service = recovery_service
         self.project_key = ""
+        # A full recovery snapshot serializes the entire queue.  On 20k+ job
+        # batches doing that for every progress signal can block the GUI thread.
+        self.recovery_persist_interval_seconds = 2.0
+        self._last_recovery_persist_at: float | None = None
 
     def reset(self) -> GenerationMonitorState:
         self.timer.stop()
@@ -63,6 +67,7 @@ class GenerationMonitorService(QObject):
         self.session_id = ""
         self.last_progress_at = None
         self.retry_events = 0
+        self._last_recovery_persist_at = None
         return self._publish(GenerationMonitorState())
 
     def refresh_queue(
@@ -106,11 +111,12 @@ class GenerationMonitorService(QObject):
         self.log_events = []
         self.session_id = uuid4().hex
         self.last_progress_at = self.started_at
-        self.retry_events = 0
+        self.retry_events = sum(max(0, current.retry_count) for current in jobs)
+        self._last_recovery_persist_at = None
         self._log("run started")
         self.timer.start()
         state = self._rebuild("Running")
-        self.persist_recovery()
+        self.persist_recovery(force=True)
         return state
 
     def handle_progress(
@@ -125,11 +131,16 @@ class GenerationMonitorService(QObject):
     ) -> GenerationMonitorState:
         self.jobs = jobs
         self.last_progress_at = self.clock()
-        self.retry_events = max(
-            self.retry_events,
-            sum(max(0, current.retry_count) for current in jobs),
-            retry,
-        )
+        # Avoid rescanning a very large queue on every transient "running"
+        # update.  Retry totals are refreshed when retry/terminal events arrive.
+        if status in {"retrying", JobStatus.COMPLETED.value, JobStatus.FAILED.value}:
+            self.retry_events = max(
+                self.retry_events,
+                sum(max(0, current.retry_count) for current in jobs),
+                retry,
+            )
+        else:
+            self.retry_events = max(self.retry_events, retry)
         job = self._current_job() or self._job_for_name(name)
         if status == JobStatus.RUNNING.value and job:
             if self.current_row_number != job.row_number:
@@ -189,12 +200,19 @@ class GenerationMonitorService(QObject):
         self._log("stop requested")
         return self._rebuild("Stopping", stopped=True)
 
-    def persist_recovery(self) -> None:
+    def persist_recovery(self, *, force: bool = False) -> None:
         if (
             self.recovery_service is None
             or not self.jobs
             or not self.project_key
             or self.started_at is None
+        ):
+            return
+        now = self.clock()
+        if (
+            not force
+            and self._last_recovery_persist_at is not None
+            and now - self._last_recovery_persist_at < self.recovery_persist_interval_seconds
         ):
             return
         self.recovery_service.save(
@@ -204,6 +222,7 @@ class GenerationMonitorService(QObject):
             output_dir=self.output_dir,
             project_key=self.project_key,
         )
+        self._last_recovery_persist_at = now
 
     def finish(self, summary: dict | None = None) -> GenerationMonitorState:
         self.timer.stop()
@@ -212,7 +231,7 @@ class GenerationMonitorService(QObject):
         state = self._rebuild("Stopped by user" if stopped else "Finished", stopped=stopped)
         if self.recovery_service is not None:
             if stopped or (summary or {}).get("failed"):
-                self.persist_recovery()
+                self.persist_recovery(force=True)
             else:
                 self.recovery_service.discard()
         return state

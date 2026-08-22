@@ -525,6 +525,11 @@ class ActivityCenter(QTabWidget):
         self.output_log.setReadOnly(True)
         self.error_log = QPlainTextEdit()
         self.error_log.setReadOnly(True)
+        # Long batches can emit tens of thousands of progress lines.  Keeping a
+        # bounded visible history prevents QPlainTextEdit layout work from
+        # starving the GUI thread while full run evidence remains in reports.
+        for editor in (self.activity_log, self.output_log, self.error_log):
+            editor.setMaximumBlockCount(2000)
 
         self.activity_workspace = QTabWidget()
         self.activity_workspace.setObjectName("activityWorkspace")
@@ -695,7 +700,10 @@ class GenerationStatusStrip(QFrame):
         if self._minimal_daily_mode:
             self.state_badge.setVisible(True)
             self.pause_button.setVisible(self.pause_button.isEnabled())
-            self.stop_button.setVisible(self.stop_button.isEnabled())
+            # Stop has a stable, always-visible home in daily mode.  It is
+            # disabled while idle and enabled before generation starts, so the
+            # user never has to hunt for the emergency control under load.
+            self.stop_button.setVisible(True)
         else:
             self.pause_button.setVisible(True)
             self.stop_button.setVisible(True)
@@ -704,7 +712,7 @@ class GenerationStatusStrip(QFrame):
         if not self._minimal_daily_mode:
             return
         self.pause_button.setVisible(bool(active))
-        self.stop_button.setVisible(bool(active))
+        self.stop_button.setVisible(True)
         self.progress_context.setVisible(True)
 
     def set_generation_state(self, state: str, detail: str = "") -> None:
