@@ -5,7 +5,7 @@ import app
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from PySide6.QtCore import QSettings,Qt,QTimer,QUrl,QSize
+from PySide6.QtCore import QEventLoop,QSettings,Qt,QTimer,QUrl,QSize
 from PySide6.QtGui import QAction,QColor,QDesktopServices,QDragEnterEvent,QDropEvent,QKeySequence,QPalette
 from PySide6.QtWidgets import *
 from app.bootstrap import ApplicationContext, create_application_context
@@ -530,7 +530,7 @@ class MainWindow(QMainWindow):
         self.project_menu.addSeparator()
         for tx,fn,ic in [('Close Project',self.close_project,'stop'),('Exit',self.close,'stop')]: a=self.project_menu.addAction(icon(ic),tx); a.triggered.connect(fn); self.actions_by_name[tx]=a
         self.actions_by_name['Save Project']=self.actions_by_name['Save']; self.actions_by_name['Save Project As']=self.actions_by_name['Save As']
-        for name,shortcut in [('New Project','Ctrl+N'),('Open Project','Ctrl+O'),('Add source files','Ctrl+Shift+O'),('Add text source','Ctrl+Shift+T'),('Save','Ctrl+S')]:
+        for name,shortcut in [('New Project','Ctrl+N'),('Open Project','Ctrl+O'),('Add source files','Ctrl+Shift+O'),('Add text source','Ctrl+Shift+T'),('Save','Ctrl+S'),('Close Project','Ctrl+Shift+W')]:
             self.actions_by_name[name].setShortcut(QKeySequence(shortcut))
     def build_main_toolbar(self):
         self.main_toolbar=QToolBar('Main Toolbar',self); self.main_toolbar.setObjectName('mainToolbar'); self.main_toolbar.setMovable(False); self.main_toolbar.setFloatable(False); self.main_toolbar.setIconSize(QSize(24,24)); self.main_toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon); self.main_toolbar.setFixedHeight(42); self.addToolBar(Qt.TopToolBarArea,self.main_toolbar)
@@ -3048,7 +3048,8 @@ class MainWindow(QMainWindow):
     def new_project(self):
         d=NewProjectDialog(self,self.project_controller.last_csv_dir,self.project_controller.last_output_dir)
         if d.exec()!=QDialog.Accepted: return
-        name,csv_path,out_path=d.values(); s=self.project_controller.new_project(name,csv_path,out_path,self.settings()); self.apply_project_state(s); self.project_sources=[]; self.render_project_sources(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.dashboard(); self.log.appendPlainText('New project.')
+        if not self._project_transition_ready(): return
+        name,csv_path,out_path=d.values(); self._reset_project_runtime_state(); s=self.project_controller.new_project(name,csv_path,out_path,self.settings()); self.apply_project_state(s); self.dashboard(); self.log.appendPlainText('New project.')
         if csv_path and csv_path.exists(): self.load_csv(update_project=False)
         self.dashboard(); self.update_status_bar()
     def save_project(self):
@@ -3063,29 +3064,59 @@ class MainWindow(QMainWindow):
         try:
             s=self.project_controller.save_project_as(Path(p),Path(p).stem,self.settings(),self.csv.text(),self.out.text()); self.apply_project_state(s); self.log.appendPlainText(f'Project saved: {s.project_file}'); self.update_status_bar()
         except Exception as e: self.notifications.error('Project error',str(e))
+    def _project_transition_ready(self):
+        if self.generation_controller.worker is not None:
+            self.notifications.warning('Project switch','Stop the active generation before closing or switching projects.')
+            return False
+        if not self.generation_controller.wait_until_idle(2000):
+            self.notifications.warning('Project switch','Generation is still finalizing. Try again in a moment.')
+            return False
+        return True
+    def _reset_project_runtime_state(self):
+        self.audio_player_service.unload()
+        if hasattr(self,'output_workspace'): self.output_workspace.set_output_context(None)
+        self._pending_monitor_state=None; self._monitor_render_pending=False; self._monitor_last_failed_count=None; self._latest_completed_output_cache=None; self._generation_job_lookup={}; self._generation_dashboard_refresh_pending=False
+        self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.current_intelligent_tts_ledger=None; self.current_intelligent_tts_execution=None; self.current_intelligent_tts_recovery_assessment=None; self.current_intelligent_tts_artifact_plan=None
+        self.project_sources=[]; self.render_project_sources(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.preflight_service.invalidate(); self.last_launch_assurance=None
+        QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+    def _resolve_missing_project_source(self,state):
+        if state.csv_path is None or state.csv_path.exists(): return state
+        initial=state.project_file.parent / state.csv_path.name if state.project_file else state.csv_path.parent
+        selected,_=QFileDialog.getOpenFileName(self,'Locate project source',str(initial),'CSV (*.csv);;All files (*)')
+        if not selected: return state
+        replacement=Path(selected)
+        self.project_controller.update_csv_path(replacement)
+        self.project_controller.autosave_if_needed(generation_active=False)
+        return self.project_controller.current_project or state
+    def _open_project_path(self,path,session_state=None,activity_source='project-open'):
+        if not self._project_transition_ready(): return None
+        state=self.project_controller.open_project(Path(path))
+        self._reset_project_runtime_state()
+        state=self._resolve_missing_project_source(state)
+        self.apply_project_state(state)
+        if state.csv_path and state.csv_path.exists(): self.load_csv(update_project=False)
+        else: self.restore_project_queue()
+        if session_state is not None:
+            self.queue_filter.setCurrentText(str(session_state.queue_filter).title())
+            if session_state.selected_row is not None: self.queue_adapter.select_view_row(session_state.selected_row)
+        self.dashboard(); self.update_status_bar(); QTimer.singleShot(0,self.offer_generation_recovery)
+        if activity_source:
+            self.context.product_activity_service.activity('project','Project opened',f'Opened project {state.name}.',project_id=state.project_id,metadata={'project_file':str(state.project_file or ''),'source':activity_source})
+        return state
     def open_project(self):
         s,_=QFileDialog.getOpenFileName(self,'Open project','','S Talking project (*.stproj)')
         if not s:return
-        try:
-            p=self.project_controller.open_project(Path(s)); self.apply_project_state(p)
-            if p.csv_path and p.csv_path.exists(): self.load_csv(update_project=False)
-            else: self.restore_project_queue()
-            self.dashboard(); self.update_status_bar(); QTimer.singleShot(0,self.offer_generation_recovery)
+        try: self._open_project_path(Path(s))
         except Exception as e: self.notifications.error('Project error',str(e))
     def recent_projects(self):
         d=RecentProjectsDialog(self.project_controller.list_recent_projects(),self)
         if d.exec()==QDialog.Accepted and d.selected_project and d.selected_project.project_file:
-            try:
-                state=self.project_controller.open_project(Path(d.selected_project.project_file)); self.apply_project_state(state)
-                if state.csv_path and state.csv_path.exists(): self.load_csv(update_project=False)
-                else: self.restore_project_queue()
-                QTimer.singleShot(0,self.offer_generation_recovery)
+            try: self._open_project_path(Path(d.selected_project.project_file),activity_source='recent-projects')
             except Exception as e: self.notifications.error('Project error',str(e))
         elif d.removed_project_id: self.project_controller.remove_recent_project(d.removed_project_id)
     def _continue_project_path(self,path,session_state=None):
-        if self.generation_controller.is_active:
-            self.notifications.warning('Project continuity','Stop the active generation before switching projects.'); return None
-        state=self.project_controller.open_project(Path(path)); self.apply_project_state(state)
+        if not self._project_transition_ready(): return None
+        state=self.project_controller.open_project(Path(path)); self._reset_project_runtime_state(); state=self._resolve_missing_project_source(state); self.apply_project_state(state)
         if state.csv_path and state.csv_path.exists(): self.load_csv(update_project=False)
         else: self.restore_project_queue()
         if session_state is not None:
@@ -3111,7 +3142,9 @@ class MainWindow(QMainWindow):
                 if path.exists(): self.context.desktop_service.open_path(path)
         except Exception as e: self.notifications.error('Project continuity',str(e))
     def close_project(self):
-        self.project_controller.close_project(); self.project_path=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.current_intelligent_tts_ledger=None; self.current_intelligent_tts_execution=None; self.current_intelligent_tts_recovery_assessment=None; self.current_intelligent_tts_artifact_plan=None; self.csv.clear(); self.load_saved(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar()
+        if self.project_controller.current_project is None: return True
+        if not self._project_transition_ready(): return False
+        self._reset_project_runtime_state(); self.project_controller.close_project(); self.project_path=None; self.csv.clear(); self.out.setText(str(self.project_controller.default_output_path)); self.load_saved(); self.reset_row_range_controls(); self.dashboard(); self.update_window_title(); self.log.appendPlainText('Project closed.'); self.update_status_bar(); return True
     def autosave(self):
         try:
             if self.project_controller.autosave_if_needed(generation_active=self.generation_controller.is_active): self.log.appendPlainText('Project auto-saved.'); self.update_window_title(); self.update_status_bar()

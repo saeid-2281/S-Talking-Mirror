@@ -57,7 +57,20 @@ class GenerationController(QObject):
 
     @property
     def is_active(self) -> bool:
-        return self.worker is not None
+        thread_running = self.thread is not None and self.thread.isRunning()
+        return self.worker is not None or thread_running
+
+    def wait_until_idle(self, timeout_ms: int = 2000) -> bool:
+        if self.worker is not None:
+            return False
+        thread = self.thread
+        if thread is None:
+            return True
+        if thread.isRunning():
+            thread.quit()
+            if not thread.wait(max(0, int(timeout_ms))):
+                return False
+        return True
 
     @property
     def is_paused(self) -> bool:
@@ -349,6 +362,9 @@ class GenerationController(QObject):
         self.worker.failed.connect(self._failed)
         self.worker.finished.connect(self.thread.quit)
         self.worker.failed.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.worker.failed.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self._thread_finished)
         self._state.status = "running"
         self.thread.start()
         return True
@@ -387,12 +403,22 @@ class GenerationController(QObject):
         self.scheduler.emit(payload)
 
     def _finished(self, summary: dict) -> None:
+        if self.thread is not None:
+            self.thread.quit()
         self.finished.emit(summary)
         self._clear()
 
     def _failed(self, error: str) -> None:
+        if self.thread is not None:
+            self.thread.quit()
         self.failed.emit(error)
         self._clear()
+
+    def _thread_finished(self) -> None:
+        thread = self.thread
+        self.thread = None
+        if thread is not None:
+            thread.deleteLater()
 
     def _clear(self) -> None:
         self.worker = None

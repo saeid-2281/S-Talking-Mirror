@@ -61,6 +61,7 @@ class ProjectManager:
             raise ValueError(f"Could not read project file: {project_path}") from exc
 
         state = self._state_from_project_json(raw, project_path)
+        relocated_csv = self._relocate_missing_csv_next_to_project(state, project_path)
         existing = self.projects.get_by_project_file(str(project_path))
         if existing:
             record = self.projects.update(
@@ -86,6 +87,9 @@ class ProjectManager:
         self.projects.touch_last_opened(record.id)
         refreshed = self.projects.get_by_id(record.id)
         self.current = self._state_from_record(refreshed or record, dirty=False)
+        if relocated_csv:
+            self.current.dirty = True
+            self.save_project()
         return self.current
 
     def save_project(self) -> ProjectState:
@@ -215,6 +219,16 @@ class ProjectManager:
             settings=settings,
             dirty=False,
         )
+
+    def _relocate_missing_csv_next_to_project(self, state: ProjectState, project_path: Path) -> bool:
+        source = state.csv_path
+        if source is None or source.exists() or not source.name:
+            return False
+        candidate = project_path.parent / source.name
+        if not candidate.is_file():
+            return False
+        state.csv_path = candidate
+        return True
 
     def _write_project_file(self, path: Path, state: ProjectState) -> None:
         project_settings = state.settings.model_copy(update={"api_key": ""})
