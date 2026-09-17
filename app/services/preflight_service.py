@@ -203,12 +203,26 @@ class PreflightService:
         for duplicate_name, job in output_names:
             if duplicate_name in duplicate_names:
                 self._issue(issues, "hard_error", job.row_number, job.filename, "Duplicate output filename.", "Append suffixes to duplicate filenames.", "duplicate_filename")
+        text_counts = Counter(text_hashes)
+        duplicate_text_values = {
+            value for value, count in text_counts.items() if value and count > 1
+        }
         duplicate_text_rows = [
-            job.row_number for job in jobs if text_hashes.count(job.text.strip().casefold()) > 1 and job.text.strip()
+            job.row_number
+            for job in jobs
+            if job.text.strip().casefold() in duplicate_text_values
         ]
-        for row in duplicate_text_rows:
-            job = next(item for item in jobs if item.row_number == row)
-            self._issue(issues, "warning", row, job.filename, "Duplicate text appears in the batch.", "Confirm this repeated text is intentional.", "duplicate_text")
+        for job in jobs:
+            if job.text.strip().casefold() in duplicate_text_values:
+                self._issue(
+                    issues,
+                    "warning",
+                    job.row_number,
+                    job.filename,
+                    "Duplicate text appears in the batch.",
+                    "Confirm this repeated text is intentional.",
+                    "duplicate_text",
+                )
 
         pending_characters = sum(len(job.text) for job in pending)
         quota_snapshot = self._validate_quota(settings, pending_characters, issues)
@@ -233,6 +247,7 @@ class PreflightService:
             job.row_number: str(getattr(job, "pronunciation_override", None) or "").strip()
             for job in jobs
         }
+        jobs_by_row = {job.row_number: job for job in jobs}
         state = PreflightState(
             total_jobs=len(jobs),
             valid_jobs=max(0, len(jobs) - len({issue.row for issue in issues if issue.severity in {"hard_error", "error"} and issue.row})),
@@ -287,13 +302,13 @@ class PreflightService:
                         pronunciation_decisions.get(int(item.row or 0), "")
                     ),
                     "decision_freshness": self.pronunciation_assurance_service.decision_freshness(
-                        next(job for job in jobs if job.row_number == item.row), settings
+                        jobs_by_row[item.row], settings
                     ),
                     "decision_fingerprint": self.pronunciation_assurance_service.decision_fingerprint(
                         pronunciation_decisions.get(int(item.row or 0), "")
                     ),
                     "current_fingerprint": self.pronunciation_assurance_service.review_context_fingerprint(
-                        next(job for job in jobs if job.row_number == item.row), settings
+                        jobs_by_row[item.row], settings
                     ),
                 }
                 for item in pronunciation_assurance.assessments

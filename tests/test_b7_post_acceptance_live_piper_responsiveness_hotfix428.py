@@ -141,7 +141,7 @@ def test_h428_main_progress_path_is_incremental_and_throttled() -> None:
 
     assert "self.queue_adapter.refresh_rows([job])" in refresh_block
     assert "self.schedule_generation_dashboard_refresh()" in refresh_block
-    assert "QTimer.singleShot(350,self.flush_generation_dashboard_refresh)" in refresh_block
+    assert "QTimer.singleShot(750,self.flush_generation_dashboard_refresh)" in refresh_block
     assert "self.render_queue(); return" not in refresh_block.split(
         "if hasattr(self,'queue_adapter') and self.queue_adapter.is_model_view:", 1
     )[1].split(

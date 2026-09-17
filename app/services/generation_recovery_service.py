@@ -43,8 +43,12 @@ class GenerationRecoveryService:
         }
         body["checksum"] = self._checksum(body)
         temporary = self.path.with_suffix(self.path.suffix + ".tmp")
+        # Recovery snapshots can contain tens of thousands of jobs.  The
+        # checksum already uses canonical sorted JSON, so pretty-printing and
+        # sorting the file payload a second time only adds CPU, allocations and
+        # disk I/O on the live generation path.
         temporary.write_text(
-            json.dumps(body, ensure_ascii=False, indent=2, sort_keys=True),
+            json.dumps(body, ensure_ascii=False, separators=(",", ":")),
             encoding="utf-8",
         )
         temporary.replace(self.path)

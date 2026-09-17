@@ -35,10 +35,23 @@ class GenerationLiveOperationsService:
             "failed": 0,
             "skipped": 0,
         }
-        for job in jobs:
-            status = str(getattr(getattr(job, "status", None), "value", "pending") or "pending").casefold()
-            if status in counts:
-                counts[status] += 1
+        monitor_has_counts = all(
+            hasattr(monitor_state, key)
+            for key in ("pending", "running", "completed", "failed", "skipped")
+        )
+        if active and monitor_has_counts:
+            # The monitor already owns authoritative live counters.  Reusing
+            # them avoids rescanning a 20k+ queue every time the monitor paints.
+            for key in counts:
+                counts[key] = self._as_int(getattr(monitor_state, key, 0))
+        else:
+            for job in jobs:
+                status = str(
+                    getattr(getattr(job, "status", None), "value", "pending")
+                    or "pending"
+                ).casefold()
+                if status in counts:
+                    counts[status] += 1
 
         observed_total = self._as_int(getattr(monitor_state, "total", 0))
         total = max(observed_total, len(jobs))

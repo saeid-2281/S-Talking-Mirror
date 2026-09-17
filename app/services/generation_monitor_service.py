@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 from uuid import uuid4
 from collections.abc import Callable
@@ -52,6 +53,15 @@ class GenerationMonitorService(QObject):
         # batches doing that for every progress signal can block the GUI thread.
         self.recovery_persist_interval_seconds = 2.0
         self._last_recovery_persist_at: float | None = None
+        # Large recovery files are intentionally written off the Qt GUI thread.
+        # A 20k+ queue can serialize to tens of MB; doing that synchronously
+        # every few seconds makes Windows declare the application Not Responding.
+        self.large_queue_recovery_threshold = 2_000
+        self._recovery_lock = threading.Lock()
+        self._recovery_thread: threading.Thread | None = None
+        self._recovery_pending = False
+        self._recovery_discard_when_idle = False
+        self._recovery_background_error = ""
 
     def reset(self) -> GenerationMonitorState:
         self.timer.stop()
@@ -113,6 +123,10 @@ class GenerationMonitorService(QObject):
         self.last_progress_at = self.started_at
         self.retry_events = sum(max(0, current.retry_count) for current in jobs)
         self._last_recovery_persist_at = None
+        with self._recovery_lock:
+            self._recovery_pending = False
+            self._recovery_discard_when_idle = False
+            self._recovery_background_error = ""
         self._log("run started")
         self.timer.start()
         state = self._rebuild("Running")
@@ -215,6 +229,10 @@ class GenerationMonitorService(QObject):
             and now - self._last_recovery_persist_at < self.recovery_persist_interval_seconds
         ):
             return
+        self._last_recovery_persist_at = now
+        if len(self.jobs) >= self.large_queue_recovery_threshold:
+            self._schedule_large_recovery_save()
+            return
         self.recovery_service.save(
             session=self.session_snapshot(),
             jobs=self.jobs,
@@ -222,7 +240,75 @@ class GenerationMonitorService(QObject):
             output_dir=self.output_dir,
             project_key=self.project_key,
         )
-        self._last_recovery_persist_at = now
+
+    def _schedule_large_recovery_save(self) -> None:
+        service = self.recovery_service
+        if (
+            service is None
+            or not self.jobs
+            or not self.project_key
+            or self.started_at is None
+        ):
+            return
+
+        with self._recovery_lock:
+            if self._recovery_thread is not None and self._recovery_thread.is_alive():
+                # Coalesce repeated progress requests into one latest follow-up
+                # snapshot rather than building a backlog of giant JSON writes.
+                self._recovery_pending = True
+                return
+
+            self._recovery_pending = False
+            session = self.session_snapshot()
+            jobs = self.jobs
+            settings = self.settings
+            output_dir = self.output_dir
+            project_key = self.project_key
+
+            def _save() -> None:
+                try:
+                    service.save(
+                        session=session,
+                        jobs=jobs,
+                        settings=settings,
+                        output_dir=output_dir,
+                        project_key=project_key,
+                    )
+                except Exception as exc:  # recovery evidence must not kill generation
+                    self._recovery_background_error = str(exc)
+                finally:
+                    with self._recovery_lock:
+                        pending = self._recovery_pending
+                        discard = self._recovery_discard_when_idle
+                        self._recovery_pending = False
+                        self._recovery_thread = None
+                    if discard:
+                        try:
+                            service.discard()
+                        except Exception as exc:
+                            self._recovery_background_error = str(exc)
+                        return
+                    if pending and self.started_at is not None:
+                        self._schedule_large_recovery_save()
+
+            thread = threading.Thread(
+                target=_save,
+                name="s-talking-recovery-snapshot",
+                daemon=True,
+            )
+            self._recovery_thread = thread
+            thread.start()
+
+    def _discard_recovery_when_idle(self) -> None:
+        service = self.recovery_service
+        if service is None:
+            return
+        with self._recovery_lock:
+            if self._recovery_thread is not None and self._recovery_thread.is_alive():
+                self._recovery_pending = False
+                self._recovery_discard_when_idle = True
+                return
+        service.discard()
 
     def finish(self, summary: dict | None = None) -> GenerationMonitorState:
         self.timer.stop()
@@ -233,7 +319,7 @@ class GenerationMonitorService(QObject):
             if stopped or (summary or {}).get("failed"):
                 self.persist_recovery(force=True)
             else:
-                self.recovery_service.discard()
+                self._discard_recovery_when_idle()
         return state
 
     def tick(self) -> GenerationMonitorState:
@@ -265,6 +351,31 @@ class GenerationMonitorService(QObject):
 
     def session_snapshot(self) -> GenerationSession:
         """Return a serializable snapshot for reports, restore, and diagnostics."""
+        if len(self.jobs) >= self.large_queue_recovery_threshold:
+            state = self.state
+            return GenerationSession(
+                session_id=self.session_id or "idle",
+                status=state.current_status,
+                started_at=state.generation_start_time,
+                updated_at=datetime.now(timezone.utc).isoformat(),
+                total_jobs=state.total,
+                pending_jobs=state.pending,
+                running_jobs=state.running,
+                completed_jobs=state.completed,
+                failed_jobs=state.failed,
+                skipped_jobs=state.skipped,
+                retried_jobs=state.retries,
+                processed_jobs=state.processed,
+                total_characters=state.total_characters,
+                processed_characters=state.processed_characters,
+                elapsed_seconds=state.total_elapsed_seconds,
+                active_seconds=state.active_elapsed_seconds,
+                jobs_per_minute=state.jobs_per_minute,
+                characters_per_second=state.characters_per_second,
+                eta_seconds=state.remaining_eta_seconds,
+                progress_percent=state.progress_percent,
+                stalled=state.stalled,
+            )
         return GenerationSession.build(
             session_id=self.session_id or "idle",
             status=self.state.current_status,

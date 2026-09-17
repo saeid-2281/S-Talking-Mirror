@@ -249,6 +249,7 @@ class MainWindow(QMainWindow):
         self.update_delivery_controller.completed.connect(self._background_update_completed)
         self.update_delivery_controller.failed.connect(self._background_update_failed)
         self.project_path=None; self.generation_started_at=None; self.run_logs=[]; self.report_dialogs=[]; self.qt_runtime_health_service=QtRuntimeHealthService(self); self.last_launch_receipt=None; self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.palette=None; self.actions_by_name={}; self.job_pronunciation_overrides={}; self.project_sources=[]
+        self._pending_monitor_state=None; self._monitor_render_pending=False; self._monitor_last_failed_count=None; self._latest_completed_output_cache=None; self._generation_job_lookup={}
         self.autosave_timer=QTimer(self); self.autosave_timer.setInterval(30000); self.autosave_timer.timeout.connect(self.autosave)
         if not self._test_fast_path: self.autosave_timer.start()
         performance_policy=self.performance_stability_service.load_policy(); self.performance_sample_timer=QTimer(self); self.performance_sample_timer.setInterval(performance_policy.sample_interval_seconds*1000); self.performance_sample_timer.timeout.connect(self.capture_performance_sample)
@@ -501,7 +502,7 @@ class MainWindow(QMainWindow):
         self.pauseb=self.generation_status_strip.pause_button; self.stopb=self.generation_status_strip.stop_button; self.bar=self.generation_status_strip.progress_bar
         self.application_shell.add_footer(self.activity_center,self.generation_status_strip)
         self.generation_controller.progress.connect(self.progress); self.generation_controller.log.connect(self.log.appendPlainText); self.generation_controller.finished.connect(self.finished); self.generation_controller.failed.connect(self.failed); self.generation_controller.failover.connect(self.generation_failover)
-        self.monitor_service.updated.connect(self.render_monitor); self.monitor_service.event.connect(self.monitor_event)
+        self.monitor_service.updated.connect(self.schedule_monitor_render); self.monitor_service.event.connect(self.monitor_event)
         self.queue_filter.currentTextChanged.connect(self.apply_queue_filter); self.dry_run_button.clicked.connect(self.dry_run); self.retry_failed_button.clicked.connect(self.retry_failed); self.retry_selected_button.clicked.connect(self.retry_selected); self.skip_selected_button.clicked.connect(self.skip_selected); self.reset_selected_button.clicked.connect(self.reset_selected); self.clear_completed_button.clicked.connect(self.clear_completed); self.open_output_button.clicked.connect(self.open_selected_output)
         self.provider.currentTextChanged.connect(self.provider_changed); self.failover.currentIndexChanged.connect(self.settings_changed); self.provider_changed('mock')
         for w in [self.key,self.voice,self.piper]: w.textChanged.connect(self.settings_changed)
@@ -1976,6 +1977,17 @@ class MainWindow(QMainWindow):
     def resizeEvent(self,event):
         super().resizeEvent(event); self.clamp_monitor_width(); self.apply_monitor_compact_mode()
         if hasattr(self,'responsive_workspace'): self.responsive_workspace.schedule()
+    def schedule_monitor_render(self,state):
+        self._pending_monitor_state=state
+        if self._monitor_render_pending: return
+        self._monitor_render_pending=True
+        delay=250 if self.generation_controller.is_active else 0
+        QTimer.singleShot(delay,self.flush_monitor_render)
+    def flush_monitor_render(self):
+        self._monitor_render_pending=False
+        state=self._pending_monitor_state
+        self._pending_monitor_state=None
+        if state is not None: self.render_monitor(state)
     def render_monitor(self,state):
         if not hasattr(self,'monitor_labels'): return
         data=state.__dict__
@@ -2001,19 +2013,27 @@ class MainWindow(QMainWindow):
         elif any(token in lowered for token in ('complete','ready','success','idle')): tone='success'
         else: tone='info'
         self.monitor_status.setText(status_text)
+        tone_changed=self.monitor_status.property('tone')!=tone
         self.monitor_status.setProperty('tone',tone)
         self.monitor_status.setAccessibleName(f'Generation status: {status_text}')
-        self.monitor_status.style().unpolish(self.monitor_status)
-        self.monitor_status.style().polish(self.monitor_status)
+        if tone_changed:
+            self.monitor_status.style().unpolish(self.monitor_status)
+            self.monitor_status.style().polish(self.monitor_status)
         output=state.current_output_path
-        latest=self.latest_completed_output_path()
+        latest=self._latest_completed_output_cache if self.generation_controller.is_active else self.latest_completed_output_path()
+        output_exists=bool(output and Path(output).exists())
         self.monitor_output.setText(elide_middle(output,68) if output else '—')
         self.monitor_output.setToolTip(output)
         self.monitor_copy_path.setEnabled(bool(output))
-        self.monitor_open_output.setEnabled(bool(output and Path(output).exists()))
-        self.monitor_play_output.setEnabled(bool(output and Path(output).exists()))
+        self.monitor_open_output.setEnabled(output_exists)
+        self.monitor_play_output.setEnabled(output_exists)
         self.monitor_play_latest.setEnabled(bool(latest and latest.exists()))
-        self.monitor_error.setPlainText(state.last_provider_error); self.monitor_error.setVisible(bool(state.last_provider_error)); self.render_failure_summary(); self.refresh_generation_live_operations()
+        self.monitor_error.setPlainText(state.last_provider_error); self.monitor_error.setVisible(bool(state.last_provider_error))
+        failed_count=int(getattr(state,'failed',0) or 0)
+        if not self.generation_controller.is_active or self._monitor_last_failed_count!=failed_count:
+            self._monitor_last_failed_count=failed_count
+            self.render_failure_summary()
+        self.refresh_generation_live_operations()
     def refresh_generation_live_operations(self):
         if not hasattr(self,'live_operations'): return
         try:
@@ -3286,6 +3306,7 @@ class MainWindow(QMainWindow):
                 'Checking the current queue and launch request before generation',
             )
             state=self.run_preflight(write_report=False)
+            QApplication.processEvents()
         if not state.can_start:
             self.block_generation_on_safety_state(state)
             return
@@ -3421,6 +3442,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.current_run_id=run_id; self.current_execution_session=session_path
             self.log.appendPlainText(f'Execution session initialization failed: {exc}')
+        QApplication.processEvents()
         try:
             launch_assurance=self.launch_assurance_service.verify_generation(
                 launch_assurance,
@@ -3445,6 +3467,8 @@ class MainWindow(QMainWindow):
             self.reject_launch_context_change(exc)
             return
         generation_jobs=self.generation_controller.generation_jobs()
+        self._generation_job_lookup={Path(job.filename).name:job for job in generation_jobs}
+        self._latest_completed_output_cache=None
         try:
             execution_binding=self.intelligent_tts_execution_service.prepare(
                 generation_jobs,
@@ -3462,12 +3486,14 @@ class MainWindow(QMainWindow):
             self.log.appendPlainText(
                 f'Intelligent TTS execution binding: {execution_binding.manifest_digest[:16]} · {execution_binding.request_count} request(s)'
             )
+            QApplication.processEvents()
             self.begin_intelligent_tts_run_ledger(
                 execution_binding,
                 run_id,
                 project.project_key,
                 pending_resume=pending_resume,
             )
+            QApplication.processEvents()
             self.begin_intelligent_tts_artifact_plan(
                 execution_binding,
                 generation_jobs,
@@ -3476,6 +3502,7 @@ class MainWindow(QMainWindow):
                 run_id,
                 project.project_key,
             )
+            QApplication.processEvents()
         except IntelligentTTSExecutionDrift as exc:
             if self.current_budget_reservation_id:
                 try:
@@ -3490,6 +3517,29 @@ class MainWindow(QMainWindow):
             self.generation_status_strip.set_generation_state('Ready','Execution context changed')
             self.notifications.warning('Intelligent TTS execution',str(exc))
             self.statusBar().showMessage('Generation was not started because the approved TTS request changed.',7000)
+            return
+        # User input is processed between large evidence stages so the shell can
+        # keep painting. Re-verify the launch boundary after those yields before
+        # the worker is allowed to start.
+        try:
+            launch_assurance=self.launch_assurance_service.verify_generation(
+                launch_assurance,
+                state,
+                self.current_launch_request_revision(s),
+            )
+            self.last_launch_assurance=launch_assurance
+        except LaunchAssuranceContextChanged as exc:
+            if self.current_budget_reservation_id:
+                try:
+                    self.context.generation_budget_guard_service.release_reservation(
+                        self.current_budget_reservation_id,
+                        reason='launch_context_changed_during_preparation',
+                    )
+                except Exception as release_exc:
+                    self.log.appendPlainText(f'Budget reservation release failed: {release_exc}')
+                self.current_budget_reservation_id=None
+            self.finish_execution_session('cancelled')
+            self.reject_launch_context_change(exc)
             return
         # Make emergency controls visible/enabled before the worker can enter a
         # local provider.  Force one paint/event pass so Stop has a usable home
@@ -4359,7 +4409,8 @@ class MainWindow(QMainWindow):
         if not hasattr(self,'table'): return
         target=Path(name).name if name else ''
         if not target: return
-        job=next((item for item in self.generation_controller.jobs if Path(item.filename).name==target),None)
+        job=self._generation_job_lookup.get(target) if hasattr(self,'_generation_job_lookup') else None
+        if job is None: job=next((item for item in self.generation_controller.jobs if Path(item.filename).name==target),None)
         if job is None: return
         if hasattr(self,'queue_adapter') and self.queue_adapter.is_model_view:
             # Updating a single model row is O(1)-ish and preserves proxy
@@ -4385,11 +4436,14 @@ class MainWindow(QMainWindow):
     def progress(self,i,total,name,status,duration,retry,error):
         self.bar.setMaximum(total); self.bar.setValue(i); self.monitor_service.handle_progress(self.generation_controller.jobs,status=status,name=name,duration=duration,retry=retry,error=error); self.refresh_progress_row(name,status,duration,retry)
         display_name=Path(name).name if name else ''
+        if status=='completed' and name:
+            completed_path=Path(name)
+            if completed_path.exists(): self._latest_completed_output_cache=completed_path
         line=f'[{i}/{total}] {status}: {display_name}'+(f' — {error}' if error else ''); self.run_logs.append(line); self.log.appendPlainText(line); self.schedule_generation_dashboard_refresh()
     def schedule_generation_dashboard_refresh(self):
         if getattr(self,'_generation_dashboard_refresh_pending',False): return
         self._generation_dashboard_refresh_pending=True
-        QTimer.singleShot(350,self.flush_generation_dashboard_refresh)
+        QTimer.singleShot(750,self.flush_generation_dashboard_refresh)
     def flush_generation_dashboard_refresh(self):
         self._generation_dashboard_refresh_pending=False
         self.dashboard(runtime_lightweight=bool(self.generation_controller.is_active))
@@ -4536,16 +4590,36 @@ class MainWindow(QMainWindow):
             self.ptext.setPlainText('The selected row preview will appear here after a source is loaded.')
     def dashboard(self, *, runtime_lightweight: bool = False):
         if not runtime_lightweight: self.refresh_quota_snapshot()
-        scoped_jobs=self.generation_controller.generation_jobs(); metrics=self.generation_controller.scoped_metrics()
-        self.cards['files'].set_value(f'{metrics.total:,}')
-        self.cards['chars'].set_value(f'{sum(len(job.text) for job in scoped_jobs):,}')
-        self.cards['pending'].set_value(f'{metrics.pending:,}',tone='info')
-        self.cards['running'].set_value(f'{metrics.running:,}',tone='running')
-        self.cards['done'].set_value(f'{metrics.completed:,}',tone='success')
-        self.cards['failed'].set_value(f'{metrics.failed:,}',tone='error' if metrics.failed else 'neutral')
-        self.cards['skipped'].set_value(f'{metrics.skipped:,}')
+        monitor_state=self.monitor_service.state
+        if runtime_lightweight and self.generation_controller.is_active and monitor_state.total:
+            total=monitor_state.total
+            characters=monitor_state.total_characters
+            pending=monitor_state.pending
+            running=monitor_state.running
+            completed=monitor_state.completed
+            failed=monitor_state.failed
+            skipped=monitor_state.skipped
+            eta_seconds=monitor_state.remaining_eta_seconds
+            scoped_jobs=None
+        else:
+            scoped_jobs=self.generation_controller.generation_jobs(); metrics=self.generation_controller.scoped_metrics()
+            total=metrics.total
+            characters=sum(len(job.text) for job in scoped_jobs)
+            pending=metrics.pending
+            running=metrics.running
+            completed=metrics.completed
+            failed=metrics.failed
+            skipped=metrics.skipped
+            eta_seconds=metrics.eta_seconds
+        self.cards['files'].set_value(f'{total:,}')
+        self.cards['chars'].set_value(f'{characters:,}')
+        self.cards['pending'].set_value(f'{pending:,}',tone='info')
+        self.cards['running'].set_value(f'{running:,}',tone='running')
+        self.cards['done'].set_value(f'{completed:,}',tone='success')
+        self.cards['failed'].set_value(f'{failed:,}',tone='error' if failed else 'neutral')
+        self.cards['skipped'].set_value(f'{skipped:,}')
         self.cards['quota'].set_value('Ready' if self.provider.currentText()!='elevenlabs' else 'Check',tone='success' if self.provider.currentText()!='elevenlabs' else 'warning')
-        self.cards['eta'].set_value(f'{metrics.eta_seconds/60:.1f} min')
+        self.cards['eta'].set_value(f'{eta_seconds/60:.1f} min')
         current=self.queue_filter.currentText() if hasattr(self,'queue_filter') else ''
         for card in self.cards.values(): card.set_active(bool(getattr(card,'filter_text','')) and card.filter_text==current)
         if not runtime_lightweight:
