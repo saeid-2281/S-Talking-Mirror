@@ -5,7 +5,7 @@ import app
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from PySide6.QtCore import QEventLoop,QSettings,Qt,QTimer,QUrl,QSize
+from PySide6.QtCore import QSettings,Qt,QTimer,QUrl,QSize
 from PySide6.QtGui import QAction,QColor,QDesktopServices,QDragEnterEvent,QDropEvent,QKeySequence,QPalette
 from PySide6.QtWidgets import *
 from app.bootstrap import ApplicationContext, create_application_context
@@ -312,6 +312,13 @@ class MainWindow(QMainWindow):
         explicit=os.getenv("S_TALKING_QUEUE_MODEL_VIEW")
         if explicit is not None:
             return explicit.strip().casefold() in {"1","true","yes","on","enabled"}
+        # Frozen daily-use builds default to the scalable model/view queue.
+        # The legacy QTableWidget remains available through the explicit env
+        # override and as the source/developer fallback.  Creating/destroying
+        # hundreds of thousands of QTableWidgetItem objects for a 20k+ queue
+        # blocks the GUI thread during open/close/project-switch operations.
+        if bool(getattr(sys,"frozen",False)):
+            return True
         value=QSettings().value("features/queue-model-view",False)
         if isinstance(value,bool): return value
         return str(value).strip().casefold() in {"1","true","yes","on","enabled"}
@@ -3065,11 +3072,17 @@ class MainWindow(QMainWindow):
             s=self.project_controller.save_project_as(Path(p),Path(p).stem,self.settings(),self.csv.text(),self.out.text()); self.apply_project_state(s); self.log.appendPlainText(f'Project saved: {s.project_file}'); self.update_status_bar()
         except Exception as e: self.notifications.error('Project error',str(e))
     def _project_transition_ready(self):
+        # Never block the GUI event loop while a generation QThread is finishing.
+        # The earlier synchronous shutdown guard made Close/Open feel hung and could
+        # trigger Windows 'Not Responding' while Qt teardown was still completing.
+        # Project transitions are now fail-fast and can be retried as soon as the
+        # thread-finished event reaches the loop.
         if self.generation_controller.worker is not None:
             self.notifications.warning('Project switch','Stop the active generation before closing or switching projects.')
             return False
-        if not self.generation_controller.wait_until_idle(2000):
-            self.notifications.warning('Project switch','Generation is still finalizing. Try again in a moment.')
+        thread=self.generation_controller.thread
+        if thread is not None and thread.isRunning():
+            self.statusBar().showMessage('Generation is finalizing in the background. Project switching will be available in a moment.',4000)
             return False
         return True
     def _reset_project_runtime_state(self):
@@ -3078,7 +3091,6 @@ class MainWindow(QMainWindow):
         self._pending_monitor_state=None; self._monitor_render_pending=False; self._monitor_last_failed_count=None; self._latest_completed_output_cache=None; self._generation_job_lookup={}; self._generation_dashboard_refresh_pending=False
         self.current_run_id=None; self.current_execution_session=None; self.current_execution_receipt=None; self.current_budget_reservation_id=None; self.pending_resume_receipt=None; self.current_intelligent_tts_ledger=None; self.current_intelligent_tts_execution=None; self.current_intelligent_tts_recovery_assessment=None; self.current_intelligent_tts_artifact_plan=None
         self.project_sources=[]; self.render_project_sources(); self.generation_controller.clear_jobs(); self.clear_queue_view(); self.monitor_service.reset(); self.preflight_service.invalidate(); self.last_launch_assurance=None
-        QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
     def _resolve_missing_project_source(self,state):
         if state.csv_path is None or state.csv_path.exists(): return state
         initial=state.project_file.parent / state.csv_path.name if state.project_file else state.csv_path.parent

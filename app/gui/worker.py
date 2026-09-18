@@ -55,6 +55,7 @@ class GenerationWorker(QObject):
         self._paused = threading.Event()
         self._paused.set()
         self._stop_event = threading.Event()
+        self._cancel_dispatch_started = threading.Event()
         self._provider = None
         self._active_providers: set[object] = set()
         self._state_lock = threading.RLock()
@@ -88,15 +89,42 @@ class GenerationWorker(QObject):
         if self._stop_event.is_set():
             return
         self._stop_event.set()
-        providers = [self._provider]
-        with self._state_lock:
-            providers.extend(self._active_providers)
-        for provider in providers:
-            cancel = getattr(provider, "cancel", None)
-            if callable(cancel):
-                cancel()
         self._paused.set()
         self.log.emit("Stop requested. Cancelling the active provider request now…")
+
+        # GenerationWorker.stop() is called directly by the GUI thread.  Some
+        # provider cancel implementations close a synchronous HTTP client (and
+        # Piper may terminate/reap a process), so performing those calls inline
+        # can block Qt's event loop.  Dispatch provider cancellation once on a
+        # tiny daemon thread; the worker stop event is already authoritative and
+        # is visible immediately to the running generation loop.
+        if self._cancel_dispatch_started.is_set():
+            return
+        self._cancel_dispatch_started.set()
+
+        def cancel_active_providers() -> None:
+            providers = [self._provider]
+            with self._state_lock:
+                providers.extend(self._active_providers)
+            seen: set[int] = set()
+            for provider in providers:
+                if provider is None or id(provider) in seen:
+                    continue
+                seen.add(id(provider))
+                cancel = getattr(provider, "cancel", None)
+                if callable(cancel):
+                    try:
+                        cancel()
+                    except Exception:
+                        # Cancellation is best-effort.  The stop event still
+                        # prevents another job/provider request from starting.
+                        pass
+
+        threading.Thread(
+            target=cancel_active_providers,
+            name="s-talking-provider-cancel",
+            daemon=True,
+        ).start()
 
     def _wait_until_runnable(self) -> bool:
         while not self._stop_event.is_set():
