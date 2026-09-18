@@ -4,7 +4,7 @@ import threading
 import time
 from uuid import uuid4
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -201,18 +201,50 @@ class GenerationMonitorService(QObject):
         if self.paused_at is None:
             self.paused_at = self.clock()
             self._log("paused")
-        return self._rebuild("Paused")
+        return self._publish_lifecycle_state("Paused")
 
     def resume(self) -> GenerationMonitorState:
         if self.paused_at is not None:
             self.paused_total += max(0.0, self.clock() - self.paused_at)
             self.paused_at = None
             self._log("resumed")
-        return self._rebuild("Running")
+        return self._publish_lifecycle_state("Running")
 
     def stop_requested(self) -> GenerationMonitorState:
         self._log("stop requested")
-        return self._rebuild("Stopping", stopped=True)
+        return self._publish_lifecycle_state("Stopping", stopped=True)
+
+    def _publish_lifecycle_state(
+        self,
+        status: str,
+        *,
+        stopped: bool | None = None,
+    ) -> GenerationMonitorState:
+        """Publish pause/resume/stop UI state without rescanning a large queue."""
+        total_elapsed = self._total_elapsed()
+        paused_elapsed = self._paused_elapsed()
+        active_elapsed = max(0.0, total_elapsed - paused_elapsed)
+        stopped_by_user = self.state.stopped_by_user if stopped is None else bool(stopped)
+        return self._publish(
+            replace(
+                self.state,
+                current_status=status,
+                total_elapsed_seconds=total_elapsed,
+                active_elapsed_seconds=active_elapsed,
+                paused_seconds=paused_elapsed,
+                stopped_by_user=stopped_by_user,
+                stalled=False,
+                worker_state=(
+                    "Paused"
+                    if status == "Paused"
+                    else "Stopping"
+                    if status == "Stopping"
+                    else "Active"
+                    if status == "Running"
+                    else status
+                ),
+            )
+        )
 
     def persist_recovery(self, *, force: bool = False) -> None:
         if (

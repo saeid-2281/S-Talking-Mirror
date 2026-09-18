@@ -3625,7 +3625,7 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 self.log.appendPlainText(f'Resume receipt start update failed: {exc}')
             self.pending_resume_receipt=None
-        self.sync_execution_session('running')
+        self.sync_execution_lifecycle_status('running')
         self.monitor_service.start_run(self.generation_controller.generation_jobs(),provider=s.provider,output_dir=project.output_path,settings=s,project_key=project.project_key); self.generation_status_strip.set_generation_state('Running',f'{len(self.generation_controller.generation_jobs()):,} jobs queued · {run_id}'); self.update_status_bar()
         self.context.product_activity_service.activity('generation','Generation started',f'{len(self.generation_controller.generation_jobs()):,} job(s) queued · {run_id}.',project_id=current.project_id if current else None,metadata={'run_id':run_id,'launch_receipt':str(receipt or ''),'launch_assurance':launch_assurance.preflight_context_fingerprint[:16]})
     def begin_intelligent_tts_artifact_plan(self,binding,jobs,settings,output_dir,run_id,project_key):
@@ -3774,6 +3774,22 @@ class MainWindow(QMainWindow):
             self.current_intelligent_tts_ledger=None
             self.current_intelligent_tts_execution=None
             self.current_intelligent_tts_recovery_assessment=None
+    def sync_execution_lifecycle_status(self,status=None):
+        if not self.current_run_id or not status: return None
+        try:
+            metrics=self.monitor_service.report_metrics()
+            path=self.context.generation_execution_session_service.record_lifecycle_status(
+                self.current_run_id,
+                project_name=self.project_controller.project_name,
+                status=status,
+                elapsed_seconds=float(metrics.get('elapsed_seconds',self.monitor_service.state.total_elapsed_seconds)),
+                retry_events=int(metrics.get('retry_events',0)),
+            )
+            self.sync_intelligent_tts_run_ledger(status,metrics)
+            return path
+        except Exception as exc:
+            self.log.appendPlainText(f'Execution lifecycle update failed: {exc}')
+            return None
     def sync_execution_session(self,status=None):
         if not self.current_run_id: return None
         try:
@@ -3899,9 +3915,21 @@ class MainWindow(QMainWindow):
         source=str(payload.get('from_profile_name') or 'Current provider'); target=str(payload.get('to_profile_name') or 'No backup'); outcome=str(payload.get('outcome') or 'unknown'); filename=str(payload.get('filename') or 'job'); category=str(payload.get('failure_category') or 'unknown'); code=str(payload.get('error_code') or 'unknown'); message=f'Orchestration {outcome}: {filename} · {source} → {target} · {category}/{code}'; self.log.appendPlainText(message); self.statusBar().showMessage(message,8000); self.notification_center.refresh() if hasattr(self,'notification_center') else None; self.activity_timeline.refresh() if hasattr(self,'activity_timeline') else None
     def pause(self):
         if not self.generation_controller.is_paused:
-            if self.generation_controller.pause(): self.pauseb.setText('Resume'); self.monitor_service.pause(); self.generation_status_strip.set_generation_state('Paused','Generation is paused'); self.dashboard(); self.sync_execution_session('paused'); self.context.product_activity_service.activity('generation','Generation paused','The active batch was paused.',metadata={'run_id':self.current_run_id or ''})
+            if self.generation_controller.pause():
+                self.pauseb.setText('Resume')
+                self.monitor_service.pause()
+                self.generation_status_strip.set_generation_state('Paused','Generation is paused')
+                self.dashboard(runtime_lightweight=True)
+                self.sync_execution_lifecycle_status('paused')
+                self.context.product_activity_service.activity('generation','Generation paused','The active batch was paused.',metadata={'run_id':self.current_run_id or ''})
         else:
-            if self.generation_controller.resume(): self.pauseb.setText('Pause'); self.monitor_service.resume(); self.generation_status_strip.set_generation_state('Running','Generation resumed'); self.dashboard(); self.sync_execution_session('running'); self.context.product_activity_service.activity('generation','Generation resumed','The active batch resumed.',metadata={'run_id':self.current_run_id or ''})
+            if self.generation_controller.resume():
+                self.pauseb.setText('Pause')
+                self.monitor_service.resume()
+                self.generation_status_strip.set_generation_state('Running','Generation resumed')
+                self.dashboard(runtime_lightweight=True)
+                self.sync_execution_lifecycle_status('running')
+                self.context.product_activity_service.activity('generation','Generation resumed','The active batch resumed.',metadata={'run_id':self.current_run_id or ''})
     def stop(self):
         if self.generation_controller.stop():
             self.stopb.setText('Cancelling…')
@@ -3910,7 +3938,8 @@ class MainWindow(QMainWindow):
             self.monitor_service.stop_requested()
             self.generation_status_strip.set_generation_state('Stopping','Cancelling the active provider request now')
             self.statusBar().showMessage('Cancelling the active provider request now…')
-            self.sync_execution_session('stopping')
+            self.dashboard(runtime_lightweight=True)
+            self.sync_execution_lifecycle_status('stopping')
             self.context.product_activity_service.activity('generation','Stop requested','Cancelling the active provider request now.',metadata={'run_id':self.current_run_id or ''})
     def resume_generation(self):
         if self.generation_controller.is_paused: self.pause()

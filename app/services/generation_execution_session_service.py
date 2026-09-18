@@ -23,6 +23,7 @@ class GenerationExecutionSessionService:
 
     FILE_NAME = "generation-execution.json"
     MARKDOWN_NAME = "generation-execution.md"
+    LIFECYCLE_NAME = "generation-lifecycle.json"
     SCHEMA_VERSION = 1
     SECRET_VALUE = re.compile(
         r"(sk[_-][A-Za-z0-9_=-]+|Bearer\s+[A-Za-z0-9._=-]+|(?:api[_-]?key|token|secret|password)\s*[:=]\s*[\'\"]?[^\'\"\s,;}]+)",
@@ -67,6 +68,7 @@ class GenerationExecutionSessionService:
         started = started_at or datetime.now(timezone.utc)
         folder = self._session_folder(project_name, run_id)
         folder.mkdir(parents=True, exist_ok=True)
+        self._clear_lifecycle_status(folder)
         payload = {
             "schema_version": self.SCHEMA_VERSION,
             "run_id": run_id,
@@ -142,7 +144,40 @@ class GenerationExecutionSessionService:
             metrics["retry_events"] = max(0, int(retry_events))
         self._refresh_metrics(payload)
         self._write(path.parent, payload)
+        self._clear_lifecycle_status(path.parent)
         return self.load(path)
+
+    def record_lifecycle_status(
+        self,
+        run_id: str,
+        *,
+        project_name: str,
+        status: str,
+        elapsed_seconds: float | None = None,
+        retry_events: int | None = None,
+    ) -> Path:
+        """Persist a tiny lifecycle overlay without rewriting the full job manifest."""
+        normalized = str(status or "").strip().casefold()
+        if normalized not in {"starting", "running", "paused", "stopping"}:
+            raise ValueError(f"Unsupported execution lifecycle status: {status}")
+        folder = self._session_folder(project_name, run_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / self.LIFECYCLE_NAME
+        payload = {
+            "schema_version": 1,
+            "run_id": str(run_id),
+            "status": normalized,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "elapsed_seconds": None if elapsed_seconds is None else max(0.0, float(elapsed_seconds)),
+            "retry_events": None if retry_events is None else max(0, int(retry_events)),
+        }
+        temp = path.with_name(path.name + ".tmp")
+        temp.write_text(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        temp.replace(path)
+        return path
 
     def finish_session(
         self,
@@ -172,6 +207,7 @@ class GenerationExecutionSessionService:
                 metrics[key] = monitor_metrics[key]
         self._refresh_metrics(payload)
         self._write(path.parent, payload)
+        self._clear_lifecycle_status(path.parent)
         return self.load(path)
 
     def load(self, path: Path) -> GenerationExecutionSession:
@@ -188,6 +224,7 @@ class GenerationExecutionSessionService:
                 integrity_message=f"Execution session could not be read: {exc}",
             )
         integrity_status, integrity_message = self.verify_payload(payload)
+        payload = self._overlay_lifecycle_status(file_path, payload)
         project = payload.get("project") if isinstance(payload.get("project"), dict) else {}
         launch = payload.get("launch") if isinstance(payload.get("launch"), dict) else {}
         recovery = payload.get("recovery") if isinstance(payload.get("recovery"), dict) else {}
@@ -363,6 +400,46 @@ class GenerationExecutionSessionService:
         if expected and expected == actual:
             return "verified", "Execution session integrity verified."
         return "mismatch", "Execution session content does not match its SHA-256 digest."
+
+    def _overlay_lifecycle_status(
+        self,
+        session_path: Path,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        if str(payload.get("finished_at") or ""):
+            return payload
+        lifecycle_path = session_path.with_name(self.LIFECYCLE_NAME)
+        if not lifecycle_path.exists():
+            return payload
+        try:
+            lifecycle = json.loads(lifecycle_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return payload
+        if not isinstance(lifecycle, dict):
+            return payload
+        if str(lifecycle.get("run_id") or "") != str(payload.get("run_id") or ""):
+            return payload
+        overlay_updated = str(lifecycle.get("updated_at") or "")
+        base_updated = str(payload.get("updated_at") or "")
+        if not overlay_updated or (base_updated and overlay_updated < base_updated):
+            return payload
+        merged = dict(payload)
+        merged["status"] = str(lifecycle.get("status") or payload.get("status") or "unknown")
+        merged["updated_at"] = overlay_updated
+        metrics = dict(payload.get("metrics") or {}) if isinstance(payload.get("metrics"), dict) else {}
+        if lifecycle.get("elapsed_seconds") is not None:
+            metrics["elapsed_seconds"] = self._number(lifecycle.get("elapsed_seconds"))
+        if lifecycle.get("retry_events") is not None:
+            metrics["retry_events"] = self._integer(lifecycle.get("retry_events"))
+        merged["metrics"] = metrics
+        return merged
+
+    def _clear_lifecycle_status(self, folder: Path) -> None:
+        path = Path(folder) / self.LIFECYCLE_NAME
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     def _write(self, folder: Path, payload: dict[str, object]) -> None:
         payload["integrity"] = {
