@@ -36,6 +36,7 @@ from app.gui.responsive_workspace import (
 from app.gui.theme import STATUS_COLORS, ThemeManager
 from app.gui.voice_browser import VoiceBrowserDialog
 from app.gui.update_delivery_controller import UpdateDeliveryController
+from app.services.gui_stall_trace import start_gui_stall_trace, trace_gui_action
 from app.gui.dialogs import AboutDialog,CsvImportReviewDialog,GenerationArtifactRetentionDialog,GenerationBudgetGuardDialog,GenerationCostCapacityDialog,GenerationEstimateActualDialog,GenerationExecutionReceiptDialog,GenerationExecutionSessionDialog,GenerationSafeResumeDialog,GenerationHistoryDialog,GenerationLaunchDialog,GenerationLaunchGuardApprovalDialog,GenerationLaunchGuardProfileDialog,GenerationLaunchReceiptDialog,GenerationMaintenanceDialog,GenerationOrchestrationDialog,GenerationIncidentDialog,GenerationProblemDialog,GenerationRecoveryDialog,GenerationReliabilityDialog,InterfacePreferencesDialog,QtRuntimeHealthDialog,ReleaseCandidateDialog,DistributionReadinessDialog,FinalReleaseDialog,UpgradeRecoveryDialog,UpdateDeliveryDialog,CrashRecoveryDialog,PerformanceStabilityDialog,SecuritySupplyChainDialog,UxAccessibilityCertificationDialog,ProductionReleaseCertificationDialog,StableReleasePromotionDialog,PostGaMaintenanceDialog,IncidentSupportDialog,IncidentTriageDialog,IncidentResolutionDialog,IncidentPreventionDialog,PreventionEffectivenessDialog,ReliabilityAssuranceDialog,ReliabilityAssuranceRenewalDialog,ServiceContinuityDialog,ServiceLevelObjectivesDialog,CapacityReadinessDialog,DegradationReadinessDialog,RecoveryReplayDialog,BillingReconciliationDialog,BillingDisputeResolutionDialog,ProviderCreditCloseDialog,FinancialAuditDialog,ProviderGovernanceDialog,OperationsWorkspaceDialog,FinalProductionCertificationDialog,ReleaseLifecycleValidationDialog,OperationsCommandCenterDialog,EvidenceRefreshDialog,OperationalReadinessDialog,OperationalPersistenceDialog,NewProjectDialog,PreflightDialog,PreflightFixDialog,ProviderAccountsDialog,PronunciationDictionaryDialog,QuickSetupDialog,RecentProjectsDialog,ReportDialog,SourceImportReviewDialog,TextSourceDialog
 from app.gui.dialogs.project_session_workflow_dialog import ProjectSessionWorkflowDialog
 from app.gui.dialogs.offline_tts_engines_dialog import OfflineTTSEnginesDialog
@@ -255,6 +256,7 @@ class MainWindow(QMainWindow):
         performance_policy=self.performance_stability_service.load_policy(); self.performance_sample_timer=QTimer(self); self.performance_sample_timer.setInterval(performance_policy.sample_interval_seconds*1000); self.performance_sample_timer.timeout.connect(self.capture_performance_sample)
         if performance_policy.background_sampling_enabled and not self._test_fast_path: self.performance_sample_timer.start()
         self.build(); self.apply_accessibility_metadata(); self.setup_responsive_workspace(); self.load_saved(); self.apply_theme(self.theme_manager.current()); self.apply_interface_preferences(self.interface_preferences,persist=False,announce=False); self.restore_layout_state()
+        self._b82_gui_trace = start_gui_stall_trace(self) if not self._test_fast_path else None
         if self._test_fast_path:
             self.startup_recovery_state=None; self.session_restore_state=None
         else:
@@ -264,6 +266,7 @@ class MainWindow(QMainWindow):
             # pre-window modal warning.
             QTimer.singleShot(50,self._finish_deferred_startup)
         self.update_window_title(); self.update_status_bar()
+    @trace_gui_action("_finish_deferred_startup")
     def _finish_deferred_startup(self):
         if self._test_fast_path:
             return
@@ -1289,6 +1292,7 @@ class MainWindow(QMainWindow):
             self.left_tabs.addTab(panel,icon('open'),'Sources'); self.sources_dock=self.left_dock
         else:
             self.sources_dock=QDockWidget('Project Sources',self); self.sources_dock.setWidget(panel); self.addDockWidget(Qt.LeftDockWidgetArea,self.sources_dock); self.sources_dock.setVisible(False)
+    @trace_gui_action("render_project_sources")
     def render_project_sources(self):
         self.sources_table.setRowCount(len(self.project_sources))
         for row,source in enumerate(self.project_sources):
@@ -2041,6 +2045,7 @@ class MainWindow(QMainWindow):
             self._monitor_last_failed_count=failed_count
             self.render_failure_summary()
         self.refresh_generation_live_operations()
+    @trace_gui_action("refresh_generation_live_operations")
     def refresh_generation_live_operations(self):
         if not hasattr(self,'live_operations'): return
         try:
@@ -2098,6 +2103,7 @@ class MainWindow(QMainWindow):
         if path and path.exists(): self.show_output_workspace(path,autoplay=True)
     def monitor_event(self,line):
         self.run_logs.append(line); self.log.appendPlainText(line)
+    @trace_gui_action("refresh_monitor_queue")
     def refresh_monitor_queue(self):
         self.monitor_service.refresh_queue(self.generation_controller.jobs,provider=self.provider_display_name(self.provider.currentText()),output_dir=Path(self.out.text() or self.project_controller.default_output_path),settings=self.settings())
     def restore_layout_state(self):
@@ -2246,6 +2252,7 @@ class MainWindow(QMainWindow):
         self.source_summary.setText(source_text); self.source_summary.setToolTip(csv_path or 'No source files loaded')
         out_path=self.out.text().strip() if hasattr(self,'out') else ''
         self.output_summary.setText(f'Output: {elide_middle(out_path or "output",54)}'); self.output_summary.setToolTip(out_path or 'output')
+    @trace_gui_action("update_status_bar")
     def update_status_bar(self):
         project=self.project_controller.project_name; provider_id=self.provider.currentText() if hasattr(self,'provider') else 'mock'; provider=self.provider_display_name(provider_id); queue=f'{len(self.generation_controller.jobs)} jobs'; report=self.report_service.latest_report_dir(); report_text=str(report) if report else 'No report yet'; self.statusBar().showMessage(f'Project: {project} | Provider: {provider} | Queue: {queue} | Latest report: {report_text}')
         if hasattr(self,'project_context_widget'):
@@ -2819,6 +2826,7 @@ class MainWindow(QMainWindow):
         p,_=QFileDialog.getOpenFileName(self,'Piper model','','ONNX (*.onnx)')
         if p: self.piper.setText(p)
     def reload_csv(self): self.load_csv(update_project=True, source='Reloaded')
+    @trace_gui_action("load_csv")
     def load_csv(self,update_project=True,source='Loaded'):
         try:
             if update_project and self.project_controller.current_project: self.project_controller.update_csv_path(Path(self.csv.text())); self.update_window_title()
@@ -3052,6 +3060,7 @@ class MainWindow(QMainWindow):
                 self.project_path_notice.clear()
                 self._last_project_path_warning=()
         return validation
+    @trace_gui_action("new_project")
     def new_project(self):
         d=NewProjectDialog(self,self.project_controller.last_csv_dir,self.project_controller.last_output_dir)
         if d.exec()!=QDialog.Accepted: return
@@ -3085,6 +3094,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('Generation is finalizing in the background. Project switching will be available in a moment.',4000)
             return False
         return True
+    @trace_gui_action("_reset_project_runtime_state")
     def _reset_project_runtime_state(self):
         self.audio_player_service.unload()
         if hasattr(self,'output_workspace'): self.output_workspace.set_output_context(None)
@@ -3100,6 +3110,7 @@ class MainWindow(QMainWindow):
         self.project_controller.update_csv_path(replacement)
         self.project_controller.autosave_if_needed(generation_active=False)
         return self.project_controller.current_project or state
+    @trace_gui_action("_open_project_path")
     def _open_project_path(self,path,session_state=None,activity_source='project-open'):
         if not self._project_transition_ready(): return None
         state=self.project_controller.open_project(Path(path))
@@ -3115,6 +3126,7 @@ class MainWindow(QMainWindow):
         if activity_source:
             self.context.product_activity_service.activity('project','Project opened',f'Opened project {state.name}.',project_id=state.project_id,metadata={'project_file':str(state.project_file or ''),'source':activity_source})
         return state
+    @trace_gui_action("open_project")
     def open_project(self):
         s,_=QFileDialog.getOpenFileName(self,'Open project','','S Talking project (*.stproj)')
         if not s:return
@@ -3126,6 +3138,7 @@ class MainWindow(QMainWindow):
             try: self._open_project_path(Path(d.selected_project.project_file),activity_source='recent-projects')
             except Exception as e: self.notifications.error('Project error',str(e))
         elif d.removed_project_id: self.project_controller.remove_recent_project(d.removed_project_id)
+    @trace_gui_action("_continue_project_path")
     def _continue_project_path(self,path,session_state=None):
         if not self._project_transition_ready(): return None
         state=self.project_controller.open_project(Path(path)); self._reset_project_runtime_state(); state=self._resolve_missing_project_source(state); self.apply_project_state(state)
@@ -3137,6 +3150,7 @@ class MainWindow(QMainWindow):
         self.dashboard(); self.update_status_bar(); QTimer.singleShot(0,self.offer_generation_recovery)
         self.context.product_activity_service.activity('project','Project continued',f'Continued project {state.name}.',project_id=state.project_id,metadata={'project_file':str(state.project_file or ''),'source':'project-continuity'})
         return state
+    @trace_gui_action("open_project_continuity")
     def open_project_continuity(self):
         dialog=ProjectSessionWorkflowDialog(self.context.project_session_workflow_service,self)
         if dialog.exec()!=QDialog.Accepted or not dialog.action: return
@@ -3153,6 +3167,7 @@ class MainWindow(QMainWindow):
                 path=Path(dialog.selected_path)
                 if path.exists(): self.context.desktop_service.open_path(path)
         except Exception as e: self.notifications.error('Project continuity',str(e))
+    @trace_gui_action("close_project")
     def close_project(self):
         if self.project_controller.current_project is None: return True
         if not self._project_transition_ready(): return False
@@ -3215,6 +3230,7 @@ class MainWindow(QMainWindow):
             csv_path=Path(self.csv.text()) if self.csv.text().strip() else None,
             project_id=self.project_controller.current_project.project_id if self.project_controller.current_project else None,
         )
+    @trace_gui_action("run_preflight")
     def run_preflight(self,write_report=False):
         self.last_launch_assurance=None
         self.synchronize_generation_plan_controls()
@@ -3323,6 +3339,7 @@ class MainWindow(QMainWindow):
         )
         dialog.exec()
         return dialog.created_approval is not None
+    @trace_gui_action("start")
     def start(self):
         if not self.generation_controller.has_jobs():self.load_csv()
         if not self.generation_controller.has_jobs():return
@@ -3774,6 +3791,7 @@ class MainWindow(QMainWindow):
             self.current_intelligent_tts_ledger=None
             self.current_intelligent_tts_execution=None
             self.current_intelligent_tts_recovery_assessment=None
+    @trace_gui_action("sync_execution_lifecycle_status")
     def sync_execution_lifecycle_status(self,status=None):
         if not self.current_run_id or not status: return None
         try:
@@ -3810,6 +3828,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.log.appendPlainText(f'Execution session update failed: {exc}')
             return None
+    @trace_gui_action("finish_execution_session")
     def finish_execution_session(self,result,report_path=None,summary=None):
         if not self.current_run_id: return None
         try:
@@ -3913,6 +3932,7 @@ class MainWindow(QMainWindow):
             return None
     def generation_failover(self,payload):
         source=str(payload.get('from_profile_name') or 'Current provider'); target=str(payload.get('to_profile_name') or 'No backup'); outcome=str(payload.get('outcome') or 'unknown'); filename=str(payload.get('filename') or 'job'); category=str(payload.get('failure_category') or 'unknown'); code=str(payload.get('error_code') or 'unknown'); message=f'Orchestration {outcome}: {filename} · {source} → {target} · {category}/{code}'; self.log.appendPlainText(message); self.statusBar().showMessage(message,8000); self.notification_center.refresh() if hasattr(self,'notification_center') else None; self.activity_timeline.refresh() if hasattr(self,'activity_timeline') else None
+    @trace_gui_action("pause")
     def pause(self):
         if not self.generation_controller.is_paused:
             if self.generation_controller.pause():
@@ -3930,6 +3950,7 @@ class MainWindow(QMainWindow):
                 self.dashboard(runtime_lightweight=True)
                 self.sync_execution_lifecycle_status('running')
                 self.context.product_activity_service.activity('generation','Generation resumed','The active batch resumed.',metadata={'run_id':self.current_run_id or ''})
+    @trace_gui_action("stop")
     def stop(self):
         if self.generation_controller.stop():
             self.stopb.setText('Cancelling…')
@@ -3992,6 +4013,7 @@ class MainWindow(QMainWindow):
         if query:
             jobs=[job for job in jobs if query in job.filename.casefold() or query in job.text.casefold() or query in (job.source_display_name or '').casefold() or query in (job.source_sheet or '').casefold()]
         return self.generation_controller.scope_service.order_jobs(jobs,self.generation_controller.scope_service._order(getattr(self.generation_controller,'display_order','csv')))
+    @trace_gui_action("render_queue")
     def render_queue(self):
         selected_ids=self.queue_adapter.selected_job_ids() if hasattr(self,'queue_adapter') else set()
         jobs=self.displayed_queue_jobs()
@@ -4662,6 +4684,7 @@ class MainWindow(QMainWindow):
             self.pretry.clear()
             self.pretry.hide()
             self.ptext.setPlainText('The selected row preview will appear here after a source is loaded.')
+    @trace_gui_action("dashboard")
     def dashboard(self, *, runtime_lightweight: bool = False):
         if not runtime_lightweight: self.refresh_quota_snapshot()
         monitor_state=self.monitor_service.state
