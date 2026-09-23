@@ -1,11 +1,12 @@
 from __future__ import annotations
 import json,os,sys
+import threading
 
 import app
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from PySide6.QtCore import QSettings,Qt,QTimer,QUrl,QSize
+from PySide6.QtCore import QSettings,Qt,QTimer,QUrl,QSize,Signal
 from PySide6.QtGui import QAction,QColor,QDesktopServices,QDragEnterEvent,QDropEvent,QKeySequence,QPalette
 from PySide6.QtWidgets import *
 from app.bootstrap import ApplicationContext, create_application_context
@@ -193,12 +194,20 @@ class ConnectionStatusButton(QPushButton):
         hint=super().minimumSizeHint(); hint.setHeight(self.HEIGHT); return hint
 
 class MainWindow(QMainWindow):
+    _smart_routing_ready = Signal(int, object, object)
     def __init__(self, context: ApplicationContext):
         super().__init__(); self.setWindowTitle(f'S Talking — AI Audio Studio {app.__version__}'); self.setWindowIcon(AboutDialog.app_icon(context.container.runtime)); self.setMinimumSize(1180,700); self.set_initial_geometry()
         self.context=context; self.project_controller=context.project_controller; self.generation_controller=context.generation_controller; self.settings_controller=context.settings_controller; self.notifications=context.notification_service
         self.workspace_profiles=context.workspace_profile_service; self.notification_center_service=context.notification_center_service; self.activity_timeline_service=context.activity_timeline_service
         self.setAcceptDrops(True)
         self._test_fast_path=os.getenv("S_TALKING_TEST_FAST_PATH","").strip().casefold() in {"1","true","yes","on"}
+        # Smart Routing compares all registered providers. Do not construct them
+        # on the Qt event loop during project or generation transitions.
+        self._routing_generation = 0
+        self._routing_worker_active = False
+        self._routing_pending_request = None
+        self._routing_closing = False
+        self._smart_routing_ready.connect(self._smart_routing_completed)
         self.theme_manager=ThemeManager()
         self.interface_preferences=InterfacePreferences.from_settings(QSettings('S Talking','S Talking'))
         self.monitor_service=context.generation_monitor_service; self.preflight_service=context.preflight_service
@@ -1546,7 +1555,49 @@ class MainWindow(QMainWindow):
         except (ValueError,AttributeError):
             return None
 
-    def refresh_smart_provider_routing(self,force=False):
+    def _smart_routing_apply(self, signature, state):
+        card = getattr(self, 'smart_provider_routing', None)
+        if card is None:
+            return None
+        self._smart_provider_routing_signature = signature
+        self._smart_provider_routing_state = state
+        card.set_state(state)
+        return state
+
+    def _smart_routing_start_worker(self):
+        request = self._routing_pending_request
+        if request is None or self._routing_closing:
+            return
+        self._routing_pending_request = None
+        self._routing_worker_active = True
+        generation, signature, service, inputs = request
+
+        def calculate():
+            try:
+                result = service.analyze(**inputs)
+            except Exception as exc:
+                # A background failure must not exit the application or leak
+                # credentials into the diagnostic log.
+                result = exc
+            try:
+                self._smart_routing_ready.emit(generation, signature, result)
+            except RuntimeError:
+                # Qt receiver has already been destroyed during shutdown.
+                pass
+
+        threading.Thread(target=calculate, name='s-talking-route-analysis', daemon=True).start()
+
+    def _smart_routing_completed(self, generation, signature, result):
+        self._routing_worker_active = False
+        if not self._routing_closing and generation == self._routing_generation:
+            if isinstance(result, Exception):
+                self.statusBar().showMessage('Smart provider routing unavailable.', 5000)
+            else:
+                self._smart_routing_apply(signature, result)
+        if self._routing_pending_request is not None and not self._routing_closing:
+            self._smart_routing_start_worker()
+
+    def refresh_smart_provider_routing(self,force=False, *, synchronous=False):
         card=getattr(self,'smart_provider_routing',None)
         if card is None or not hasattr(self,'provider'):
             return None
@@ -1576,20 +1627,36 @@ class MainWindow(QMainWindow):
             if self.project_controller.current_project
             else None
         )
-        try:
-            state=self.smart_provider_routing_service.analyze(
-                settings=settings,scoped_jobs=len(jobs),scoped_characters=characters,
-                project_id=project_id,current_profile=profile,connection_status=connection,
-                preference=preference,generation_active=generation_active,
-                largest_job_characters=largest_job_characters,largest_job_bytes=largest_job_bytes,
-            )
-        except Exception as exc:
-            self.statusBar().showMessage(f'Smart provider routing unavailable: {exc}',5000)
-            return None
-        self._smart_provider_routing_signature=signature
-        self._smart_provider_routing_state=state
-        card.set_state(state)
-        return state
+        inputs=dict(
+            settings=settings,scoped_jobs=len(jobs),scoped_characters=characters,
+            project_id=project_id,current_profile=profile,connection_status=connection,
+            preference=preference,generation_active=generation_active,
+            largest_job_characters=largest_job_characters,largest_job_bytes=largest_job_bytes,
+        )
+        if synchronous or self._test_fast_path:
+            # Explicit manual Apply and the deterministic test path still return
+            # the finished analysis to their caller. This never applies a route.
+            self._routing_generation += 1
+            self._routing_pending_request = None
+            try:
+                state=self.smart_provider_routing_service.analyze(**inputs)
+            except Exception:
+                self.statusBar().showMessage('Smart provider routing unavailable.',5000)
+                return None
+            return self._smart_routing_apply(signature,state)
+        pending=self._routing_pending_request
+        if pending is not None and pending[1]==signature:
+            return getattr(self,'_smart_provider_routing_state',None)
+        if not force and signature==getattr(self,'_smart_provider_routing_pending_signature',None):
+            return getattr(self,'_smart_provider_routing_state',None)
+        self._routing_generation += 1
+        self._smart_provider_routing_pending_signature=signature
+        self._routing_pending_request=(
+            self._routing_generation,signature,self.smart_provider_routing_service,inputs,
+        )
+        if not self._routing_worker_active:
+            self._smart_routing_start_worker()
+        return getattr(self,'_smart_provider_routing_state',None)
 
     def handle_smart_provider_routing_action(self,code):
         if code=='offline-engines':
@@ -1601,7 +1668,7 @@ class MainWindow(QMainWindow):
         if self.generation_controller.is_active:
             self.notifications.warning('Smart routing','Provider changes are blocked while generation is running.')
             return False
-        state=self.refresh_smart_provider_routing(force=True)
+        state=self.refresh_smart_provider_routing(force=True,synchronous=True)
         if state is None or not state.switch_required or not state.action_enabled:
             self.statusBar().showMessage('No explicit provider switch is recommended.',4000)
             return False
@@ -2263,7 +2330,8 @@ class MainWindow(QMainWindow):
             voice=elide_middle(self.voice.text(),24) if hasattr(self,'voice') and self.voice.text() else '—'
             self.project_context_widget.update_context(project=project,source=source,output=out,provider=provider,model=model or '—',voice=voice,preflight=preflight,output_path=self.out.text() if hasattr(self,'out') else '')
         self.refresh_generation_journey()
-        self.refresh_smart_provider_routing()
+        # Status-bar paint is not a provider-selection event. An explicit
+        # provider/status change already requests a coalesced background refresh.
         if hasattr(self,'health_button'):
             health=self.context.health_service.snapshot(project=self.project_controller.current_project,dashboard=self.current_dashboard_state())
             color={'healthy':'#22C55E','warning':'#F59E0B','error':'#EF4444'}[health.level]
@@ -4580,6 +4648,8 @@ class MainWindow(QMainWindow):
     def failed(self,e):
         self.monitor_service.finish({'stopped':True}); self.set_generation_controls(active=False); self.generation_status_strip.set_generation_state('Failed',f'{e} · {self.current_run_id or "run"}'); self.dashboard(); self.run_logs.append(f'FAILED: {e}'); self.log.appendPlainText('Cross-provider recovery is user-controlled. Open Generation → Multi-provider Recovery; no alternate provider or generation restart will be applied automatically.'); failure_summary={'total':len(self.generation_controller.generation_jobs()),'completed':0,'skipped':0,'failed':1,'stopped':True,'error':e}; report=self.create_report(failure_summary); self.finish_execution_session('failed',report.report_html,failure_summary); self.context.product_activity_service.notify('error','Generation failed',str(e)); self.context.product_activity_service.activity('generation','Generation failed',str(e),metadata={'run_id':self.current_run_id or ''}); self.notify_report_created(report,{'completed':0,'skipped':0,'failed':1}); self.notifications.error('Error',e); self.update_status_bar()
     def closeEvent(self,event):
+        self._routing_closing = True
+        self._routing_pending_request = None
         if hasattr(self,'performance_sample_timer'): self.performance_sample_timer.stop()
         if self.performance_stability_service.active_run_id: self.performance_stability_service.finish_observation(status='interrupted')
         self.qt_runtime_health_service.close_all()

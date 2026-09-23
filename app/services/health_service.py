@@ -12,7 +12,7 @@ from app.models.dashboard_state import DashboardState
 from app.models.health_state import HealthCheckState, HealthScoreItem, HealthState
 from app.models.project_state import ProjectState
 from app.services.diagnostics_service import DiagnosticsService
-from app.services.git_service import GitService
+from app.services.git_service import GitService, GitStatus
 from app.services.report_service import ReportService
 
 
@@ -187,7 +187,8 @@ class HealthService:
         if self._metadata_cache and now - self._metadata_cache[0] < 3.0:
             return self._metadata_cache[1:]
         metadata = (
-            self.git_service.status(),
+            GitStatus(branch='not_applicable', clean=True, changed_files=[])
+            if self._is_packaged_runtime() else self.git_service.status(),
             self.latest_check(),
             self.report_service.latest_report_dir(),
             self._latest_diagnostics(),
