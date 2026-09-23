@@ -62,6 +62,7 @@ from app.services.pronunciation_readiness_service import PronunciationReadinessS
 from app.services.launch_assurance_service import LaunchAssuranceContextChanged, LaunchAssuranceService
 from app.services.intelligent_tts_execution_service import IntelligentTTSExecutionDrift, IntelligentTTSExecutionService
 from app.services.intelligent_tts_run_ledger_service import IntelligentTTSRunLedgerService
+from app.services.run_ledger_dispatcher import RunLedgerDispatcher
 from app.services.intelligent_tts_recovery_continuity_service import IntelligentTTSRecoveryContinuityService
 from app.services.intelligent_tts_artifact_provenance_service import IntelligentTTSArtifactProvenanceService
 from app.services.intelligent_tts_operations_intelligence_service import IntelligentTTSOperationsIntelligenceService
@@ -194,6 +195,7 @@ class ConnectionStatusButton(QPushButton):
         hint=super().minimumSizeHint(); hint.setHeight(self.HEIGHT); return hint
 
 class MainWindow(QMainWindow):
+    _run_ledger_write_ready = Signal(str, str, object, str)
     _smart_routing_ready = Signal(int, object, object)
     def __init__(self, context: ApplicationContext):
         super().__init__(); self.setWindowTitle(f'S Talking — AI Audio Studio {app.__version__}'); self.setWindowIcon(AboutDialog.app_icon(context.container.runtime)); self.setMinimumSize(1180,700); self.set_initial_geometry()
@@ -215,6 +217,8 @@ class MainWindow(QMainWindow):
         self.pronunciation_audit_service=PronunciationAuditTrailService()
         self.pronunciation_readiness_service=PronunciationReadinessService()
         self.launch_assurance_service=LaunchAssuranceService(); self.last_launch_assurance=None; self.intelligent_tts_execution_service=IntelligentTTSExecutionService(); self.current_intelligent_tts_execution=None; self.last_intelligent_tts_execution=None; self.intelligent_tts_run_ledger_service=IntelligentTTSRunLedgerService(); self.intelligent_tts_recovery_continuity_service=IntelligentTTSRecoveryContinuityService(self.intelligent_tts_run_ledger_service); self.intelligent_tts_artifact_provenance_service=IntelligentTTSArtifactProvenanceService(); self.intelligent_tts_operations_intelligence_service=IntelligentTTSOperationsIntelligenceService(); self.current_intelligent_tts_ledger=None; self.last_intelligent_tts_ledger=None; self.current_intelligent_tts_recovery_assessment=None; self.last_intelligent_tts_recovery_assessment=None; self.interrupted_intelligent_tts_ledgers=(); self.current_intelligent_tts_artifact_plan=None; self.last_intelligent_tts_artifact_plan=None; self.last_intelligent_tts_artifact_receipt=None; self.last_intelligent_tts_operations_snapshot=None; self.last_intelligent_tts_operations_rollup=None
+        self._run_ledger_dispatcher = RunLedgerDispatcher(self.intelligent_tts_run_ledger_service)
+        self._run_ledger_write_ready.connect(self._on_run_ledger_write_ready)
         self.statistics_service=context.statistics_service; self.report_service=context.report_service; self.developer_tools=DeveloperTools(self,context)
         self.notifications.parent=self
         self.crash_recovery_service=context.crash_recovery_service; self.safe_mode=self.crash_recovery_service.safe_mode
@@ -3819,8 +3823,42 @@ class MainWindow(QMainWindow):
             self.current_intelligent_tts_ledger=None
             self.log.appendPlainText(f'Intelligent TTS run ledger initialization failed: {exc}')
             return None
+    def _emit_run_ledger_write_ready(self, operation, path, ledger, error):
+        # This may be called by a Python worker thread: queued Qt delivery
+        # ensures that the UI and its widgets are touched on the GUI thread.
+        self._run_ledger_write_ready.emit(operation, path, ledger, error)
+
+    def _on_run_ledger_write_ready(self, operation, path, ledger, error):
+        if error:
+            self.log.appendPlainText(f'Intelligent TTS run ledger {operation} failed: {error}')
+            return
+        if ledger is None:
+            self.log.appendPlainText(f'Intelligent TTS run ledger {operation} returned no evidence.')
+            return
+        # An earlier run can finish while a different project/run is open;
+        # never replace the currently selected run's evidence pointer.
+        if str(getattr(ledger,'run_id','')) == str(getattr(self,'current_run_id','')):
+            self.last_intelligent_tts_ledger=ledger.path
+            if operation == 'finalize':
+                self.log.appendPlainText(f'Intelligent TTS run ledger finalized: {ledger.run_id} · {ledger.status} · {ledger.ledger_digest[:16]}')
+
     def sync_intelligent_tts_run_ledger(self,status,metrics=None):
         if not self.current_intelligent_tts_ledger or not status: return None
+        if not getattr(self,'_test_fast_path',False) and getattr(self,'_run_ledger_dispatcher',None) is not None:
+            try:
+                # Ordered status writes leave the GUI free for Pause/Resume/Stop.
+                # The tiny generation-lifecycle.json sidecar is already durable.
+                self._run_ledger_dispatcher.status(
+                    self.current_intelligent_tts_ledger,
+                    status,
+                    metrics,
+                    self._emit_run_ledger_write_ready,
+                )
+                return None
+            except Exception as exc:
+                # Fail closed: if the queue cannot accept an audit event, fall
+                # back to the original synchronous durable status transition.
+                self.log.appendPlainText(f'Intelligent TTS run ledger queue failed: {type(exc).__name__}; using durable fallback.')
         try:
             ledger=self.intelligent_tts_run_ledger_service.record_status(
                 self.current_intelligent_tts_ledger,
@@ -3838,6 +3876,28 @@ class MainWindow(QMainWindow):
             self.current_intelligent_tts_recovery_assessment=None
             return None
         ledger_path=self.current_intelligent_tts_ledger
+        if not getattr(self,'_test_fast_path',False) and getattr(self,'_run_ledger_dispatcher',None) is not None:
+            try:
+                # FIFO barrier: terminal evidence runs strictly after every
+                # queued pause/resume/stop status for this same ledger file.
+                self._run_ledger_dispatcher.finalize(
+                    ledger_path,
+                    result,
+                    self._emit_run_ledger_write_ready,
+                    summary=summary,
+                    execution_session_path=getattr(session,'path',self.current_execution_session),
+                    execution_receipt_path=getattr(receipt,'path',self.current_execution_receipt),
+                    report_path=report_path,
+                    artifact_receipt_path=getattr(artifact_receipt,'path',None),
+                    operations_snapshot_path=getattr(operations_snapshot,'path',None),
+                )
+                self.current_intelligent_tts_ledger=None
+                self.current_intelligent_tts_execution=None
+                self.current_intelligent_tts_recovery_assessment=None
+                return None
+            except Exception as exc:
+                # A rejected background submission must not drop terminal audit.
+                self.log.appendPlainText(f'Intelligent TTS run ledger finalization queue failed: {type(exc).__name__}; using durable fallback.')
         try:
             ledger=self.intelligent_tts_run_ledger_service.finalize(
                 ledger_path,
@@ -4648,6 +4708,10 @@ class MainWindow(QMainWindow):
     def failed(self,e):
         self.monitor_service.finish({'stopped':True}); self.set_generation_controls(active=False); self.generation_status_strip.set_generation_state('Failed',f'{e} · {self.current_run_id or "run"}'); self.dashboard(); self.run_logs.append(f'FAILED: {e}'); self.log.appendPlainText('Cross-provider recovery is user-controlled. Open Generation → Multi-provider Recovery; no alternate provider or generation restart will be applied automatically.'); failure_summary={'total':len(self.generation_controller.generation_jobs()),'completed':0,'skipped':0,'failed':1,'stopped':True,'error':e}; report=self.create_report(failure_summary); self.finish_execution_session('failed',report.report_html,failure_summary); self.context.product_activity_service.notify('error','Generation failed',str(e)); self.context.product_activity_service.activity('generation','Generation failed',str(e),metadata={'run_id':self.current_run_id or ''}); self.notify_report_created(report,{'completed':0,'skipped':0,'failed':1}); self.notifications.error('Error',e); self.update_status_bar()
     def closeEvent(self,event):
+        if getattr(self,'_run_ledger_dispatcher',None) is not None:
+            # Future lifecycle evidence is still flushed in FIFO order; no
+            # worker is cancelled when the Qt view is destroyed.
+            self._run_ledger_dispatcher.close()
         self._routing_closing = True
         self._routing_pending_request = None
         if hasattr(self,'performance_sample_timer'): self.performance_sample_timer.stop()
