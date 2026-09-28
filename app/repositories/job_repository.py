@@ -127,9 +127,15 @@ class JobRepository:
         records = self.list_by_project(project_id)
         jobs = [self._job_from_record(record) for record in records]
         if output_dir:
-            self.reset_missing_completed_outputs(project_id, jobs)
-            records = self.list_by_project(project_id)
-            jobs = [self._job_from_record(record) for record in records]
+            # Stage 3B-2: only rehydrate the full project when the cleanup
+            # transaction actually changes a completed row. The normal path
+            # used to deserialize *every* JobRecord and TTSJob twice, even
+            # when no completed output was missing (including all-pending CSVs).
+            missing_rows = self._missing_completed_output_rows(jobs)
+            if missing_rows:
+                self.reset_missing_completed_outputs(project_id, jobs)
+                records = self.list_by_project(project_id)
+                jobs = [self._job_from_record(record) for record in records]
         return jobs
 
     def reset_interrupted(self, project_id: int) -> None:
@@ -155,14 +161,18 @@ class JobRepository:
             )
             return int(cursor.rowcount or 0)
 
-    def reset_missing_completed_outputs(self, project_id: int, jobs: list[TTSJob]) -> None:
-        missing_rows = [
+    @staticmethod
+    def _missing_completed_output_rows(jobs: list[TTSJob]) -> list[int]:
+        return [
             job.row_number
             for job in jobs
             if job.status == JobStatus.COMPLETED
             and job.generated_output_path
             and not Path(job.generated_output_path).exists()
         ]
+
+    def reset_missing_completed_outputs(self, project_id: int, jobs: list[TTSJob]) -> None:
+        missing_rows = self._missing_completed_output_rows(jobs)
         if missing_rows:
             self.reset_rows(project_id, missing_rows)
 

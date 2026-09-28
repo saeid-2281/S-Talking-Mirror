@@ -46,6 +46,9 @@ class GenerationController(QObject):
         self.status_filter = "all"
         self.source_filter: str | None = None
         self._active_jobs: list[TTSJob] = []
+        # Built once at generation start; avoid scanning a 20k-row queue on
+        # every progress signal. A stale/missing entry uses the legacy scan.
+        self._job_index_by_row: dict[int, int] = {}
         self.row_range: tuple[int | None, int | None] = (None, None)
         self.display_range: tuple[int | None, int | None] = (None, None)
         self.generation_selection: set[int] | None = None
@@ -89,6 +92,7 @@ class GenerationController(QObject):
         settings: AppSettings | None = None,
     ) -> None:
         self.current_project_id = project_id
+        self._job_index_by_row = {}
         self._state.jobs = self.queue_service.sync_project_jobs(
             project_id,
             jobs,
@@ -97,6 +101,7 @@ class GenerationController(QObject):
         )
 
     def clear_jobs(self) -> None:
+        self._job_index_by_row = {}
         self._state.jobs = []
         self._state.status = "idle"
         self.current_project_id = None
@@ -106,6 +111,7 @@ class GenerationController(QObject):
 
     def restore_project_queue(self, project_id: int | None, *, output_dir: Path | None = None) -> list[TTSJob]:
         self.current_project_id = project_id
+        self._job_index_by_row = {}
         self._state.jobs = self.queue_service.restore_project_jobs(project_id, output_dir=output_dir)
         return self._state.jobs
 
@@ -291,10 +297,18 @@ class GenerationController(QObject):
         )
 
     def metrics(self) -> QueueMetrics:
-        return self.queue_service.metrics(self.source_jobs(self.range_jobs()), project_id=self.current_project_id)
+        return self.queue_service.metrics(
+            self.source_jobs(self.range_jobs()),
+            project_id=self.current_project_id,
+            use_repository_average=not self.is_active,
+        )
 
     def scoped_metrics(self) -> QueueMetrics:
-        return self.queue_service.metrics(self.generation_jobs(), project_id=self.current_project_id)
+        return self.queue_service.metrics(
+            self.generation_jobs(),
+            project_id=self.current_project_id,
+            use_repository_average=not self.is_active,
+        )
 
     def output_path_for(self, job: TTSJob, output_dir: Path, settings: AppSettings) -> Path:
         return self.queue_service.output_path_for(job, output_dir, settings)
@@ -325,6 +339,9 @@ class GenerationController(QObject):
         self.thread = QThread(parent)
         self.current_project_key = project_key_value
         self._active_jobs = pending_jobs
+        self._job_index_by_row = {}
+        for index, job in enumerate(self._state.jobs):
+            self._job_index_by_row.setdefault(job.row_number, index)
         orchestration_plan = None
         if self.orchestration_service is not None:
             orchestration_plan = self.orchestration_service.build_plan(
@@ -423,6 +440,7 @@ class GenerationController(QObject):
     def _clear(self) -> None:
         self.worker = None
         self._active_jobs = []
+        self._job_index_by_row = {}
         self.generation_selection = None
         self._state.paused = False
         self._state.status = "idle"
@@ -469,6 +487,10 @@ class GenerationController(QObject):
     def _job_index(self, job: TTSJob | None) -> int:
         if job is None:
             return -1
+        index = self._job_index_by_row.get(job.row_number)
+        if index is not None and index < len(self._state.jobs):
+            if self._state.jobs[index].row_number == job.row_number:
+                return index
         for index, current in enumerate(self._state.jobs):
             if current.row_number == job.row_number:
                 return index

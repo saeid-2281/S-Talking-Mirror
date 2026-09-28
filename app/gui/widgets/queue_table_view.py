@@ -62,14 +62,22 @@ class QueueTableView(QTableView):
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setSectionResizeMode(int(QueueColumn.FILENAME), QHeaderView.Stretch)
         header.setSectionResizeMode(int(QueueColumn.OUTPUT), QHeaderView.Stretch)
-        for column in (
-            QueueColumn.SOURCE_ROW,
-            QueueColumn.CHARACTERS,
-            QueueColumn.STATUS,
-            QueueColumn.DURATION,
-            QueueColumn.RETRY,
-        ):
-            header.setSectionResizeMode(int(column), QHeaderView.ResizeToContents)
+
+        # Keep compact queue columns deterministic. ResizeToContents performs
+        # model-wide size-hint sampling again when the application stylesheet is
+        # repolished; on multi-thousand-row queues that made live theme changes
+        # block the GUI for several seconds. Interactive keeps manual resizing
+        # available without rescanning the model on every theme switch.
+        compact_widths = {
+            QueueColumn.SOURCE_ROW: 121,
+            QueueColumn.CHARACTERS: 117,
+            QueueColumn.STATUS: 91,
+            QueueColumn.DURATION: 108,
+            QueueColumn.RETRY: 87,
+        }
+        for column, width in compact_widths.items():
+            header.setSectionResizeMode(int(column), QHeaderView.Interactive)
+            self.setColumnWidth(int(column), width)
 
         self.setColumnWidth(int(QueueColumn.SOURCE), 140)
         self.setColumnWidth(int(QueueColumn.WORKSHEET), 110)

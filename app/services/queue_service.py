@@ -179,6 +179,7 @@ class QueueService:
         jobs: list[TTSJob],
         *,
         project_id: int | None = None,
+        use_repository_average: bool = True,
     ) -> QueueMetrics:
         total = len(jobs)
         pending = sum(1 for job in jobs if job.status == JobStatus.PENDING)
@@ -186,7 +187,27 @@ class QueueService:
         completed = sum(1 for job in jobs if job.status == JobStatus.COMPLETED)
         failed = sum(1 for job in jobs if job.status == JobStatus.FAILED)
         skipped = sum(1 for job in jobs if job.status == JobStatus.SKIPPED)
-        average = self._average_duration(project_id)
+        if use_repository_average:
+            # Preserve the historical, persisted ETA outside a live generation.
+            average = self._average_duration(project_id)
+        else:
+            # Active GUI progress must never wait on a second SQLite read.
+            # The live queue already holds the completed durations in memory.
+            durations = (
+                job.duration_seconds
+                for job in jobs
+                if job.status == JobStatus.COMPLETED and job.duration_seconds > 0
+            )
+            duration_sum = 0.0
+            duration_count = 0
+            for duration in durations:
+                duration_sum += duration
+                duration_count += 1
+            average = (
+                duration_sum / duration_count
+                if duration_count
+                else self.fallback_seconds_per_job
+            )
         eta_jobs = pending + running
         return QueueMetrics(
             total=total,

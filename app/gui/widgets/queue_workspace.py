@@ -1052,8 +1052,14 @@ def configure_queue_table(table: QTableWidget) -> None:
     header.setSectionResizeMode(QHeaderView.Interactive)
     header.setSectionResizeMode(1, QHeaderView.Stretch)
     header.setSectionResizeMode(11, QHeaderView.Stretch)
-    for column in (0, 4, 5, 9, 10):
-        header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
+
+    # Match the model/view queue fast path. Avoid ResizeToContents here too so
+    # source/developer runs do not re-scan a large legacy table during QSS
+    # repolish. Users can still resize every compact column interactively.
+    compact_widths = {0: 121, 4: 117, 5: 91, 9: 108, 10: 87}
+    for column, width in compact_widths.items():
+        header.setSectionResizeMode(column, QHeaderView.Interactive)
+        table.setColumnWidth(column, width)
 
     table.setColumnWidth(2, 140)
     table.setColumnWidth(3, 110)

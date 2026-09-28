@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
+from threading import Event
 
 from app.config.runtime import RuntimeConfig
 from app.database.connection import Database
@@ -22,9 +24,10 @@ class StartupRecoveryService:
         self.job_repository = job_repository
         self.project_repository = project_repository
 
-    def recover(self) -> StartupRecoveryState:
+    def recover(self, *, defer_temporary_cleanup: bool = False) -> StartupRecoveryState:
         state = StartupRecoveryState()
-        state.temporary_files_removed = self.clean_stale_temporary_audio()
+        if not defer_temporary_cleanup:
+            state.temporary_files_removed = self.clean_stale_temporary_audio()
         try:
             self.database.initialize()
         except Exception as exc:
@@ -43,22 +46,50 @@ class StartupRecoveryService:
                 state.stale_recent_projects.append(record.project_file)
         return state
 
-    def clean_stale_temporary_audio(self) -> int:
+    def clean_stale_temporary_audio(
+        self,
+        *,
+        min_age_seconds: float = 0,
+        include_audio: bool = True,
+        stop_event: Event | None = None,
+    ) -> int:
+        """Clean known temporary files. The GUI uses only the age-gated temp lane.
+
+        The default arguments preserve the historic synchronous recovery contract
+        for callers/tests. Background startup cleanup never deletes WAV/MP3 files,
+        even if they have a temporary-looking name: they might be finished output.
+        """
         roots = [self.runtime.default_output_dir, self.runtime.cache_dir, self.runtime.artifacts_dir]
-        patterns = ["*.tmp", "*.part", "*.partial", "s_talking_*.wav", "s_talking_*.mp3"]
+        patterns = ["*.tmp", "*.part", "*.partial"]
+        if include_audio:
+            patterns.extend(["s_talking_*.wav", "s_talking_*.mp3"])
+        cutoff = time.time() - max(0.0, min_age_seconds)
         removed = 0
         for root in roots:
+            if stop_event is not None and stop_event.is_set():
+                break
             if not root.exists():
                 continue
             for pattern in patterns:
-                for path in root.rglob(pattern):
-                    if not path.is_file():
-                        continue
-                    try:
-                        path.unlink()
-                    except OSError:
-                        continue
-                    removed += 1
+                if stop_event is not None and stop_event.is_set():
+                    break
+                try:
+                    candidates = root.rglob(pattern)
+                    for path in candidates:
+                        if stop_event is not None and stop_event.is_set():
+                            break
+                        try:
+                            if not path.is_file():
+                                continue
+                            if min_age_seconds and path.stat().st_mtime > cutoff:
+                                continue
+                            path.unlink()
+                        except OSError:
+                            continue
+                        removed += 1
+                except OSError:
+                    # Inaccessible directories do not block startup or generation.
+                    continue
         return removed
 
 

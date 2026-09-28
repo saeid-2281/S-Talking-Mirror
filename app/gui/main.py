@@ -197,8 +197,11 @@ class ConnectionStatusButton(QPushButton):
 class MainWindow(QMainWindow):
     _run_ledger_write_ready = Signal(str, str, object, str)
     _smart_routing_ready = Signal(int, object, object)
+    _startup_cleanup_ready = Signal(object)
     def __init__(self, context: ApplicationContext):
         super().__init__(); self.setWindowTitle(f'S Talking — AI Audio Studio {app.__version__}'); self.setWindowIcon(AboutDialog.app_icon(context.container.runtime)); self.setMinimumSize(1180,700); self.set_initial_geometry()
+        self._startup_cleanup_stop = threading.Event()
+        self._startup_cleanup_ready.connect(self._on_startup_cleanup_ready)
         self.context=context; self.project_controller=context.project_controller; self.generation_controller=context.generation_controller; self.settings_controller=context.settings_controller; self.notifications=context.notification_service
         self.workspace_profiles=context.workspace_profile_service; self.notification_center_service=context.notification_center_service; self.activity_timeline_service=context.activity_timeline_service
         self.setAcceptDrops(True)
@@ -685,7 +688,29 @@ class MainWindow(QMainWindow):
             # repolish for each test/window without changing the visual result.
             if theme_changed:
                 application.setPalette(palette)
-                application.setStyleSheet(stylesheet)
+                # B8.2B Stage3B-3: the measured live-theme stall is inside
+                # QApplication.setStyleSheet(), not stylesheet construction,
+                # palette installation, icon refresh or accessibility refresh.
+                # Freeze visible top-level painting while Qt reparses/repolishes
+                # the application stylesheet so thousands of intermediate paint
+                # requests are coalesced into one repaint after the switch.
+                guarded_updates=[]
+                try:
+                    for top_level in application.topLevelWidgets():
+                        try:
+                            if top_level.updatesEnabled():
+                                top_level.setUpdatesEnabled(False)
+                                guarded_updates.append(top_level)
+                        except RuntimeError:
+                            continue
+                    application.setStyleSheet(stylesheet)
+                finally:
+                    for top_level in reversed(guarded_updates):
+                        try:
+                            top_level.setUpdatesEnabled(True)
+                            top_level.update()
+                        except RuntimeError:
+                            continue
             if self.styleSheet():
                 self.setStyleSheet('')
         else:
@@ -872,7 +897,23 @@ class MainWindow(QMainWindow):
             if application is not None:
                 application.setPalette(palette)
                 if application.styleSheet()!=stylesheet:
-                    application.setStyleSheet(stylesheet)
+                    guarded_updates=[]
+                    try:
+                        for top_level in application.topLevelWidgets():
+                            try:
+                                if top_level.updatesEnabled():
+                                    top_level.setUpdatesEnabled(False)
+                                    guarded_updates.append(top_level)
+                            except RuntimeError:
+                                continue
+                        application.setStyleSheet(stylesheet)
+                    finally:
+                        for top_level in reversed(guarded_updates):
+                            try:
+                                top_level.setUpdatesEnabled(True)
+                                top_level.update()
+                            except RuntimeError:
+                                continue
                 if self.styleSheet():
                     self.setStyleSheet('')
             else:
@@ -2205,13 +2246,52 @@ class MainWindow(QMainWindow):
             settings.setValue('main_window/monitor_visible',self.monitor_dock.isVisible()); settings.setValue('main_window/monitor_width',self.safe_monitor_width(self.monitor_dock.width()))
         self.save_session_restore_state()
     def run_startup_recovery(self):
+        # Database/setting recovery still runs before session restoration. Only
+        # the unbounded filesystem sweep is moved away from the Qt GUI thread.
         try:
-            state=self.context.startup_recovery_service.recover()
+            state=self.context.startup_recovery_service.recover(defer_temporary_cleanup=True)
             if getattr(self,'_invalid_layout_recovered',False): state.invalid_layout_recovered=True
             self.startup_recovery_state=state
             if state.action_taken: self.log.appendPlainText('Startup recovery:\n'+state.summary())
         except Exception as e:
             self.log.appendPlainText(f'Startup recovery failed: {e}')
+        self._start_background_startup_cleanup()
+
+    def _start_background_startup_cleanup(self):
+        # Never operate on a Qt widget, DB connection or profile from this worker.
+        # The age gate ensures an in-flight generation cannot lose its temp files.
+        service=self.context.startup_recovery_service
+        stop_event=self._startup_cleanup_stop
+        ready=self._startup_cleanup_ready
+
+        def sweep():
+            try:
+                removed=service.clean_stale_temporary_audio(
+                    min_age_seconds=86400, include_audio=False, stop_event=stop_event,
+                )
+            except Exception:
+                # Metadata-only failure reporting; no private filesystem paths.
+                outcome=None
+            else:
+                outcome=removed
+            if not stop_event.is_set():
+                try:
+                    ready.emit(outcome)
+                except RuntimeError:
+                    pass  # Window has been destroyed while a cancellable scan ended.
+
+        threading.Thread(target=sweep, name='StartupTempCleanup', daemon=True).start()
+
+    def _on_startup_cleanup_ready(self, removed):
+        if self._startup_cleanup_stop.is_set():
+            return
+        if removed is None:
+            self.log.appendPlainText('Background startup temporary-file cleanup could not complete.')
+        elif self.startup_recovery_state is not None:
+            self.startup_recovery_state.temporary_files_removed += removed
+            if removed:
+                self.log.appendPlainText(f'Background startup cleanup: {removed} stale temporary file(s) removed.')
+
     def inspect_intelligent_tts_recovery_continuity(self):
         ledger_root=Path(self.context.container.runtime.reports_dir)/'intelligent-tts-run-ledger'
         try:
@@ -2913,7 +2993,7 @@ class MainWindow(QMainWindow):
             else:
                 jobs=load_jobs(Path(self.csv.text()))
             self.last_import_state=import_state
-            self.generation_controller.set_jobs(jobs,project_id=project_id,output_dir=Path(self.out.text() or self.project_controller.default_output_path),settings=self.settings()); self.reset_row_range_controls()
+            self.generation_controller.set_jobs(jobs,project_id=project_id,output_dir=Path(self.out.text() or self.project_controller.default_output_path),settings=self.settings()); self.reset_row_range_controls(refresh=False)
             self.render_queue(); self.refresh_monitor_queue(); self.invalidate_preflight()
             self.log.appendPlainText(f'{source} {len(self.generation_controller.jobs):,} CSV rows.'); self.dashboard(); self.update_status_bar()
         except Exception as e: self.log.appendPlainText(f'CSV load failed: {e}'); self.dashboard(); self.update_status_bar()
@@ -3042,13 +3122,13 @@ class MainWindow(QMainWindow):
         else:
             self.set_provider_status(f"{result.status.replace('_',' ').title()}: {result.message}")
         self.invalidate_preflight(); self.dashboard()
-    def reset_row_range_controls(self):
+    def reset_row_range_controls(self,*,refresh=True):
         rows=[job.row_number for job in self.generation_controller.jobs]
         self.range_from.blockSignals(True); self.range_to.blockSignals(True)
         if rows:
             self.range_from.setRange(0,max(rows)); self.range_to.setRange(0,max(rows)); self.range_from.setValue(0); self.range_to.setValue(0)
-        self.range_from.blockSignals(False); self.range_to.blockSignals(False); self.apply_row_range()
-    def apply_row_range(self):
+        self.range_from.blockSignals(False); self.range_to.blockSignals(False); self.apply_row_range(refresh=refresh)
+    def apply_row_range(self,*,refresh=True):
         start=self.range_from.value() or None; end=self.range_to.value() or None
         basis=str(self.range_basis.currentData()) if hasattr(self,'range_basis') else 'row_range'
         if (start is not None or end is not None) and hasattr(self,'scope_selector'): self.set_combo_data(self.scope_selector,basis)
@@ -3063,7 +3143,7 @@ class MainWindow(QMainWindow):
             jobs=self.generation_controller.generation_plan().jobs
             chars=sum(job.character_count for job in jobs)
             self.range_summary_label.setText(f"Range basis: Original source row · Rows {s or 'first'} → {e or 'last'} · {count:,} jobs · {chars:,} characters")
-        self.render_queue(); self.refresh_monitor_queue(); self.dashboard(); self.invalidate_preflight()
+        if refresh: self.render_queue(); self.refresh_monitor_queue(); self.dashboard(); self.invalidate_preflight()
     def selected_row_numbers(self):
         return [job.row_number for job in self.selected_queue_jobs()]
     def restore_defaults(self):
@@ -4239,6 +4319,13 @@ class MainWindow(QMainWindow):
         handler=handlers.get(str(code or ''))
         if handler is not None: handler()
     def focus_queue_batch_operations(self):
+        # Settle any debounced responsive-layout transition before explicit
+        # keyboard/command focus opens the Batch-plan accordion. Otherwise a
+        # pending compact refresh can run immediately after this method and
+        # collapse the disclosure again, making focus timing-dependent under a
+        # long/full test run or a busy Windows event loop.
+        if hasattr(self,'responsive_workspace'):
+            self.responsive_workspace.refresh(force=True)
         if hasattr(self,'main_workspace_modernizer'): self.main_workspace_modernizer.reveal_batch_planning(True)
         if hasattr(self,'queue_batch_operations'): self.queue_batch_operations.focus_lens()
     def update_queue_scope_summary(self,visible_jobs=None):
@@ -4708,6 +4795,7 @@ class MainWindow(QMainWindow):
     def failed(self,e):
         self.monitor_service.finish({'stopped':True}); self.set_generation_controls(active=False); self.generation_status_strip.set_generation_state('Failed',f'{e} · {self.current_run_id or "run"}'); self.dashboard(); self.run_logs.append(f'FAILED: {e}'); self.log.appendPlainText('Cross-provider recovery is user-controlled. Open Generation → Multi-provider Recovery; no alternate provider or generation restart will be applied automatically.'); failure_summary={'total':len(self.generation_controller.generation_jobs()),'completed':0,'skipped':0,'failed':1,'stopped':True,'error':e}; report=self.create_report(failure_summary); self.finish_execution_session('failed',report.report_html,failure_summary); self.context.product_activity_service.notify('error','Generation failed',str(e)); self.context.product_activity_service.activity('generation','Generation failed',str(e),metadata={'run_id':self.current_run_id or ''}); self.notify_report_created(report,{'completed':0,'skipped':0,'failed':1}); self.notifications.error('Error',e); self.update_status_bar()
     def closeEvent(self,event):
+        self._startup_cleanup_stop.set()
         if getattr(self,'_run_ledger_dispatcher',None) is not None:
             # Future lifecycle evidence is still flushed in FIFO order; no
             # worker is cancelled when the Qt view is destroyed.
